@@ -169,10 +169,22 @@ fn request_quit(tray: &Tray) {
 }
 
 /// The installed Workshop for this gateway, when the installer laid one
-/// down.
+/// down. A translocated gateway cannot see the Workshop beside it, so the
+/// disabled menu item gets a logged reason and remedy.
 pub(super) fn probe_workshop() -> Option<PathBuf> {
     match std::env::current_exe() {
-        Ok(exe) => gateway_api_discovery::installed_workshop(&exe),
+        Ok(exe) => {
+            let workshop = gateway_api_discovery::installed_workshop(&exe);
+            if workshop.is_none() && gateway_api_discovery::translocated(&exe) {
+                tracing::warn!(
+                    "Open Workshop is disabled: macOS runs PromptForge Gateway.app from a \
+                     translocated copy at {}, where PromptForge.app is not visible; {}",
+                    exe.display(),
+                    gateway_api_discovery::TRANSLOCATION_REMEDY
+                );
+            }
+            workshop
+        }
         Err(error) => {
             tracing::warn!("could not locate the gateway executable: {error}");
             None

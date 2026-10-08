@@ -13,13 +13,6 @@ use workshop_server_api::Config;
 use super::identity::GatewayAttachment;
 use super::supervisor::{RecoveryCandidate, RecoveryOwnership, launch_and_attach_cancellable};
 
-/// The sibling executable the desktop app launches, beside its own.
-#[cfg(windows)]
-pub(super) const GATEWAY_EXE_NAME: &str = "promptforge-gateway.exe";
-/// The sibling executable the desktop app launches, beside its own.
-#[cfg(not(windows))]
-pub(super) const GATEWAY_EXE_NAME: &str = "promptforge-gateway";
-
 #[cfg(windows)]
 const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
 #[cfg(windows)]
@@ -63,13 +56,7 @@ pub(super) enum RecoveryLaunch {
 /// # Errors
 /// Returns an error when no attachment path exists or launch fails.
 pub(crate) fn ensure_gateway(config: &Config) -> anyhow::Result<GatewayAttachment> {
-    let exe_dir = std::env::current_exe()
-        .context("locate the executable")
-        .and_then(|exe| {
-            exe.parent()
-                .map(Path::to_path_buf)
-                .context("the executable has no parent directory")
-        })?;
+    let exe = std::env::current_exe().context("locate the executable")?;
     let explicit = !config.gateway.base_url.is_empty();
     let Some(run_dir) = gateway_api_discovery::default_run_dir() else {
         return if explicit {
@@ -78,7 +65,7 @@ pub(crate) fn ensure_gateway(config: &Config) -> anyhow::Result<GatewayAttachmen
             Err(no_gateway_error())
         };
     };
-    match plan_gateway(&run_dir, &exe_dir, explicit, gateway_api_discovery::resolve) {
+    match plan_gateway(&run_dir, &exe, explicit, gateway_api_discovery::resolve) {
         GatewayPlan::Attach(file) => validated_attachment(file),
         GatewayPlan::ConfigOnly => Ok(GatewayAttachment::Config),
         GatewayPlan::Fail => Err(no_gateway_error()),
@@ -116,7 +103,7 @@ fn validated_recovery_attachment(recovery: RecoveryLaunch) -> anyhow::Result<Gat
 /// Chooses attach, launch, configured fallback, or failure.
 pub(super) fn plan_gateway(
     run_dir: &Path,
-    exe_dir: &Path,
+    workshop_exe: &Path,
     explicit_config: bool,
     resolve: fn(&Path) -> Result<Resolution, SidecarError>,
 ) -> GatewayPlan {
@@ -127,26 +114,37 @@ pub(super) fn plan_gateway(
             eprintln!("could not resolve the gateway discovery file: {error}");
         }
     }
-    match sibling_gateway(exe_dir) {
+    match sibling_gateway(workshop_exe) {
         Some(exe) => GatewayPlan::Launch(exe),
         None if explicit_config => GatewayPlan::ConfigOnly,
         None => GatewayPlan::Fail,
     }
 }
 
-/// Locates the installed sibling Gateway executable.
-pub(super) fn sibling_gateway(exe_dir: &Path) -> Option<PathBuf> {
-    let candidate = exe_dir.join(GATEWAY_EXE_NAME);
-    candidate.is_file().then_some(candidate)
+/// Locates the installed Gateway executable for the Workshop running from
+/// `workshop_exe`.
+pub(super) fn sibling_gateway(workshop_exe: &Path) -> Option<PathBuf> {
+    let appimage = std::env::var_os("APPIMAGE");
+    gateway_api_discovery::installed_gateway(workshop_exe, appimage.as_deref())
 }
+
+/// Where the Gateway component installs, relative to Workshop.
+#[cfg(windows)]
+const GATEWAY_LOCATION: &str = "promptforge-gateway.exe sits beside promptforge-workshop.exe";
+/// Where the Gateway component installs, relative to Workshop.
+#[cfg(target_os = "macos")]
+const GATEWAY_LOCATION: &str =
+    "PromptForge Gateway.app sits beside PromptForge.app (promptforge-gateway)";
+/// Where the Gateway component installs, relative to Workshop.
+#[cfg(not(any(windows, target_os = "macos")))]
+const GATEWAY_LOCATION: &str = "promptforge-gateway sits beside PromptForge.AppImage";
 
 /// Builds the loud boot failure naming both supported remedies.
 pub(super) fn no_gateway_error() -> anyhow::Error {
     anyhow::anyhow!(
         "no gateway configured or running; install the Gateway component so \
-         promptforge-gateway sits beside the workshop executable, or set \
-         gateway.base_url and gateway.api_key in workshop.toml to attach to \
-         a gateway over the network"
+         {GATEWAY_LOCATION}, or set gateway.base_url and gateway.api_key in \
+         workshop.toml to attach to a gateway over the network"
     )
 }
 

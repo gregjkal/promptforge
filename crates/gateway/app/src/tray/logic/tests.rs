@@ -117,33 +117,6 @@ fn the_menu_spec_disables_login_when_the_os_store_is_unavailable() {
     );
 }
 
-#[test]
-fn the_sibling_probe_finds_the_workshop_exe_beside_the_gateway() {
-    let temp = tempfile::TempDir::new().expect("tempdir");
-    let gateway = temp.path().join("promptforge-gateway.exe");
-    let workshop = temp.path().join(WORKSHOP_EXE_NAME);
-    std::fs::write(&workshop, "").expect("write fixture");
-
-    assert_eq!(
-        workshop_sibling(&gateway).as_deref(),
-        Some(workshop.as_path())
-    );
-
-    std::fs::remove_file(&workshop).expect("remove fixture");
-    assert_eq!(
-        workshop_sibling(&gateway),
-        None,
-        "a Gateway-only install disables the item"
-    );
-}
-
-#[test]
-fn the_sibling_probe_tolerates_a_missing_install_directory() {
-    let temp = tempfile::TempDir::new().expect("tempdir");
-    let gateway = temp.path().join("absent").join("promptforge-gateway.exe");
-    assert_eq!(workshop_sibling(&gateway), None);
-}
-
 /// An in-memory `RunKeyStore` double.
 #[derive(Default)]
 struct FakeStore {

@@ -7,13 +7,13 @@ use std::time::{Duration, Instant};
 use gateway_api_discovery::GatewayDiscoveryFile;
 
 use super::{
-    dead_pid, exe_dir, fixture_gateway, live_file, owned_candidate, probe_own_image,
-    probe_read_failure,
+    GATEWAY_EXE_NAME, dead_pid, fixture_gateway, live_file, owned_candidate, probe_own_image,
+    probe_read_failure, workshop_exe,
 };
 #[cfg(windows)]
 use crate::gateway::boot::spawn_detached_windows_with;
 use crate::gateway::boot::{
-    GATEWAY_EXE_NAME, GatewayPlan, no_gateway_error, plan_gateway, sibling_gateway, spawn_detached,
+    GatewayPlan, no_gateway_error, plan_gateway, sibling_gateway, spawn_detached,
 };
 use crate::gateway::identity::GatewayAttachment;
 use crate::gateway::supervisor::RECOVERY_POLL_INTERVAL;
@@ -137,9 +137,9 @@ fn a_live_file_attaches_without_looking_for_a_sibling_exe() {
     let run = tempfile::TempDir::new().expect("tempdir");
     let file = live_file(fixture_gateway("key"), "key");
     file.write_to(run.path()).expect("write");
-    let (_exe, exe_dir) = exe_dir(false);
+    let (_dir, exe) = workshop_exe(false);
 
-    match plan_gateway(run.path(), &exe_dir, false, probe_own_image) {
+    match plan_gateway(run.path(), &exe, false, probe_own_image) {
         GatewayPlan::Attach(attached) => assert_eq!(attached, file),
         other => panic!("a live gateway must be attached, not {other:?}"),
     }
@@ -148,10 +148,12 @@ fn a_live_file_attaches_without_looking_for_a_sibling_exe() {
 #[test]
 fn no_file_and_a_sibling_exe_launches() {
     let run = tempfile::TempDir::new().expect("tempdir");
-    let (_exe, exe_dir) = exe_dir(true);
+    let (_dir, exe) = workshop_exe(true);
 
-    match plan_gateway(run.path(), &exe_dir, false, probe_own_image) {
-        GatewayPlan::Launch(exe) => assert_eq!(exe, exe_dir.join(GATEWAY_EXE_NAME)),
+    match plan_gateway(run.path(), &exe, false, probe_own_image) {
+        GatewayPlan::Launch(gateway) => {
+            assert_eq!(gateway, exe.with_file_name(GATEWAY_EXE_NAME));
+        }
         other => panic!("a full install with no running gateway must launch, not {other:?}"),
     }
 }
@@ -159,10 +161,10 @@ fn no_file_and_a_sibling_exe_launches() {
 #[test]
 fn no_file_and_no_sibling_exe_falls_through_to_explicit_config() {
     let run = tempfile::TempDir::new().expect("tempdir");
-    let (_exe, exe_dir) = exe_dir(false);
+    let (_dir, exe) = workshop_exe(false);
 
     assert_eq!(
-        plan_gateway(run.path(), &exe_dir, true, probe_own_image),
+        plan_gateway(run.path(), &exe, true, probe_own_image),
         GatewayPlan::ConfigOnly,
         "a Workshop-only install attaches to the configured LAN gateway"
     );
@@ -171,10 +173,10 @@ fn no_file_and_no_sibling_exe_falls_through_to_explicit_config() {
 #[test]
 fn no_file_no_sibling_exe_and_no_config_fails() {
     let run = tempfile::TempDir::new().expect("tempdir");
-    let (_exe, exe_dir) = exe_dir(false);
+    let (_dir, exe) = workshop_exe(false);
 
     assert_eq!(
-        plan_gateway(run.path(), &exe_dir, false, probe_own_image),
+        plan_gateway(run.path(), &exe, false, probe_own_image),
         GatewayPlan::Fail,
         "nothing to connect to must fail loud, not serve a broken window"
     );
@@ -189,9 +191,9 @@ fn a_stale_file_is_cleaned_and_the_sibling_exe_launches() {
     }
     .write_to(run.path())
     .expect("write");
-    let (_exe, exe_dir) = exe_dir(true);
+    let (_dir, exe) = workshop_exe(true);
 
-    let plan = plan_gateway(run.path(), &exe_dir, false, probe_own_image);
+    let plan = plan_gateway(run.path(), &exe, false, probe_own_image);
     assert!(
         matches!(plan, GatewayPlan::Launch(_)),
         "a stale file must not block the relaunch: {plan:?}"
@@ -211,10 +213,10 @@ fn a_stale_file_with_no_sibling_exe_falls_through_to_explicit_config() {
     }
     .write_to(run.path())
     .expect("write");
-    let (_exe, exe_dir) = exe_dir(false);
+    let (_dir, exe) = workshop_exe(false);
 
     assert_eq!(
-        plan_gateway(run.path(), &exe_dir, true, probe_own_image),
+        plan_gateway(run.path(), &exe, true, probe_own_image),
         GatewayPlan::ConfigOnly,
         "a stale file must not wedge the LAN fallback"
     );
@@ -227,9 +229,9 @@ fn a_stale_file_with_no_sibling_exe_falls_through_to_explicit_config() {
 #[test]
 fn a_resolve_error_still_launches_the_sibling_exe() {
     let run = tempfile::TempDir::new().expect("tempdir");
-    let (_exe, exe_dir) = exe_dir(true);
+    let (_dir, exe) = workshop_exe(true);
 
-    let plan = plan_gateway(run.path(), &exe_dir, false, probe_read_failure);
+    let plan = plan_gateway(run.path(), &exe, false, probe_read_failure);
     assert!(
         matches!(plan, GatewayPlan::Launch(_)),
         "a discovery error must not read as no-gateway: {plan:?}"
@@ -238,13 +240,13 @@ fn a_resolve_error_still_launches_the_sibling_exe() {
 
 #[test]
 fn the_sibling_probe_finds_only_the_gateway_exe_beside_the_desktop_app() {
-    let (_dir, with) = exe_dir(true);
+    let (_dir, with) = workshop_exe(true);
     assert_eq!(
         sibling_gateway(&with),
-        Some(with.join(GATEWAY_EXE_NAME)),
+        Some(with.with_file_name(GATEWAY_EXE_NAME)),
         "the installed sibling is found"
     );
-    let (_dir, without) = exe_dir(false);
+    let (_dir, without) = workshop_exe(false);
     assert_eq!(
         sibling_gateway(&without),
         None,

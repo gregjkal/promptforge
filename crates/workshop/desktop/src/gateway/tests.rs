@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use gateway_api_discovery::{GatewayDiscoveryFile, Resolution, SidecarError, ValidatedConnection};
 
-use super::boot as gateway_boot;
 use super::supervisor::{
     GatewaySupervisor, RecoveryCandidate, RecoveryOwnership, SupervisedGatewayIdentity,
     SupervisorShutdown,
@@ -187,13 +186,20 @@ fn get(url: &str, path: &str) -> String {
     response
 }
 
-/// An executable directory, with or without the sibling Gateway.
-fn exe_dir(with_gateway: bool) -> (tempfile::TempDir, PathBuf) {
+/// The Gateway executable's file name beside Workshop's.
+#[cfg(windows)]
+const GATEWAY_EXE_NAME: &str = "promptforge-gateway.exe";
+/// The Gateway executable's file name beside Workshop's.
+#[cfg(not(windows))]
+const GATEWAY_EXE_NAME: &str = "promptforge-gateway";
+
+/// A Workshop executable path in an install directory, with or without
+/// the Gateway beside it.
+fn workshop_exe(with_gateway: bool) -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::TempDir::new().expect("tempdir");
     if with_gateway {
-        std::fs::write(dir.path().join(gateway_boot::GATEWAY_EXE_NAME), b"")
-            .expect("plant the sibling exe");
+        std::fs::write(dir.path().join(GATEWAY_EXE_NAME), b"").expect("plant the sibling exe");
     }
-    let path = dir.path().to_owned();
+    let path = dir.path().join("promptforge-workshop");
     (dir, path)
 }

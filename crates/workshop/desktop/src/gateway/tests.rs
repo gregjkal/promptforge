@@ -193,12 +193,23 @@ const GATEWAY_EXE_NAME: &str = "promptforge-gateway.exe";
 #[cfg(not(windows))]
 const GATEWAY_EXE_NAME: &str = "promptforge-gateway";
 
+/// Plants an empty file the gateway lookup accepts as runnable.
+fn plant_executable(path: &std::path::Path) {
+    std::fs::write(path, b"").expect("plant the executable");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+            .expect("mark the executable");
+    }
+}
+
 /// A Workshop executable path in an install directory, with or without
 /// the Gateway beside it.
 fn workshop_exe(with_gateway: bool) -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::TempDir::new().expect("tempdir");
     if with_gateway {
-        std::fs::write(dir.path().join(GATEWAY_EXE_NAME), b"").expect("plant the sibling exe");
+        plant_executable(&dir.path().join(GATEWAY_EXE_NAME));
     }
     let path = dir.path().join("promptforge-workshop");
     (dir, path)

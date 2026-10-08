@@ -64,7 +64,7 @@ pub(super) fn act(tray: &mut Tray, event: TrayEvent) {
     }
 }
 
-/// Re-reads the states the menu shows - the Workshop sibling probe and
+/// Re-reads the states the menu shows - the installed-Workshop lookup and
 /// the login check - so a displayed menu never shows a stale enabled bit
 /// or check mark. Called on the pre-display mouse-down and on every tick.
 fn refresh_menu_state(tray: &mut Tray) {
@@ -88,12 +88,12 @@ fn open_settings(tray: &Tray) {
 /// argument passing is not) and resolves the bundle's principal
 /// executable. The workshop attaches to this gateway through the
 /// gateway discovery file and outlives it. An unbundled dev run spawns the
-/// sibling executable directly.
+/// Workshop executable directly.
 fn launch_workshop(tray: &Tray) {
     let Some(exe) = tray.workshop_exe.as_ref() else {
         return;
     };
-    let mut command = if let Some(bundle) = logic::macos::app_bundle(exe) {
+    let mut command = if let Some(bundle) = gateway_api_discovery::app_bundle(exe) {
         let mut command = std::process::Command::new("/usr/bin/open");
         command.arg(bundle);
         command
@@ -162,9 +162,9 @@ fn toggle_login(tray: &mut Tray) {
 }
 
 /// Logs why the Workshop menu item is disabled when the gateway runs from
-/// an App Translocation copy, where an installed Workshop beside the original is
-/// not visible. The tray calls it once at build: `probe_workshop` runs on
-/// every tick and stays silent.
+/// an App Translocation copy, where an installed Workshop beside the
+/// original is not visible. The tray calls it once at build:
+/// `probe_workshop` runs on every tick and stays silent.
 pub(super) fn log_translocation() {
     if let Ok(exe) = std::env::current_exe()
         && gateway_api_discovery::translocated(&exe)
@@ -175,7 +175,7 @@ pub(super) fn log_translocation() {
              translocated copy at {}, where {WORKSHOP_BUNDLE_NAME} is not visible if it is \
              installed; {}",
             exe.display(),
-            gateway_api_discovery::translocation_remedy()
+            gateway_api_discovery::translocation_remedy(GATEWAY_BUNDLE_NAME, WORKSHOP_BUNDLE_NAME)
         );
     }
 }

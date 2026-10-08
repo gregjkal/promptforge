@@ -4,6 +4,7 @@
 //! these so the idiom cannot drift between platforms, and every rule is
 //! unit-tested here without a tray - CI is headless.
 
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 use std::path::Path;
 
 /// The tray icon's visual phases: grayed while starting, steady while

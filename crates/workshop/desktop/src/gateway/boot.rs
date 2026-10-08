@@ -139,27 +139,18 @@ const GATEWAY_LOCATION: &str =
 #[cfg(not(any(windows, target_os = "macos")))]
 const GATEWAY_LOCATION: &str = "promptforge-gateway sits beside PromptForge.AppImage";
 
-/// Whether `exe` runs from a macOS App Translocation copy: macOS runs a
-/// quarantined app that Finder did not move from a randomized read-only
-/// path, away from the sibling bundles beside the original.
-pub(super) fn translocated(exe: &Path) -> bool {
-    exe.components()
-        .any(|component| component.as_os_str() == "AppTranslocation")
-}
-
 /// Builds the loud boot failure naming both supported remedies. A
 /// translocated Workshop cannot see the Gateway beside it, so the first
 /// remedy becomes moving the app.
 pub(super) fn no_gateway_error(workshop_exe: &Path) -> anyhow::Error {
-    if cfg!(target_os = "macos") && translocated(workshop_exe) {
+    if cfg!(target_os = "macos") && gateway_api_discovery::translocated(workshop_exe) {
         return anyhow::anyhow!(
             "no gateway configured or running; macOS runs PromptForge.app from a \
-             translocated copy at {}, where PromptForge Gateway.app is not beside it; \
-             move PromptForge.app with Finder into the folder that holds \
-             PromptForge Gateway.app, such as Applications, and open it from there, \
-             or set gateway.base_url and gateway.api_key in workshop.toml to attach \
-             to a gateway over the network",
-            workshop_exe.display()
+             translocated copy at {}, where PromptForge Gateway.app is not visible; {}, \
+             or set gateway.base_url and gateway.api_key in workshop.toml to attach to \
+             a gateway over the network",
+            workshop_exe.display(),
+            gateway_api_discovery::TRANSLOCATION_REMEDY
         );
     }
     anyhow::anyhow!(

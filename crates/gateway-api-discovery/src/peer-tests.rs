@@ -178,6 +178,31 @@ fn an_appimage_counts_only_when_workshop_runs_from_its_mount() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn an_appimage_counts_when_appdir_reaches_the_mount_through_a_symlink() {
+    let root = tempfile::TempDir::new().expect("tempdir");
+    let mount = root.path().join(".mount_PromptXYZ");
+    std::fs::create_dir_all(&mount).expect("create the mount");
+    let link = root.path().join("tmp-link");
+    std::os::unix::fs::symlink(&mount, &link).expect("link to the mount");
+    let workshop = std::fs::canonicalize(&mount)
+        .expect("resolve the mount")
+        .join("usr")
+        .join("bin")
+        .join("promptforge-workshop");
+    let appimage = root.path().join("PromptForge").join(WORKSHOP_APPIMAGE_NAME);
+
+    assert_eq!(
+        running_appimage(
+            &workshop,
+            Some(appimage.as_os_str()),
+            Some(link.as_os_str())
+        ),
+        Some(appimage)
+    );
+}
+
 #[test]
 fn translocation_is_read_from_the_executable_path() {
     assert!(translocated(Path::new(

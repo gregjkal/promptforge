@@ -1,6 +1,6 @@
 //! Boot planning and one-shot launch coverage.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -13,7 +13,7 @@ use super::{
 #[cfg(windows)]
 use crate::gateway::boot::spawn_detached_windows_with;
 use crate::gateway::boot::{
-    GatewayPlan, no_gateway_error, plan_gateway, sibling_gateway, spawn_detached, translocated,
+    GatewayPlan, no_gateway_error, plan_gateway, sibling_gateway, spawn_detached,
 };
 use crate::gateway::identity::GatewayAttachment;
 use crate::gateway::supervisor::RECOVERY_POLL_INTERVAL;
@@ -268,27 +268,16 @@ fn the_no_gateway_error_names_both_remedies() {
     );
 }
 
-#[test]
-fn translocation_is_read_from_the_executable_path() {
-    let translocated_exe = Path::new(
-        "/private/var/folders/xy/T/AppTranslocation/0A1B/d/PromptForge.app/Contents/MacOS/promptforge-workshop",
-    );
-    assert!(translocated(translocated_exe));
-    assert!(!translocated(Path::new(
-        "/Applications/PromptForge.app/Contents/MacOS/promptforge-workshop"
-    )));
-}
-
 #[cfg(target_os = "macos")]
 #[test]
 fn a_translocated_workshop_is_told_to_move_the_app() {
-    let exe = Path::new(
+    let exe = std::path::Path::new(
         "/private/var/folders/xy/T/AppTranslocation/0A1B/d/PromptForge.app/Contents/MacOS/promptforge-workshop",
     );
     let message = no_gateway_error(exe).to_string();
     assert!(
-        message.contains("move PromptForge.app"),
-        "the error names the move remedy: {message}"
+        message.contains("Applications/PromptForge"),
+        "the error names the move remedy and the install folder: {message}"
     );
     assert!(
         message.contains("workshop.toml"),

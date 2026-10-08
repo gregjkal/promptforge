@@ -27,6 +27,23 @@ pub const GATEWAY_BUNDLE_NAME: &str = "PromptForge Gateway.app";
 /// The Linux Workshop AppImage's file name.
 pub const WORKSHOP_APPIMAGE_NAME: &str = "PromptForge.AppImage";
 
+/// The remedy for a macOS bundle that runs from an App Translocation copy.
+/// Moving a bundle with Finder clears the quarantine that causes
+/// translocation, and the installer's default folder is
+/// `Applications/PromptForge`.
+pub const TRANSLOCATION_REMEDY: &str = "move PromptForge.app and PromptForge Gateway.app \
+     with Finder into one folder, such as the default Applications/PromptForge, or out of \
+     that folder and back in if they are already there, then open the app from there";
+
+/// Whether `exe` runs from a macOS App Translocation copy: macOS runs a
+/// quarantined app that Finder has not moved from a randomized read-only
+/// path, where the sibling bundle beside the original is not visible.
+#[must_use]
+pub fn translocated(exe: &Path) -> bool {
+    exe.components()
+        .any(|component| component.as_os_str() == "AppTranslocation")
+}
+
 /// The installer layout a lookup searches.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(

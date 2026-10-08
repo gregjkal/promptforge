@@ -1,7 +1,7 @@
 //! The `promptforge-gateway` binary:
 //! `promptforge-gateway [--config PATH] [--profile NAME] [--no-tray] [--login] [--print-url] [--browser]`.
 //!
-//! This is a thin shell: it parses arguments into a typed [`ServeOptions`] and
+//! This is a thin shell: it parses arguments into a typed [`gateway::ServeOptions`] and
 //! hands off to [`run_with_tray`], which owns the tokio runtime, provisioning,
 //! and serving while the system tray occupies the main thread. `--no-tray`
 //! keeps the headless Ctrl-C loop ([`run`]) for servers and CI. With no config
@@ -10,14 +10,10 @@
 //! running never boots a duplicate: it opens the running gateway's Settings
 //! page (or prints its URL under `--print-url`) and exits.
 
-use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use gateway::{
-    GatewayStartup, ProfileName, ServeOptions, run, run_printing_url, run_with_tray,
-    settle_gateway_startup,
-};
+use gateway::{GatewayStartup, run, run_printing_url, run_with_tray, settle_gateway_startup};
 use gateway_logging::{LogConfig, LogRuntime};
 use tracing_subscriber::Layer as _;
 use tracing_subscriber::layer::SubscriberExt;
@@ -37,9 +33,15 @@ const TEST_START_RELEASE_ENV: &str = "PROMPTFORGE_GATEWAY_TEST_START_RELEASE";
 #[cfg(feature = "test-fixtures")]
 const TEST_START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
+#[path = "main/args.rs"]
+mod args;
+
+use args::{Command, ParseError, parse_args};
+
 const USAGE: &str = concat!(
     "usage: promptforge-gateway [--config PATH] [--profile NAME] [--no-tray] [--login] [--print-url] [--browser]\n",
     "       promptforge-gateway diagnostics [--config PATH]\n",
+    "       promptforge-gateway init [--no-stt] [--config PATH]\n",
     "       promptforge-gateway --version\n",
     "the config path may also be set with the PROMPTFORGE_GATEWAY_CONFIG environment variable;\n",
     "--config wins over it\n",
@@ -47,6 +49,9 @@ const USAGE: &str = concat!(
     "and the profile's .promptforge directory, generating a default config on first run\n",
     "diagnostics  print a JSON report of the state dir, config, logs, and gateway discovery file;\n",
     "             never serves, rotates logs, or parses the config\n",
+    "init         write the default config when none exists, then download the speech-to-text\n",
+    "             runtime and models it declares; --no-stt writes a config without speech and\n",
+    "             downloads nothing; the installers run this\n",
     "--no-tray    run headless (Ctrl-C driven); for servers and CI\n",
     "--login      the launch came from the OS autostart entry; never opens a browser\n",
     "--print-url  print the Settings handoff URL once bound, then serve headless;\n",
@@ -101,6 +106,21 @@ fn main() -> ExitCode {
             gateway::diagnostics_json(invocation.serve.config_path)
         );
         return ExitCode::SUCCESS;
+    }
+
+    // Install-time initialization is not a boot either: it never takes the
+    // instance lease, so it runs beside a serving gateway.
+    if let Command::Init { speech } = invocation.command {
+        return match gateway::init(invocation.serve.config_path, speech) {
+            Ok(path) => {
+                println!("gateway initialized from {}", path.display());
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                print_error_chain(&error);
+                ExitCode::FAILURE
+            }
+        };
     }
 
     #[cfg(feature = "test-fixtures")]
@@ -276,7 +296,7 @@ fn init_logging_for_state(state_dir: Option<PathBuf>) -> Option<LogRuntime> {
 }
 
 #[cfg(test)]
-#[path = "main-logging-tests.rs"]
+#[path = "main/logging-tests.rs"]
 mod logging_tests;
 
 /// Logs the error and its full `source()` chain through the subscriber, so
@@ -301,186 +321,6 @@ fn print_error_chain(error: &dyn std::error::Error) {
     }
 }
 
-/// Why argument parsing stopped.
-#[derive(Debug, PartialEq, Eq)]
-enum ParseError {
-    /// `-h`/`--help` was requested.
-    Help,
-    /// `--version` was requested.
-    Version,
-    /// The arguments were invalid; the string is the operator-facing reason.
-    Usage(String),
-}
-
-/// What this launch does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Command {
-    /// Serve (the default and only serving mode).
-    Serve,
-    /// Prints the diagnostics report and exits.
-    Diagnostics,
-}
-
-/// The parsed invocation: the serve options plus how the main thread runs.
-#[derive(Debug)]
-struct Invocation {
-    /// What the launch does.
-    command: Command,
-    /// What to serve. Under [`Command::Diagnostics`] only the config path
-    /// is meaningful: the report names it.
-    serve: ServeOptions,
-    /// Whether the system tray occupies the main thread (default).
-    /// `--no-tray` keeps the headless Ctrl-C loop for servers and CI.
-    tray: bool,
-    /// Whether the launch came from the OS autostart entry (`--login`).
-    login: bool,
-    /// Whether to print the Settings handoff URL to stdout (`--print-url`).
-    /// Implies the headless loop: the flag exists for tray-less
-    /// environments.
-    print_url: bool,
-}
-
-/// Parses the command line into a typed [`Invocation`].
-///
-/// The bare invocation serves; there are no subcommands. Uses `OsString`
-/// operands so non-UTF-8 config paths survive. The config path
-/// (`--config PATH`, falling back to `PROMPTFORGE_GATEWAY_CONFIG`) stays
-/// optional: with neither set, the gateway discovers or generates the
-/// boot config itself. `--profile NAME` is validated into a
-/// [`ProfileName`] at parse time.
-fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Invocation, ParseError> {
-    let mut args = args.into_iter();
-    let _binary = args.next();
-
-    // `diagnostics` is the only subcommand and must come first.
-    let mut args = args.peekable();
-    if args.peek().and_then(|arg| arg.to_str()) == Some("diagnostics") {
-        args.next();
-        return parse_diagnostics_args(args);
-    }
-
-    let mut profile: Option<ProfileName> = None;
-    let mut config_path: Option<PathBuf> = None;
-    let mut tray = true;
-    let mut login = false;
-    let mut print_url = false;
-    let mut browser = false;
-
-    while let Some(arg) = args.next() {
-        match arg.to_str() {
-            Some("--config") => {
-                let path = args
-                    .next()
-                    .ok_or_else(|| ParseError::Usage("--config requires a path".to_string()))?;
-                if config_path.is_some() {
-                    return Err(ParseError::Usage("--config accepts one path".to_string()));
-                }
-                config_path = Some(PathBuf::from(path));
-            }
-            Some("--profile") => {
-                let name = args
-                    .next()
-                    .ok_or_else(|| ParseError::Usage("--profile requires a name".to_string()))?;
-                let name = name.into_string().map_err(|_| {
-                    ParseError::Usage("--profile name must be valid UTF-8".to_string())
-                })?;
-                let name = ProfileName::parse(&name)
-                    .map_err(|error| ParseError::Usage(format!("invalid profile name: {error}")))?;
-                profile = Some(name);
-            }
-            Some("--no-tray") => tray = false,
-            Some("--login") => login = true,
-            Some("--print-url") => print_url = true,
-            Some("--browser") => browser = true,
-            Some("-h" | "--help") => return Err(ParseError::Help),
-            Some("--version") => return Err(ParseError::Version),
-            Some(other) if other.starts_with('-') => {
-                return Err(ParseError::Usage(format!("unknown flag {other}")));
-            }
-            _ => {
-                return Err(ParseError::Usage(format!(
-                    "unexpected argument {}",
-                    arg.to_string_lossy()
-                )));
-            }
-        }
-    }
-
-    let config_path =
-        resolve_config_path(config_path, std::env::var_os("PROMPTFORGE_GATEWAY_CONFIG"));
-
-    Ok(Invocation {
-        command: Command::Serve,
-        // `--login`'s contract is absolute - a login launch never opens a
-        // browser - so it wins over `--browser`.
-        serve: ServeOptions::new(config_path, profile).with_browser(browser && !login),
-        tray,
-        login,
-        print_url,
-    })
-}
-
-/// Parses what may follow `diagnostics`: at most `--config PATH`. Every
-/// other flag belongs to a serving launch and is a usage error here.
-fn parse_diagnostics_args(args: impl Iterator<Item = OsString>) -> Result<Invocation, ParseError> {
-    let mut args = args;
-    let mut config_path: Option<PathBuf> = None;
-    while let Some(arg) = args.next() {
-        match arg.to_str() {
-            Some("--config") => {
-                let path = args
-                    .next()
-                    .ok_or_else(|| ParseError::Usage("--config requires a path".to_string()))?;
-                if config_path.is_some() {
-                    return Err(ParseError::Usage("--config accepts one path".to_string()));
-                }
-                config_path = Some(PathBuf::from(path));
-            }
-            Some("-h" | "--help") => return Err(ParseError::Help),
-            _ => {
-                return Err(ParseError::Usage(format!(
-                    "diagnostics accepts only --config PATH, got {}",
-                    arg.to_string_lossy()
-                )));
-            }
-        }
-    }
-    let config_path =
-        resolve_config_path(config_path, std::env::var_os("PROMPTFORGE_GATEWAY_CONFIG"));
-    Ok(Invocation {
-        command: Command::Diagnostics,
-        serve: ServeOptions::new(config_path, None),
-        tray: false,
-        login: false,
-        print_url: false,
-    })
-}
-
-/// Resolves the config path: the `--config` flag wins, then the
-/// `PROMPTFORGE_GATEWAY_CONFIG` environment variable - but only when it
-/// names an existing file. A stale env var warns and falls through to boot
-/// discovery: ambient state rots in ways a typed CLI path does not, and a
-/// forgotten variable must not hard-fail a first-run boot. A `--config`
-/// path is deliberate, so a missing file there stays an error
-/// downstream.
-///
-/// Tests pass both sources explicitly and never touch the process
-/// environment (edition 2024 makes `set_var` unsafe); the existence check
-/// touches only the paths the test itself creates.
-fn resolve_config_path(cli: Option<PathBuf>, env: Option<OsString>) -> Option<PathBuf> {
-    cli.or_else(|| {
-        let path = PathBuf::from(env?);
-        if path.is_file() {
-            return Some(path);
-        }
-        tracing::warn!(
-            path = %path.display(),
-            "PROMPTFORGE_GATEWAY_CONFIG names no file; falling back to discovery"
-        );
-        None
-    })
-}
-
 #[cfg(test)]
-#[path = "main-tests.rs"]
+#[path = "main/tests.rs"]
 mod tests;

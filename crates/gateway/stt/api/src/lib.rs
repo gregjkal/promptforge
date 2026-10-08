@@ -19,7 +19,7 @@ mod test_fixtures;
 #[cfg(feature = "test-fixtures")]
 pub mod test_fixtures;
 
-pub use artifacts::SpeechError;
+pub use artifacts::{SpeechError, provision};
 pub use model::SpeechModelInfo;
 pub use service::SpeechService;
 pub use status::SpeechStatus;

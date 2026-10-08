@@ -1,4 +1,4 @@
-//! Tests for config discovery, first-run config generation, and the installer's STT choice.
+//! Tests for config discovery and first-run config generation.
 
 use super::*;
 
@@ -284,11 +284,4 @@ fn generated_api_keys_are_random_hex() {
     assert_eq!(first.len(), API_KEY_LENGTH);
     assert!(first.chars().all(|c| c.is_ascii_hexdigit()));
     assert_ne!(first, second, "two first runs must not share a bearer key");
-}
-
-#[test]
-fn the_installer_dword_maps_only_zero_to_omitted() {
-    assert_eq!(InstallerStt::from_dword(None), InstallerStt::Included);
-    assert_eq!(InstallerStt::from_dword(Some(0)), InstallerStt::Omitted);
-    assert_eq!(InstallerStt::from_dword(Some(1)), InstallerStt::Included);
 }

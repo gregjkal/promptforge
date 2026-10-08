@@ -214,31 +214,6 @@ mod macos {
     use super::super::macos::*;
     use std::path::{Path, PathBuf};
 
-    #[test]
-    fn the_bundle_walks_up_from_contents_macos_to_the_app() {
-        let exe = Path::new("/Applications/Runvil.app/Contents/MacOS/runvil-gateway");
-        assert_eq!(
-            app_bundle(exe).as_deref(),
-            Some(Path::new("/Applications/Runvil.app"))
-        );
-    }
-
-    #[test]
-    fn the_bundle_probe_rejects_unbundled_and_partial_paths() {
-        assert_eq!(app_bundle(Path::new("/usr/local/bin/runvil-gateway")), None);
-        assert_eq!(
-            app_bundle(Path::new("/Applications/Runvil.app/Contents/MacOS")),
-            None,
-            "the exe itself must sit below MacOS"
-        );
-        assert_eq!(
-            app_bundle(Path::new("/opt/x/Contents/MacOS/runvil-gateway")),
-            None,
-            "the parent two levels up must be a .app"
-        );
-        assert_eq!(app_bundle(Path::new("runvil-gateway")), None);
-    }
-
     /// Writes a minimal bundle fixture: `Contents/Info.plist` with the
     /// given principal executable.
     fn bundle_fixture(dir: &Path, principal: &str) -> PathBuf {

@@ -317,7 +317,7 @@ fn a_workshop_in_an_appimage_names_then_finds_the_gateway_beside_it() {
         message.contains(&beside.display().to_string()),
         "the error names the path beside the AppImage: {message}"
     );
-    std::fs::write(&beside, b"").expect("plant the gateway");
+    super::plant_executable(&beside);
     assert_eq!(install.gateway(), Some(beside));
 }
 

@@ -6,7 +6,7 @@
 //! `Rc<RefCell<_>>` state), so a callback cannot touch menu state ahead of
 //! the crate's automatic menu show. The backend therefore disables both
 //! auto-shows and opens the menu itself from the loop after re-probing the
-//! Workshop sibling - the ordering the tray idiom needs - and the
+//! installed Workshop - the ordering the tray idiom needs - and the
 //! callbacks only forward a [`TrayEvent`] into the loop with a
 //! `PostMessageW` wake, never launching processes, opening browsers, or
 //! touching the registry.

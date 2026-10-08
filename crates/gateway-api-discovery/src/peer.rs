@@ -28,15 +28,17 @@ pub const GATEWAY_BUNDLE_NAME: &str = "PromptForge Gateway.app";
 /// The Linux Workshop AppImage's file name.
 pub const WORKSHOP_APPIMAGE_NAME: &str = "PromptForge.AppImage";
 
-/// The remedy for a macOS bundle that runs from an App Translocation copy.
-/// Gatekeeper stops translocating a bundle once the user moves it with
-/// Finder, and the installer's default folder is `Applications/PromptForge`.
+/// The remedy for the macOS bundle `moved` running from an App
+/// Translocation copy, where the `peer` bundle beside the original is not
+/// visible. Gatekeeper stops translocating a bundle once the user moves it
+/// with Finder, and the installer's default folder is
+/// `Applications/PromptForge`.
 #[must_use]
-pub fn translocation_remedy() -> String {
+pub fn translocation_remedy(moved: &str, peer: &str) -> String {
     format!(
-        "move {WORKSHOP_BUNDLE_NAME} and {GATEWAY_BUNDLE_NAME} with Finder into one folder, \
-         such as the default Applications/PromptForge, or out of that folder and back in if \
-         they are already there, then open the app from there"
+        "move {moved} with Finder into the folder that holds {peer}, such as the default \
+         Applications/PromptForge, or out of that folder and back in if it is already there, \
+         then open it from there"
     )
 }
 
@@ -49,7 +51,8 @@ pub fn translocated(exe: &Path) -> bool {
         .any(|component| component.as_os_str() == "AppTranslocation")
 }
 
-/// The installer layout a lookup searches.
+/// The installer layout a lookup searches. `CURRENT` also names the
+/// gateway image that process validation expects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(
     not(test),
@@ -58,7 +61,7 @@ pub fn translocated(exe: &Path) -> bool {
         reason = "a build constructs only its own target's layout; tests construct all three"
     )
 )]
-enum Layout {
+pub(crate) enum Layout {
     Windows,
     MacOs,
     Linux,
@@ -66,20 +69,20 @@ enum Layout {
 
 impl Layout {
     #[cfg(target_os = "windows")]
-    const CURRENT: Self = Self::Windows;
+    pub(crate) const CURRENT: Self = Self::Windows;
     #[cfg(target_os = "macos")]
-    const CURRENT: Self = Self::MacOs;
+    pub(crate) const CURRENT: Self = Self::MacOs;
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    const CURRENT: Self = Self::Linux;
+    pub(crate) const CURRENT: Self = Self::Linux;
 
-    fn gateway_exe(self) -> &'static str {
+    pub(crate) const fn gateway_exe(self) -> &'static str {
         match self {
             Self::Windows => "promptforge-gateway.exe",
             Self::MacOs | Self::Linux => "promptforge-gateway",
         }
     }
 
-    fn workshop_exe(self) -> &'static str {
+    const fn workshop_exe(self) -> &'static str {
         match self {
             Self::Windows => "promptforge-workshop.exe",
             Self::MacOs | Self::Linux => "promptforge-workshop",
@@ -140,7 +143,25 @@ pub fn installed_workshop(gateway_exe: &Path) -> Option<PathBuf> {
 }
 
 fn first_file(candidates: Vec<PathBuf>) -> Option<PathBuf> {
-    candidates.into_iter().find(|candidate| candidate.is_file())
+    candidates.into_iter().find(|candidate| runnable(candidate))
+}
+
+/// Whether `path` is a regular file this process can run. On Unix that
+/// needs an execute bit: a downloaded AppImage starts without one, and
+/// launching it would fail.
+fn runnable(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        metadata.is_file()
+    }
 }
 
 fn gateway_candidates(
@@ -187,16 +208,24 @@ fn workshop_candidates(layout: Layout, gateway_exe: &Path) -> Vec<PathBuf> {
     candidates
 }
 
-/// The directory holding the `.app` bundle `exe` runs from, when `exe`
-/// sits at `<dir>/<name>.app/Contents/MacOS/<exe>`.
-fn bundle_dir(exe: &Path) -> Option<&Path> {
+/// The `.app` bundle `exe` runs from, when `exe` sits at
+/// `<name>.app/Contents/MacOS/<exe>`, or `None` for an unbundled executable
+/// such as a development build. Matches the path shape only and never
+/// touches the disk.
+#[must_use]
+pub fn app_bundle(exe: &Path) -> Option<&Path> {
     let macos = exe.parent()?;
     let contents = macos.parent()?;
     let bundle = contents.parent()?;
     let is_bundle = macos.file_name()? == "MacOS"
         && contents.file_name()? == "Contents"
         && bundle.extension()? == "app";
-    if is_bundle { bundle.parent() } else { None }
+    is_bundle.then_some(bundle)
+}
+
+/// The directory holding the `.app` bundle `exe` runs from.
+fn bundle_dir(exe: &Path) -> Option<&Path> {
+    app_bundle(exe)?.parent()
 }
 
 fn bundle_exe(dir: &Path, bundle: &str, exe: &str) -> PathBuf {

@@ -1,28 +1,7 @@
-//! The macOS backend's pure rules: bundle-path derivation, the login-service
-//! gate, and the template-glyph preparation. Compiled for macOS and for
+//! The macOS backend's pure rules: the login-service gate, and the template-glyph preparation. Compiled for macOS and for
 //! tests everywhere, so CI exercises them without the objc2 boundary.
 
-use std::path::{Path, PathBuf};
-
-/// The `.app` bundle containing an executable at
-/// `<name>.app/Contents/MacOS/<exe>`, or `None` for an unbundled
-/// executable (a dev or CI run). Pure path shape matching: the bundle
-/// is never touched on disk.
-pub(crate) fn app_bundle(exe: &Path) -> Option<PathBuf> {
-    let macos_dir = exe.parent()?;
-    if macos_dir.file_name()? != "MacOS" {
-        return None;
-    }
-    let contents = macos_dir.parent()?;
-    if contents.file_name()? != "Contents" {
-        return None;
-    }
-    let bundle = contents.parent()?;
-    if bundle.extension()? != "app" {
-        return None;
-    }
-    Some(bundle.to_path_buf())
-}
+use std::path::Path;
 
 /// The bundle's principal executable name, read from
 /// `Contents/Info.plist`. The plist is NeXTSTEP/XML; the only fact the

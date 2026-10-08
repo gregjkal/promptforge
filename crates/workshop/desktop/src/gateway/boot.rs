@@ -153,18 +153,22 @@ impl WorkshopInstall {
         gateway_api_discovery::installed_gateway(&self.exe, self.appimage.as_deref())
     }
 
-    /// Why the lookup found no gateway and how to install one, for the boot
-    /// failure and the supervisor's recovery failure: a translocated Workshop
-    /// cannot see the gateway beside it and must be moved; otherwise every
-    /// path searched.
+    /// Why the lookup found no gateway and what to do, for the boot failure
+    /// and the supervisor's recovery failure: a translocated Workshop cannot
+    /// see the gateway beside it, so the remedy is moving the app; otherwise
+    /// every path searched and the install step.
     pub(super) fn missing_gateway(&self) -> String {
         use gateway_api_discovery::{GATEWAY_BUNDLE_NAME, WORKSHOP_BUNDLE_NAME};
         if cfg!(target_os = "macos") && gateway_api_discovery::translocated(&self.exe) {
             return format!(
                 "macOS runs {WORKSHOP_BUNDLE_NAME} from a translocated copy at {}, where \
-                 {GATEWAY_BUNDLE_NAME} is not visible; {}",
+                 {GATEWAY_BUNDLE_NAME} is not visible; {}; if {GATEWAY_BUNDLE_NAME} is not \
+                 installed, install the Gateway component",
                 self.exe.display(),
-                gateway_api_discovery::translocation_remedy()
+                gateway_api_discovery::translocation_remedy(
+                    WORKSHOP_BUNDLE_NAME,
+                    GATEWAY_BUNDLE_NAME
+                )
             );
         }
         let searched =
@@ -173,15 +177,15 @@ impl WorkshopInstall {
                 .map(|path| path.display().to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
-        format!("Workshop found no gateway executable at {searched}; install the Gateway component")
+        format!("Workshop found no executable gateway at {searched}; install the Gateway component")
     }
 }
 
 /// Builds the loud boot failure naming both supported remedies.
 pub(super) fn no_gateway_error(install: &WorkshopInstall) -> anyhow::Error {
     anyhow::anyhow!(
-        "no gateway configured or running; {}, or set gateway.base_url and gateway.api_key \
-         in workshop.toml to attach to a gateway over the network",
+        "no gateway configured or running. {}. Alternatively, set gateway.base_url and \
+         gateway.api_key in workshop.toml to attach to a gateway over the network",
         install.missing_gateway()
     )
 }

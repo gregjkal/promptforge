@@ -405,8 +405,8 @@ impl LoginService {
                 return None;
             }
         };
-        let bundle = logic::macos::app_bundle(&exe)?;
-        if !logic::macos::gateway_is_bundle_principal(&bundle, &exe) {
+        let bundle = gateway_api_discovery::app_bundle(&exe)?;
+        if !logic::macos::gateway_is_bundle_principal(bundle, &exe) {
             tracing::info!(
                 "the gateway is not its bundle's principal executable; \
                  Launch at Login is unavailable"

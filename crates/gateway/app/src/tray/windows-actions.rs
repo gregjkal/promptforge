@@ -81,7 +81,7 @@ pub(super) fn act(tray: &mut Tray, event: TrayEvent) {
     }
 }
 
-/// Opens the menu after re-probing the Workshop sibling and re-reading
+/// Opens the menu after re-probing the installed Workshop and re-reading
 /// the login state, so a displayed menu never shows a stale enabled bit
 /// or check mark. The crate's automatic shows are disabled because muda's
 /// items are `!Send` and the re-probe cannot run inside the event

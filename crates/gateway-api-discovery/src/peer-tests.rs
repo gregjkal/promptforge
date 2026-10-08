@@ -2,17 +2,24 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use super::{
-    GATEWAY_BUNDLE_NAME, Layout, WORKSHOP_APPIMAGE_NAME, WORKSHOP_BUNDLE_NAME, bundle_exe,
-    first_file, gateway_candidates, installed_gateway, installed_workshop, running_appimage,
-    translocated, workshop_candidates,
+    GATEWAY_BUNDLE_NAME, Layout, WORKSHOP_APPIMAGE_NAME, WORKSHOP_BUNDLE_NAME, app_bundle,
+    bundle_exe, first_file, gateway_candidates, installed_gateway, installed_workshop,
+    running_appimage, translocated, workshop_candidates,
 };
 
-/// Plants an empty file at `root/relative`, creating its directories.
+/// Plants an empty executable file at `root/relative`, creating its
+/// directories.
 fn plant(root: &Path, relative: &Path) -> PathBuf {
     let path = root.join(relative);
     std::fs::create_dir_all(path.parent().expect("a planted file has a parent"))
         .expect("create fixture directories");
     std::fs::write(&path, b"").expect("plant fixture file");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+            .expect("mark fixture executable");
+    }
     path
 }
 
@@ -201,6 +208,51 @@ fn an_appimage_counts_when_appdir_reaches_the_mount_through_a_symlink() {
         ),
         Some(appimage)
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_peer_without_an_execute_bit_is_not_found() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let root = tempfile::TempDir::new().expect("tempdir");
+    let gateway = plant(root.path(), Path::new("promptforge-gateway"));
+    let appimage = plant(root.path(), Path::new(WORKSHOP_APPIMAGE_NAME));
+    assert_eq!(
+        workshop_for(Layout::Linux, &gateway),
+        Some(appimage.clone())
+    );
+    std::fs::set_permissions(&appimage, std::fs::Permissions::from_mode(0o644))
+        .expect("clear the execute bits");
+
+    assert_eq!(workshop_for(Layout::Linux, &gateway), None);
+}
+
+#[test]
+fn the_bundle_walks_up_from_contents_macos_to_the_app() {
+    let exe = Path::new("/Applications/PromptForge.app/Contents/MacOS/promptforge-gateway");
+    assert_eq!(
+        app_bundle(exe),
+        Some(Path::new("/Applications/PromptForge.app"))
+    );
+}
+
+#[test]
+fn the_bundle_probe_rejects_unbundled_and_partial_paths() {
+    assert_eq!(
+        app_bundle(Path::new("/usr/local/bin/promptforge-gateway")),
+        None
+    );
+    assert_eq!(
+        app_bundle(Path::new("/Applications/PromptForge.app/Contents/MacOS")),
+        None,
+        "the exe itself must sit below MacOS"
+    );
+    assert_eq!(
+        app_bundle(Path::new("/opt/x/Contents/MacOS/promptforge-gateway")),
+        None,
+        "the parent two levels up must be a .app"
+    );
+    assert_eq!(app_bundle(Path::new("promptforge-gateway")), None);
 }
 
 #[test]

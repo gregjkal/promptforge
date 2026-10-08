@@ -8,7 +8,9 @@
 //!   `PromptForge Gateway.app`, each running from `Contents/MacOS/`.
 //! - On Linux, as `PromptForge.AppImage` beside `promptforge-gateway`.
 //!   Workshop runs from the AppImage's mount, so it finds the gateway
-//!   through `$APPIMAGE`, the path of the AppImage file. The gateway finds
+//!   through `$APPIMAGE`, the path of the AppImage file, and looks there
+//!   before its own directory: a gateway inside the mount loses its files
+//!   when Workshop exits and the mount goes away. The gateway finds
 //!   the AppImage by name in its own directory and never reads `$APPIMAGE`:
 //!   a gateway started from its desktop entry or at login has none, and one
 //!   Workshop launched may have inherited Workshop's.
@@ -66,10 +68,11 @@ impl Layout {
 /// Locates the installed gateway executable for the Workshop running from
 /// `workshop_exe`.
 ///
-/// `appimage` is Workshop's `$APPIMAGE`; an empty value counts as unset.
-/// Returns the first existing candidate: beside `workshop_exe`, then the
-/// sibling gateway bundle on macOS, then `promptforge-gateway` beside the
-/// AppImage on Linux.
+/// `appimage` is Workshop's `$APPIMAGE`; a relative or empty value counts
+/// as unset, so the lookup never resolves against the working directory.
+/// Returns the first existing candidate: on Linux `promptforge-gateway`
+/// beside the AppImage, then beside `workshop_exe`, then the sibling
+/// gateway bundle on macOS.
 #[must_use]
 pub fn installed_gateway(workshop_exe: &Path, appimage: Option<&OsStr>) -> Option<PathBuf> {
     first_file(gateway_candidates(Layout::CURRENT, workshop_exe, appimage))
@@ -96,24 +99,22 @@ fn gateway_candidates(
     appimage: Option<&OsStr>,
 ) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
+    let appimage_dir = appimage
+        .map(Path::new)
+        .filter(|path| path.is_absolute())
+        .and_then(Path::parent);
+    if matches!(layout, Layout::Linux)
+        && let Some(dir) = appimage_dir
+    {
+        candidates.push(dir.join(layout.gateway_exe()));
+    }
     if let Some(dir) = workshop_exe.parent() {
         candidates.push(dir.join(layout.gateway_exe()));
     }
-    match layout {
-        Layout::Windows => {}
-        Layout::MacOs => {
-            if let Some(dir) = bundle_dir(workshop_exe) {
-                candidates.push(bundle_exe(dir, GATEWAY_BUNDLE_NAME, layout.gateway_exe()));
-            }
-        }
-        Layout::Linux => {
-            let appimage_dir = appimage
-                .filter(|value| !value.is_empty())
-                .and_then(|value| Path::new(value).parent());
-            if let Some(dir) = appimage_dir {
-                candidates.push(dir.join(layout.gateway_exe()));
-            }
-        }
+    if matches!(layout, Layout::MacOs)
+        && let Some(dir) = bundle_dir(workshop_exe)
+    {
+        candidates.push(bundle_exe(dir, GATEWAY_BUNDLE_NAME, layout.gateway_exe()));
     }
     candidates
 }

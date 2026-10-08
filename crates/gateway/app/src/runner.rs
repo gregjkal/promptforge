@@ -331,6 +331,20 @@ enum BootSelectionNotice {
     None(String),
 }
 
+/// The profile names `config` defines, comma-separated, or `none`.
+pub(crate) fn defined_profiles(config: &Config) -> String {
+    let defined: Vec<&str> = config
+        .profiles()
+        .iter()
+        .map(gateway_config::ProfileConfig::name)
+        .collect();
+    if defined.is_empty() {
+        "none".to_owned()
+    } else {
+        defined.join(", ")
+    }
+}
+
 /// The notice for a boot config with no selected profile: the stale-state
 /// warning naming the missing profile and the defined ones, the plain
 /// no-profile line, or `None` when a profile is selected.
@@ -343,16 +357,7 @@ fn boot_selection_notice(config: &Config) -> Option<BootSelectionNotice> {
             "no profile selected; serving remote models only".to_owned(),
         ));
     };
-    let defined: Vec<&str> = config
-        .profiles()
-        .iter()
-        .map(gateway_config::ProfileConfig::name)
-        .collect();
-    let defined = if defined.is_empty() {
-        "none".to_owned()
-    } else {
-        defined.join(", ")
-    };
+    let defined = defined_profiles(config);
     Some(BootSelectionNotice::Stale(format!(
         "state file selects profile \"{stale}\", which is not defined (defined profiles: {defined}); booting with no profile"
     )))

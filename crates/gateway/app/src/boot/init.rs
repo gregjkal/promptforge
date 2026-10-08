@@ -33,16 +33,10 @@ enum InitRepr {
         #[source]
         source: gateway_config::ConfigError,
     },
-    #[error(
-        "speech-to-text requested, but {} {}; speech needs a selected profile whose `models` \
-         name at least one [[stt_model]]: add one, or rerun init with --no-stt",
-        path.display(),
-        selected_profile(profile.as_deref())
-    )]
-    NoSpeechModels {
-        path: PathBuf,
-        profile: Option<String>,
-    },
+    /// Speech was requested, but the selected profile declares no speech
+    /// model; the text names the selection's source and its remedy.
+    #[error("{0}")]
+    NoSpeechModels(String),
     #[cfg(feature = "stt")]
     #[error("provision speech-to-text for the selected profile")]
     Speech(#[source] gateway_stt::SpeechError),
@@ -54,19 +48,54 @@ enum InitRepr {
     SpeechUnavailable,
 }
 
-/// The actual selection [`InitRepr::NoSpeechModels`] reports.
-fn selected_profile(profile: Option<&str>) -> String {
-    profile.map_or_else(
-        || "selects no profile".to_owned(),
-        |name| format!("selects profile {name}, which lists no [[stt_model]]"),
-    )
+/// The remedy when no profile is selected.
+const SELECT_A_PROFILE: &str = "select a profile whose `models` name a [[stt_model]], through \
+     PROMPTFORGE_PROFILE or the state file's active_profile";
+
+/// The [`InitRepr::NoSpeechModels`] text: what speech requires, the actual
+/// selection named by the input that made it, and the remedy.
+fn no_speech_models(path: &Path, environment: Option<&str>, config: &Config) -> String {
+    let state_file = gateway_config::profile_state_path(path);
+    let (actual, remedy) = match (config.active_profile(), config.stale_state_selection()) {
+        (Some(profile), _) => {
+            // PROMPTFORGE_PROFILE, when set, wins over the state file.
+            let source = if environment.is_some() {
+                "PROMPTFORGE_PROFILE".to_owned()
+            } else {
+                state_file.display().to_string()
+            };
+            (
+                format!(
+                    "{source} selects profile {}, which lists no [[stt_model]] in {}",
+                    profile.name(),
+                    path.display()
+                ),
+                "name at least one [[stt_model]] in that profile's `models`",
+            )
+        }
+        (None, Some(stale)) => (
+            format!(
+                "{} selects profile \"{stale}\", which {} does not define (defined profiles: {})",
+                state_file.display(),
+                path.display(),
+                crate::runner::defined_profiles(config)
+            ),
+            SELECT_A_PROFILE,
+        ),
+        (None, None) => (
+            format!("{} selects no profile", path.display()),
+            SELECT_A_PROFILE,
+        ),
+    };
+    format!("speech-to-text requested, but {actual}; {remedy}, or rerun init with --no-stt")
 }
 
 /// Writes the default configuration when none exists and, when
 /// `provision_speech` holds, downloads and verifies the whisper library,
 /// the speech models, and the Silero model the selected profile declares.
-/// Download progress prints to stdout, one line per phase start and end
-/// and at most one percent line per second.
+/// Download progress prints to stdout: a line when each phase starts, a
+/// line when a phase that reports a percent ends, and at most one percent
+/// line per second.
 ///
 /// `explicit_config` wins over discovery, as it does for a boot, and is
 /// where the default is written when that file does not exist. The
@@ -153,10 +182,8 @@ fn init_in(
         return Ok(path);
     }
     if config.stt_models().is_empty() {
-        let profile = config
-            .active_profile()
-            .map(|profile| profile.name().to_owned());
-        return Err(InitError(InitRepr::NoSpeechModels { path, profile }));
+        let message = no_speech_models(&path, environment.as_deref(), &config);
+        return Err(InitError(InitRepr::NoSpeechModels(message)));
     }
     provision(&config)?;
     Ok(path)

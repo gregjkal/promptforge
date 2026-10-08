@@ -1,7 +1,8 @@
 //! The platform-independent tray rules: the menu layout, the status
-//! label, the icon phase machine, the launch-at-login entry, and the icon tinting. Every backend consumes
-//! these so the idiom cannot drift between platforms, and every rule is
-//! unit-tested here without a tray - CI is headless.
+//! label, the icon phase machine, the launch-at-login entry, and the icon
+//! tinting. Every backend consumes these so the idiom cannot drift between
+//! platforms, and every rule is unit-tested here without a tray - CI is
+//! headless.
 
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
 use std::path::Path;
@@ -81,9 +82,10 @@ pub(crate) fn status_label(
 pub(crate) enum MenuItemSpec {
     /// The disabled status label on top.
     Status(String),
-    /// Launches the workshop shell; disabled when no sibling exe exists.
+    /// Launches the workshop shell; disabled when no installed Workshop is
+    /// found.
     Workshop {
-        /// Whether the sibling probe found the workshop exe.
+        /// Whether the lookup found the installed Workshop.
         enabled: bool,
     },
     /// Opens the config SPA in the browser.

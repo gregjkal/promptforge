@@ -294,6 +294,33 @@ fn a_translocated_workshop_is_told_to_move_the_app() {
     );
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn a_workshop_in_an_appimage_names_then_finds_the_gateway_beside_it() {
+    let root = tempfile::TempDir::new().expect("tempdir");
+    let appimage = root.path().join("PromptForge").join("PromptForge.AppImage");
+    std::fs::create_dir_all(appimage.parent().expect("parent")).expect("create install dir");
+    std::fs::write(&appimage, b"").expect("plant the AppImage");
+    let install = WorkshopInstall {
+        exe: root
+            .path()
+            .join("mount")
+            .join("usr")
+            .join("bin")
+            .join("promptforge-workshop"),
+        appimage: Some(appimage.clone()),
+    };
+    let beside = appimage.with_file_name(GATEWAY_EXE_NAME);
+
+    let message = no_gateway_error(&install).to_string();
+    assert!(
+        message.contains(&beside.display().to_string()),
+        "the error names the path beside the AppImage: {message}"
+    );
+    std::fs::write(&beside, b"").expect("plant the gateway");
+    assert_eq!(install.gateway(), Some(beside));
+}
+
 #[test]
 fn matching_boot_publication_survives_closure_and_server_teardown() {
     let mut launched = super::validated_gateway("launched-key");

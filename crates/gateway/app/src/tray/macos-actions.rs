@@ -161,19 +161,21 @@ fn toggle_login(tray: &mut Tray) {
     }
 }
 
-/// Logs why the Workshop menu item is disabled when the gateway runs from an App
-/// Translocation copy, where an installed Workshop beside the original is
+/// Logs why the Workshop menu item is disabled when the gateway runs from
+/// an App Translocation copy, where an installed Workshop beside the original is
 /// not visible. The tray calls it once at build: `probe_workshop` runs on
 /// every tick and stays silent.
 pub(super) fn log_translocation() {
     if let Ok(exe) = std::env::current_exe()
         && gateway_api_discovery::translocated(&exe)
     {
+        use gateway_api_discovery::{GATEWAY_BUNDLE_NAME, WORKSHOP_BUNDLE_NAME};
         tracing::warn!(
-            "The Workshop menu item is disabled: macOS runs PromptForge Gateway.app from a translocated \
-             copy at {}, where PromptForge.app is not visible if it is installed; {}",
+            "The Workshop menu item is disabled: macOS runs {GATEWAY_BUNDLE_NAME} from a \
+             translocated copy at {}, where {WORKSHOP_BUNDLE_NAME} is not visible if it is \
+             installed; {}",
             exe.display(),
-            gateway_api_discovery::TRANSLOCATION_REMEDY
+            gateway_api_discovery::translocation_remedy()
         );
     }
 }

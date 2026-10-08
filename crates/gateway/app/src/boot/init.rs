@@ -105,10 +105,18 @@ fn init_in(
     provision: impl FnOnce(&Config) -> Result<(), InitError>,
 ) -> Result<PathBuf, InitError> {
     // Unlike a boot, which refuses a missing explicit file, init writes the
-    // default there: generating a config is what it is for. A dangling
-    // symlink is not missing: create-new would refuse to follow it.
+    // default there: generating a config is what it is for. Only a path
+    // that names nothing is missing: a dangling symlink, which create-new
+    // would refuse to follow, or a path that cannot be inspected falls
+    // through to the load, which names the failure.
     let path = match explicit {
-        Some(path) if path.symlink_metadata().is_err() => generate_default(&path, stt),
+        Some(path)
+            if path
+                .symlink_metadata()
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            generate_default(&path, stt)
+        }
         explicit => resolve_in(explicit, gather, stt),
     }
     .map_err(|error| InitError(InitRepr::Resolve(error)))?;
@@ -131,7 +139,13 @@ fn init_in(
 #[cfg(feature = "stt")]
 fn provision_speech_artifacts(config: &Config) -> Result<(), InitError> {
     if config.stt_models().is_empty() {
-        println!("the selected profile declares no [[stt_model]]; no speech-to-text to provision");
+        match config.active_profile() {
+            Some(profile) => println!(
+                "profile {} lists no [[stt_model]]; no speech-to-text to provision",
+                profile.name()
+            ),
+            None => println!("no profile is selected; no speech-to-text to provision"),
+        }
         return Ok(());
     }
     let hub = gateway_progress::ProgressHub::new();

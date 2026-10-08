@@ -36,8 +36,8 @@ pub(super) enum Command {
 pub(super) struct Invocation {
     /// What the launch does.
     pub(super) command: Command,
-    /// What to serve. Under [`Command::Diagnostics`] only the config path
-    /// is meaningful: the report names it.
+    /// What to serve. Under [`Command::Diagnostics`] and [`Command::Init`]
+    /// only the config path is meaningful.
     pub(super) serve: ServeOptions,
     /// Whether the system tray occupies the main thread (default).
     /// `--no-tray` keeps the headless Ctrl-C loop for servers and CI.
@@ -218,8 +218,8 @@ fn parse_init_args(args: impl Iterator<Item = OsString>) -> Result<Invocation, P
 /// names an existing file. A stale env var warns and falls through to boot
 /// discovery: ambient state rots in ways a typed CLI path does not, and a
 /// forgotten variable must not hard-fail a first-run boot. A `--config`
-/// path is deliberate, so a missing file there stays an error
-/// downstream.
+/// path is deliberate, so a missing file there stays an error for a boot,
+/// and `init` writes the default there.
 ///
 /// Tests pass both sources explicitly and never touch the process
 /// environment (edition 2024 makes `set_var` unsafe); the existence check

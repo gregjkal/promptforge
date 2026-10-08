@@ -8,7 +8,7 @@
 //! through the speech load's own preparation, so the first boot finds them
 //! cached.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use gateway_config::{Config, ProfileSelection};
 
@@ -51,9 +51,11 @@ enum InitRepr {
 /// and at most one percent line per second.
 ///
 /// `explicit_config` wins over discovery, as it does for a boot, and is
-/// where the default is written when that file does not exist. Without
-/// `provision_speech` a generated default declares no speech models and
-/// nothing is downloaded. Returns the configuration path.
+/// where the default is written when that file does not exist. The
+/// configuration is then loaded as a boot loads it, so an unloadable file
+/// fails `init` either way. Without `provision_speech` a generated default
+/// declares no speech models and nothing is downloaded. Returns the
+/// configuration path.
 ///
 /// # Errors
 /// Returns [`InitError`] when the configuration cannot be resolved,
@@ -76,44 +78,51 @@ pub fn init(
     let provision = provision_speech_artifacts;
     #[cfg(not(feature = "stt"))]
     let provision = |_: &Config| -> Result<(), InitError> { Ok(()) };
-    let environment = std::env::var("PROMPTFORGE_PROFILE").ok();
     init_in(
         explicit_config,
         Locations::gather,
         stt,
-        environment.as_deref(),
+        boot_environment,
         provision,
     )
 }
 
-/// The testable body of [`init`]: `gather` and `provision` are injected,
-/// and `environment` is the `PROMPTFORGE_PROFILE` value a boot would read.
+/// What a boot reads before loading `config_path`: the env file beside it,
+/// then `PROMPTFORGE_PROFILE`, which that file may set.
+fn boot_environment(config_path: &Path) -> Option<String> {
+    crate::runner::load_env_file(&config_path.with_extension("env"));
+    std::env::var("PROMPTFORGE_PROFILE").ok()
+}
+
+/// The testable body of [`init`]: `gather`, `environment`, and `provision`
+/// are injected. `environment` receives the resolved configuration path and
+/// returns the `PROMPTFORGE_PROFILE` value a boot would read.
 fn init_in(
     explicit: Option<PathBuf>,
     gather: impl FnOnce() -> Result<Locations, BootError>,
     stt: InstallerStt,
-    environment: Option<&str>,
+    environment: impl FnOnce(&Path) -> Option<String>,
     provision: impl FnOnce(&Config) -> Result<(), InitError>,
 ) -> Result<PathBuf, InitError> {
     // Unlike a boot, which refuses a missing explicit file, init writes the
-    // default there: generating a config is what it is for.
+    // default there: generating a config is what it is for. A dangling
+    // symlink is not missing: create-new would refuse to follow it.
     let path = match explicit {
-        Some(path) if !path.exists() => generate_default(&path, stt),
+        Some(path) if path.symlink_metadata().is_err() => generate_default(&path, stt),
         explicit => resolve_in(explicit, gather, stt),
     }
     .map_err(|error| InitError(InitRepr::Resolve(error)))?;
-    if stt == InstallerStt::Omitted {
-        return Ok(path);
-    }
-    crate::runner::load_env_file(&path.with_extension("env"));
-    let selection = ProfileSelection::new(None, environment);
+    let environment = environment(&path);
+    let selection = ProfileSelection::new(None, environment.as_deref());
     let config = Config::load(&path, &selection).map_err(|source| {
         InitError(InitRepr::Load {
             path: path.clone(),
             source,
         })
     })?;
-    provision(&config)?;
+    if stt == InstallerStt::Included {
+        provision(&config)?;
+    }
     Ok(path)
 }
 
@@ -121,6 +130,10 @@ fn init_in(
 /// store's progress text through [`progress::ProgressLines`].
 #[cfg(feature = "stt")]
 fn provision_speech_artifacts(config: &Config) -> Result<(), InitError> {
+    if config.stt_models().is_empty() {
+        println!("the selected profile declares no [[stt_model]]; no speech-to-text to provision");
+        return Ok(());
+    }
     let hub = gateway_progress::ProgressHub::new();
     let activity = std::sync::Arc::new(hub.begin("Provisioning speech-to-text"));
     let printer = progress::Printer::spawn(hub.subscribe());

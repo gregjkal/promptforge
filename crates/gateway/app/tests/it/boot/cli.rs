@@ -1,5 +1,5 @@
 //! Non-serving invocations: the version and help flags, the `diagnostics`
-//! report, and a fatal boot error's logged chain.
+//! report, `init --no-stt`, and a fatal boot error's logged chain.
 
 use std::time::Duration;
 
@@ -251,5 +251,88 @@ fn a_fatal_boot_error_lands_in_the_log_with_its_chain() {
             .last()
             .is_some_and(|line| line.contains("gateway exiting after a fatal error")),
         "the fatal terminal record is last: {log}"
+    );
+}
+
+/// Runs `init --no-stt --config <config>` with the profile directory at
+/// `home` and no ambient profile or test variable.
+fn init_without_stt(home: &std::path::Path, config: &std::path::Path) -> std::process::Output {
+    std::process::Command::new(env!("CARGO_BIN_EXE_promptforge-gateway"))
+        .args(["init", "--no-stt", "--config"])
+        .arg(config)
+        .env("USERPROFILE", home)
+        .env("HOME", home)
+        .env_remove("RUST_LOG")
+        .env_remove("PROMPTFORGE_PROFILE")
+        .env_remove("PROMPTFORGE_INIT_TEST_KEY")
+        .env_remove("PROMPTFORGE_GATEWAY_CONFIG")
+        .output()
+        .expect("the init invocation runs")
+}
+
+/// `init` loads the config as a boot does: the env file beside it first,
+/// so `${VAR}` resolves from it, and then `PROMPTFORGE_PROFILE`, which that
+/// file may set. It never logs, rotates, or writes a discovery file.
+#[test]
+fn init_loads_the_env_file_beside_the_config_before_selecting() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = write_config(
+        &temp,
+        "config-version = 0\n\n[server]\nbind = \"127.0.0.1:0\"\n\
+         api_key = \"${PROMPTFORGE_INIT_TEST_KEY}\"\n\n\
+         [[profile]]\nname = \"main\"\nmodels = []\n"
+            .to_owned(),
+    );
+    let env_file = config.with_extension("env");
+    std::fs::write(&env_file, "PROMPTFORGE_INIT_TEST_KEY=from-env-file\n").expect("write env file");
+
+    let output = init_without_stt(temp.path(), &config);
+    assert!(
+        output.status.success(),
+        "the env file resolves the key: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("gateway initialized from"),
+        "{output:?}"
+    );
+    assert!(
+        !temp.path().join(".promptforge/logs").exists(),
+        "init never starts logging"
+    );
+    assert!(
+        !temp.path().join(".promptforge/run/gateway.json").exists(),
+        "init writes no gateway discovery file"
+    );
+
+    std::fs::write(
+        &env_file,
+        "PROMPTFORGE_INIT_TEST_KEY=from-env-file\nPROMPTFORGE_PROFILE=absent\n",
+    )
+    .expect("rewrite env file");
+    let output = init_without_stt(temp.path(), &config);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "the env file's profile is selected"
+    );
+    assert!(stderr.contains("absent"), "{stderr}");
+}
+
+/// An existing config that does not load fails `init` with the chain
+/// naming its path, under `--no-stt` too, and is left byte-identical.
+#[test]
+fn init_fails_on_an_unloadable_config_and_names_it() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = write_config(&temp, "not toml [".to_owned());
+
+    let output = init_without_stt(temp.path(), &config);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{stderr}");
+    assert!(stderr.contains(&config.display().to_string()), "{stderr}");
+    assert!(stderr.contains("caused by:"), "{stderr}");
+    assert_eq!(
+        std::fs::read_to_string(&config).expect("read the config"),
+        "not toml ["
     );
 }

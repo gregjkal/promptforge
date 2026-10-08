@@ -133,6 +133,38 @@ fn linux_workshop_ignores_an_empty_appimage() {
 }
 
 #[test]
+fn linux_workshop_prefers_the_gateway_beside_its_appimage_to_one_in_its_mount() {
+    let root = tempfile::TempDir::new().expect("tempdir");
+    let install = root.path().join("PromptForge");
+    let appimage = plant(&install, Path::new(WORKSHOP_APPIMAGE_NAME));
+    let installed = plant(&install, Path::new("promptforge-gateway"));
+    let bin = root.path().join("mount").join("usr").join("bin");
+    let workshop = plant(&bin, Path::new("promptforge-workshop"));
+    plant(&bin, Path::new("promptforge-gateway"));
+
+    assert_eq!(
+        gateway_for(Layout::Linux, &workshop, Some(appimage.as_os_str())),
+        Some(installed)
+    );
+}
+
+#[test]
+fn linux_workshop_ignores_a_relative_appimage() {
+    let root = tempfile::TempDir::new().expect("tempdir");
+    let workshop = root.path().join("bin").join("promptforge-workshop");
+
+    assert_eq!(
+        gateway_candidates(
+            Layout::Linux,
+            &workshop,
+            Some(OsStr::new(WORKSHOP_APPIMAGE_NAME))
+        ),
+        vec![root.path().join("bin").join("promptforge-gateway")],
+        "a relative $APPIMAGE adds no candidate resolved against the working directory"
+    );
+}
+
+#[test]
 fn linux_gateway_finds_the_appimage_by_name_in_its_own_directory() {
     let root = tempfile::TempDir::new().expect("tempdir");
     let appimage = plant(root.path(), Path::new(WORKSHOP_APPIMAGE_NAME));

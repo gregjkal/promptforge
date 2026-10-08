@@ -222,7 +222,7 @@ struct Tray {
     handle: Option<GatewayHandle>,
     /// The one-time browser handoff URL for the Settings item.
     auth_url: String,
-    /// The workshop exe beside ours, when present.
+    /// The installed Workshop, when present.
     workshop_exe: Option<PathBuf>,
 }
 

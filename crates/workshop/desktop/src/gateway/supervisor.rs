@@ -74,9 +74,9 @@ pub(crate) fn supervise(
     };
     let run_dir =
         gateway_api_discovery::default_run_dir().context("locate the sidecar run directory")?;
-    let exe = std::env::current_exe().context("locate the executable")?;
-    let sibling = boot::sibling_gateway(&exe);
-    let missing = boot::missing_gateway(&exe);
+    let install = boot::WorkshopInstall::current()?;
+    let sibling = install.gateway();
+    let missing = install.missing_gateway();
     let supervisor_publication = updater.clone();
     GatewaySupervisor::spawn_with_publication(supervisor_publication, move |cancellation| {
         run_supervision(

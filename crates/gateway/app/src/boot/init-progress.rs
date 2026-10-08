@@ -18,13 +18,16 @@ const MIN_STEP: u64 = 5;
 const POLL: Duration = Duration::from_millis(100);
 
 /// Decides which activity texts print. A phase is the text without its
-/// trailing ` NN%`: a new phase prints a line ending the previous one and
-/// a line starting itself; within a phase a percent line prints only when
-/// a second has passed and the percent moved at least five points.
+/// trailing ` NN%`: a new phase prints a line starting itself, and a line
+/// ending the previous one when that phase reported a percent. A status
+/// such as `Provisioning whisper library` reports none and ends only when
+/// its work does, after later phases, so it gets no end line. Within a
+/// phase a percent line prints only when a second has passed and the
+/// percent moved at least five points.
 #[derive(Debug, Default)]
 pub(super) struct ProgressLines {
     phase: Option<String>,
-    percent: u64,
+    percent: Option<u64>,
     printed: Option<Instant>,
 }
 
@@ -39,7 +42,7 @@ impl ProgressLines {
         if self.phase.as_deref() != Some(label) {
             let mut lines: Vec<String> = self.finish().into_iter().collect();
             self.phase = Some(label.to_owned());
-            self.percent = percent.unwrap_or(0);
+            self.percent = percent;
             self.printed = Some(now);
             lines.push(text.to_owned());
             return lines;
@@ -50,19 +53,23 @@ impl ProgressLines {
         let due = self
             .printed
             .is_none_or(|printed| now.saturating_duration_since(printed) >= MIN_INTERVAL);
-        if due && percent >= self.percent.saturating_add(MIN_STEP) {
-            self.percent = percent;
+        let moved = self
+            .percent
+            .is_none_or(|last| percent >= last.saturating_add(MIN_STEP));
+        if due && moved {
+            self.percent = Some(percent);
             self.printed = Some(now);
             return vec![text.to_owned()];
         }
         Vec::new()
     }
 
-    /// The line ending the current phase, if one is open.
+    /// The line ending the current phase, if one is open and reported a
+    /// percent.
     pub(super) fn finish(&mut self) -> Option<String> {
         self.printed = None;
-        self.percent = 0;
-        self.phase.take().map(|label| format!("{label}: done"))
+        let label = self.phase.take()?;
+        self.percent.take().map(|_| format!("{label}: done"))
     }
 }
 

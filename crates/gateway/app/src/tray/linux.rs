@@ -430,11 +430,11 @@ impl logic::RunKeyStore for XdgAutostart {
     }
 }
 
-/// The workshop exe beside this process's exe, when the installer laid
-/// one there.
+/// The installed Workshop for this gateway, when the installer laid one
+/// down.
 fn probe_workshop() -> Option<PathBuf> {
     match std::env::current_exe() {
-        Ok(exe) => logic::workshop_sibling(&exe),
+        Ok(exe) => gateway_api_discovery::installed_workshop(&exe),
         Err(error) => {
             tracing::warn!("could not locate the gateway executable: {error}");
             None

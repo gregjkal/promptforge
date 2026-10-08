@@ -1,4 +1,4 @@
-﻿//! PromptForge inference gateway.
+//! PromptForge inference gateway.
 //!
 //! A small always-on service that accepts OpenAI-compatible chat
 //! completions, holds the backend credential, resolves the request's model
@@ -121,6 +121,7 @@ use gateway_routing::queue;
 use gateway_local as local;
 
 pub use crate::api_error::{ServeError, StartupError, StartupErrorKind};
+pub use crate::boot::init::{InitError, init};
 #[cfg(not(feature = "local"))]
 use crate::boot_load::LOCAL_MODELS_UNSUPPORTED;
 #[cfg(not(feature = "stt"))]

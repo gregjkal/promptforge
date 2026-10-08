@@ -321,7 +321,7 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
 
 <step-2>
 
-### Step 2: `promptforge-gateway init` [pending]
+### Step 2: `promptforge-gateway init` [completed]
 
 - Component: `gateway`, `gateway-stt`
 
@@ -336,6 +336,12 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
   - `ProgressLines` with injected instants: a simulated 600 MB download stepping one percent every 10 ms prints at most one line per second and per 5 points, plus start and finish lines.
   - `main-tests.rs`: `init`, `init --no-stt`, and `init --config PATH` parse; serving flags after `init` are usage errors.
   - Remove the `from_dword` test.
+- As built:
+  - The code lives in `crates/gateway/app/src/boot/init.rs` with `init-progress.rs` (the `ProgressLines` filter and the printer thread) and `init-tests.rs`, re-exported as `gateway::{init, InitError}`. `InitError` is opaque over a private cause enum, as `StartupError` is.
+  - A `--config PATH` that names no file gets the default written there; a serving boot still refuses a missing explicit file.
+  - The printer prints the activity's opening text and ends the last phase with a done line only on success; a failure ends with `main`'s error chain.
+  - Two files crossed the 500-line ceiling: `gateway-stt`'s inline artifact tests moved to `artifacts-tests.rs`, and `main.rs`'s argument parsing moved to `main/args.rs`. That gave `main.rs` three child files, so `main-tests.rs` and `main-logging-tests.rs` moved into `src/main/` as `tests.rs` and `logging-tests.rs`, wired with `#[path]` as `build-workshop` does.
+  - Smoke: `init --no-stt --config <new path>` writes the config and its state file; `init` on a config whose model file is missing downloads the real whisper library with progress lines, then exits 1 with the chain naming the model and the missing path.
 - Verify: `cargo test --locked -p gateway --all-features --lib boot`, `cargo test --locked -p gateway --all-features --bin promptforge-gateway`, `cargo test --locked -p gateway-stt --all-features --lib artifacts`; clippy with `--all-features` and the headless `cargo check -p gateway --no-default-features`; fmt; docs.
 - Commit: subject `Add the gateway init command that provisions speech at install time`.
 

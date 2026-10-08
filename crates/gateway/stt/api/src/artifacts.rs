@@ -62,6 +62,22 @@ pub(crate) fn prepare(
     )
 }
 
+/// Provisions everything the speech load needs for `config` - the whisper
+/// library for its `[stt]` backend, each selected `[[stt_model]]`, and the
+/// pinned Silero model - and starts no decoder, so a later load finds them
+/// cached. `progress` receives the artifact store's download text.
+///
+/// # Errors
+/// Returns the [`SpeechError`] the speech load reports for the same
+/// artifact; a fired `cancel` returns [`SpeechError::InitialLoadCancelled`].
+pub fn provision(
+    config: &Config,
+    progress: Option<&Arc<Activity>>,
+    cancel: &CancellationToken,
+) -> Result<(), SpeechError> {
+    prepare(config, progress, cancel).map(drop)
+}
+
 /// Body of [`prepare`] with the whisper library provision and the Silero
 /// pin injectable, so a test can observe the backend `[stt]` and the load
 /// token it hands over without probing the machine's GPUs or downloading a

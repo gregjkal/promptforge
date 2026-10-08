@@ -6,9 +6,11 @@
 //! the working directory, then in the user profile's `.promptforge`
 //! directory. When no location holds a `gateway.toml`, first-run
 //! generation writes the sidecar default - loopback on an OS-assigned
-//! port, a fresh random bearer key, the recommended STT pair unless the
-//! installer declined it - into the profile location, and the boot
-//! proceeds from it.
+//! port, a fresh random bearer key, the recommended STT pair - into the
+//! profile location, and the boot proceeds from it. The installers run
+//! `promptforge-gateway init` ([`init`]) first, which generates the same
+//! default (without the STT pair under `--no-stt`) and provisions the
+//! speech artifacts it declares.
 
 use std::path::{Path, PathBuf};
 
@@ -30,51 +32,14 @@ pub(crate) const SHEET_URL_ENV: &str = "PROMPTFORGE_MODELS_SHEET_URL";
 /// The sheet cache file name inside the profile directory.
 pub(crate) const CACHE_FILE_NAME: &str = "cloud-provider-models.json";
 
-/// The installer's STT choice for first-run generation.
-///
-/// The NSIS components page records the choice as the `InstallSTT` DWORD
-/// under `HKCU\Software\PromptForge\PromptForge`; a bare
-/// `promptforge-gateway` run outside the installer finds no value and ships
-/// STT, as does every non-Windows machine.
+/// Whether first-run generation declares the recommended STT pair.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum InstallerStt {
     /// The generated config includes the recommended STT pair.
     Included,
-    /// The installer was told to skip STT; the generated config omits the
-    /// pair and the profile selects nothing.
+    /// `init --no-stt` declined STT; the generated config omits the pair
+    /// and the profile selects nothing.
     Omitted,
-}
-
-impl InstallerStt {
-    /// Reads the installer's recorded choice. Absent means included.
-    #[must_use]
-    pub(crate) fn read() -> InstallerStt {
-        installer_stt()
-    }
-
-    /// Maps the installer's `InstallSTT` DWORD: zero omits STT; absent or
-    /// nonzero ships it. Compiled on every platform - gating it to Windows
-    /// would leave `Omitted` with no construction site elsewhere, and
-    /// `dead_code` fires under the Linux CI clippy run.
-    #[must_use]
-    fn from_dword(value: Option<u32>) -> InstallerStt {
-        match value {
-            Some(0) => InstallerStt::Omitted,
-            _ => InstallerStt::Included,
-        }
-    }
-}
-
-/// The Windows read of the installer's choice.
-#[cfg(windows)]
-fn installer_stt() -> InstallerStt {
-    InstallerStt::from_dword(registry::install_stt_dword())
-}
-
-/// Non-Windows machines have no installer registry; the absent value ships STT.
-#[cfg(not(windows))]
-fn installer_stt() -> InstallerStt {
-    InstallerStt::from_dword(None)
 }
 
 #[cfg(windows)]
@@ -83,6 +48,8 @@ fn installer_stt() -> InstallerStt {
     reason = "the registry shims (RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, RegDeleteValueW) are raw Win32 with no safe wrapper"
 )]
 pub(crate) mod registry;
+
+pub(crate) mod init;
 
 /// A boot-time discovery or first-run generation failure.
 #[derive(Debug, thiserror::Error)]
@@ -170,7 +137,7 @@ impl Locations {
 /// Returns [`BootError`] when a process location cannot be determined or
 /// the generated default cannot be written.
 pub(crate) fn resolve_boot_config(explicit: Option<PathBuf>) -> Result<PathBuf, BootError> {
-    resolve_in(explicit, Locations::gather, InstallerStt::read())
+    resolve_in(explicit, Locations::gather, InstallerStt::Included)
 }
 
 /// The testable resolution chain: `gather` runs only when `explicit` is

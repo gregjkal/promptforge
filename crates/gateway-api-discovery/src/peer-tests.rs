@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 
 use super::{
     GATEWAY_BUNDLE_NAME, Layout, WORKSHOP_APPIMAGE_NAME, WORKSHOP_BUNDLE_NAME, bundle_exe,
-    first_file, gateway_candidates, installed_gateway, installed_workshop, workshop_candidates,
+    first_file, gateway_candidates, installed_gateway, installed_workshop, translocated,
+    workshop_candidates,
 };
 
 /// Plants an empty file at `root/relative`, creating its directories.
@@ -116,23 +117,6 @@ fn linux_workshop_finds_the_gateway_beside_its_appimage() {
 }
 
 #[test]
-fn linux_workshop_ignores_an_empty_appimage() {
-    let root = tempfile::TempDir::new().expect("tempdir");
-    plant(root.path(), Path::new("promptforge-gateway"));
-    let mount = root
-        .path()
-        .join("mount")
-        .join("usr")
-        .join("bin")
-        .join("promptforge-workshop");
-
-    assert_eq!(
-        gateway_for(Layout::Linux, &mount, Some(OsStr::new(""))),
-        None
-    );
-}
-
-#[test]
 fn linux_workshop_prefers_the_gateway_beside_its_appimage_to_one_in_its_mount() {
     let root = tempfile::TempDir::new().expect("tempdir");
     let install = root.path().join("PromptForge");
@@ -149,19 +133,27 @@ fn linux_workshop_prefers_the_gateway_beside_its_appimage_to_one_in_its_mount() 
 }
 
 #[test]
-fn linux_workshop_ignores_a_relative_appimage() {
+fn linux_workshop_ignores_a_relative_or_empty_appimage() {
     let root = tempfile::TempDir::new().expect("tempdir");
     let workshop = root.path().join("bin").join("promptforge-workshop");
 
-    assert_eq!(
-        gateway_candidates(
-            Layout::Linux,
-            &workshop,
-            Some(OsStr::new(WORKSHOP_APPIMAGE_NAME))
-        ),
-        vec![root.path().join("bin").join("promptforge-gateway")],
-        "a relative $APPIMAGE adds no candidate resolved against the working directory"
-    );
+    for appimage in [WORKSHOP_APPIMAGE_NAME, ""] {
+        assert_eq!(
+            gateway_candidates(Layout::Linux, &workshop, Some(OsStr::new(appimage))),
+            vec![root.path().join("bin").join("promptforge-gateway")],
+            "$APPIMAGE {appimage:?} adds no candidate resolved against the working directory"
+        );
+    }
+}
+
+#[test]
+fn translocation_is_read_from_the_executable_path() {
+    assert!(translocated(Path::new(
+        "/private/var/folders/xy/T/AppTranslocation/0A1B/d/PromptForge.app/Contents/MacOS/promptforge-workshop"
+    )));
+    assert!(!translocated(Path::new(
+        "/Applications/PromptForge/PromptForge.app/Contents/MacOS/promptforge-workshop"
+    )));
 }
 
 #[test]

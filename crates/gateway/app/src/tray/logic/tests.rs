@@ -216,34 +216,6 @@ mod macos {
     use super::super::macos::*;
     use std::path::{Path, PathBuf};
 
-    #[test]
-    fn the_bundle_walks_up_from_contents_macos_to_the_app() {
-        let exe = Path::new("/Applications/PromptForge.app/Contents/MacOS/promptforge-gateway");
-        assert_eq!(
-            app_bundle(exe).as_deref(),
-            Some(Path::new("/Applications/PromptForge.app"))
-        );
-    }
-
-    #[test]
-    fn the_bundle_probe_rejects_unbundled_and_partial_paths() {
-        assert_eq!(
-            app_bundle(Path::new("/usr/local/bin/promptforge-gateway")),
-            None
-        );
-        assert_eq!(
-            app_bundle(Path::new("/Applications/PromptForge.app/Contents/MacOS")),
-            None,
-            "the exe itself must sit below MacOS"
-        );
-        assert_eq!(
-            app_bundle(Path::new("/opt/x/Contents/MacOS/promptforge-gateway")),
-            None,
-            "the parent two levels up must be a .app"
-        );
-        assert_eq!(app_bundle(Path::new("promptforge-gateway")), None);
-    }
-
     /// Writes a minimal bundle fixture: `Contents/Info.plist` with the
     /// given principal executable.
     fn bundle_fixture(dir: &Path, principal: &str) -> PathBuf {

@@ -65,8 +65,9 @@ pub use crate::paths::{
     lock_file_path, run_dir,
 };
 pub use crate::peer::{
-    GATEWAY_BUNDLE_NAME, WORKSHOP_APPIMAGE_NAME, WORKSHOP_BUNDLE_NAME, gateway_search_paths,
-    installed_gateway, installed_workshop, running_appimage, translocated, translocation_remedy,
+    GATEWAY_BUNDLE_NAME, WORKSHOP_APPIMAGE_NAME, WORKSHOP_BUNDLE_NAME, app_bundle,
+    gateway_search_paths, installed_gateway, installed_workshop, running_appimage, translocated,
+    translocation_remedy,
 };
 pub use crate::shutdown::{ShutdownError, request_shutdown, request_shutdown_before};
 pub use crate::stale::resolve_cancellable;

@@ -11,12 +11,9 @@ use crate::stale::StaleReason;
 use crate::sys::{ProcessIdentity, process_identity};
 use crate::{CancellationToken, GatewayDiscoveryFile};
 
-/// The image file name a live Gateway process must have.
-#[cfg(windows)]
-pub(crate) const GATEWAY_IMAGE_NAME: &str = "promptforge-gateway.exe";
-/// The image file name a live Gateway process must have.
-#[cfg(not(windows))]
-pub(crate) const GATEWAY_IMAGE_NAME: &str = "promptforge-gateway";
+/// The image file name a live Gateway process must have: the gateway
+/// executable the installed-peer lookup finds.
+pub(crate) const GATEWAY_IMAGE_NAME: &str = crate::peer::Layout::CURRENT.gateway_exe();
 
 /// The bearer-gated route used to prove the presented key is accepted.
 const KEY_PROBE_PATH: &str = "/v1/models";

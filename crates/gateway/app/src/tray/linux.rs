@@ -364,7 +364,7 @@ struct SniTray {
 }
 
 impl SniTray {
-    /// Builds the tray's initial state: Starting phase, the sibling and
+    /// Builds the tray's initial state: Starting phase, the Workshop and
     /// login probes read once (the pre-display hook keeps them honest).
     fn new(handle: &GatewayHandle, quit: tokio::sync::mpsc::UnboundedSender<()>) -> SniTray {
         let login = XdgAutostart::new();

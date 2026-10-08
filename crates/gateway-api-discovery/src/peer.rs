@@ -8,7 +8,8 @@
 //!   `PromptForge Gateway.app`, each running from `Contents/MacOS/`.
 //! - On Linux, as `PromptForge.AppImage` beside `promptforge-gateway`.
 //!   Workshop runs from the AppImage's mount, so it finds the gateway
-//!   through `$APPIMAGE`, the path of the AppImage file, and looks there
+//!   through `$APPIMAGE`, the path of the AppImage file, when `$APPDIR`
+//!   confirms Workshop runs from that AppImage, and looks there
 //!   before its own directory: a gateway inside the mount loses its files
 //!   when Workshop exits and the mount goes away. The gateway finds
 //!   the AppImage by name in its own directory and never reads `$APPIMAGE`:
@@ -81,17 +82,39 @@ impl Layout {
     }
 }
 
-/// Locates the installed gateway executable for the Workshop running from
-/// `workshop_exe`.
+/// The AppImage Workshop runs from, given its `$APPIMAGE` and `$APPDIR`.
 ///
-/// `appimage` is Workshop's `$APPIMAGE`; a relative or empty value counts
-/// as unset, so the lookup never resolves against the working directory.
-/// Returns the first existing candidate: on Linux `promptforge-gateway`
-/// beside the AppImage, then beside `workshop_exe`, then the sibling
-/// gateway bundle on macOS.
+/// The AppImage runtime sets both: `$APPIMAGE` names the file and `$APPDIR`
+/// the mount Workshop's executable runs from. A value counts only when both
+/// are absolute and `workshop_exe` sits under `$APPDIR`, so a relative
+/// value never resolves against the working directory and a value inherited
+/// from another AppImage's environment is ignored.
 #[must_use]
-pub fn installed_gateway(workshop_exe: &Path, appimage: Option<&OsStr>) -> Option<PathBuf> {
-    first_file(gateway_candidates(Layout::CURRENT, workshop_exe, appimage))
+pub fn running_appimage(
+    workshop_exe: &Path,
+    appimage: Option<&OsStr>,
+    appdir: Option<&OsStr>,
+) -> Option<PathBuf> {
+    let appimage = Path::new(appimage?);
+    let appdir = Path::new(appdir?);
+    let inside = appimage.is_absolute() && appdir.is_absolute() && workshop_exe.starts_with(appdir);
+    inside.then(|| appimage.to_path_buf())
+}
+
+/// Locates the installed gateway executable for the Workshop running from
+/// `workshop_exe`, inside `appimage` when [`running_appimage`] found one.
+/// Returns the first existing path of [`gateway_search_paths`].
+#[must_use]
+pub fn installed_gateway(workshop_exe: &Path, appimage: Option<&Path>) -> Option<PathBuf> {
+    first_file(gateway_search_paths(workshop_exe, appimage))
+}
+
+/// The paths [`installed_gateway`] checks, in order: on Linux
+/// `promptforge-gateway` beside the AppImage, then beside `workshop_exe`,
+/// then the sibling gateway bundle on macOS.
+#[must_use]
+pub fn gateway_search_paths(workshop_exe: &Path, appimage: Option<&Path>) -> Vec<PathBuf> {
+    gateway_candidates(Layout::CURRENT, workshop_exe, appimage)
 }
 
 /// Locates the installed Workshop executable for the gateway running from
@@ -112,15 +135,11 @@ fn first_file(candidates: Vec<PathBuf>) -> Option<PathBuf> {
 fn gateway_candidates(
     layout: Layout,
     workshop_exe: &Path,
-    appimage: Option<&OsStr>,
+    appimage: Option<&Path>,
 ) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
-    let appimage_dir = appimage
-        .map(Path::new)
-        .filter(|path| path.is_absolute())
-        .and_then(Path::parent);
     if matches!(layout, Layout::Linux)
-        && let Some(dir) = appimage_dir
+        && let Some(dir) = appimage.and_then(Path::parent)
     {
         candidates.push(dir.join(layout.gateway_exe()));
     }

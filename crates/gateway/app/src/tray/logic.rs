@@ -4,7 +4,7 @@
 //! these so the idiom cannot drift between platforms, and every rule is
 //! unit-tested here without a tray - CI is headless.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// The tray icon's visual phases: grayed while starting, steady while
 /// running, distinct on error. The status label and tooltip use the
@@ -128,23 +128,6 @@ pub(crate) fn menu_spec(
         MenuItemSpec::Separator,
         MenuItemSpec::Quit,
     ]
-}
-
-/// The workshop executable's file name beside the gateway's.
-#[cfg(target_os = "windows")]
-const WORKSHOP_EXE_NAME: &str = "promptforge-workshop.exe";
-
-/// The workshop executable's file name beside the gateway's.
-#[cfg(not(target_os = "windows"))]
-const WORKSHOP_EXE_NAME: &str = "promptforge-workshop";
-
-/// Probes for the workshop executable beside the gateway's own
-/// executable. The installer lays both in one directory, so presence
-/// means the tray's Workshop item can launch it; absence (a Gateway-only
-/// install) means the item stays disabled.
-pub(crate) fn workshop_sibling(gateway_exe: &Path) -> Option<PathBuf> {
-    let candidate = gateway_exe.parent()?.join(WORKSHOP_EXE_NAME);
-    candidate.is_file().then_some(candidate)
 }
 
 /// The OS's launch-at-login store, behind a seam so the toggle logic is

@@ -1,6 +1,5 @@
 //! Continuous local Gateway supervision and recovery.
 
-use std::path::Path;
 use std::time::Duration;
 
 use anyhow::Context as _;
@@ -75,12 +74,8 @@ pub(crate) fn supervise(
     };
     let run_dir =
         gateway_api_discovery::default_run_dir().context("locate the sidecar run directory")?;
-    let exe_dir = std::env::current_exe()
-        .context("locate the executable")?
-        .parent()
-        .map(Path::to_path_buf)
-        .context("the executable has no parent directory")?;
-    let sibling = boot::sibling_gateway(&exe_dir);
+    let exe = std::env::current_exe().context("locate the executable")?;
+    let sibling = boot::sibling_gateway(&exe);
     let supervisor_publication = updater.clone();
     GatewaySupervisor::spawn_with_publication(supervisor_publication, move |cancellation| {
         run_supervision(
@@ -108,7 +103,7 @@ pub(crate) fn supervise(
             },
             |cancellation| {
                 let exe = sibling.as_deref().context(
-                    "the local gateway disappeared and no sibling gateway executable is installed",
+                    "the local gateway disappeared and no gateway executable is installed",
                 )?;
                 let recovery = launch_and_attach_cancellable(&run_dir, exe, cancellation)?;
                 validate_recovery(recovery, cancellation)

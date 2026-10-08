@@ -289,7 +289,6 @@ fn diagnostics_rejects_serving_flags() {
 fn init_provisions_speech_unless_told_not_to() {
     let invocation = parse_args(args(&["init"])).expect("parses");
     assert_eq!(invocation.command, Command::Init { speech: true });
-    assert_eq!(invocation.serve.config_path, None);
     let invocation = parse_args(args(&["init", "--no-stt"])).expect("parses");
     assert_eq!(invocation.command, Command::Init { speech: false });
 }

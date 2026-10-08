@@ -1,6 +1,6 @@
 //! The `runvil-gateway` binary:
 //! `runvil-gateway [--config PATH] [--profile NAME] [--no-tray] [--login] [--print-url] [--browser]`,
-//! or `runvil-gateway diagnostics [--config PATH]`.
+//! `runvil-gateway diagnostics [--config PATH]`, or `runvil-gateway init [--no-stt] [--config PATH]`.
 //!
 //! This is a thin shell: it parses arguments into a typed `ServeOptions` and
 //! hands off to [`run_with_tray`], which owns the tokio runtime, provisioning,
@@ -86,6 +86,21 @@ fn main() -> ExitCode {
             gateway::diagnostics_json(app_options.serve.config_path)
         );
         return ExitCode::SUCCESS;
+    }
+
+    // Install-time initialization is not a boot either: it never takes the
+    // instance lease, so it runs beside a serving gateway.
+    if let LaunchCommand::Init { speech } = app_options.command {
+        return match gateway::init(app_options.serve.config_path, speech) {
+            Ok(path) => {
+                println!("gateway initialized from {}", path.display());
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                print_error_chain(&error);
+                ExitCode::FAILURE
+            }
+        };
     }
 
     #[cfg(feature = "test-fixtures")]

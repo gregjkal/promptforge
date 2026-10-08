@@ -251,7 +251,7 @@ fn rejects_unknown_flag() {
 }
 
 #[test]
-fn diagnostics_is_the_only_subcommand() {
+fn diagnostics_is_a_subcommand() {
     let invocation = AppOptions::from_args(args(&["diagnostics"])).expect("parses");
     assert_eq!(invocation.command, LaunchCommand::Diagnostics);
     assert_eq!(invocation.serve.config_path, None);
@@ -279,6 +279,54 @@ fn diagnostics_rejects_serving_flags() {
             "diagnostics rejects {rest}"
         );
     }
+}
+
+#[test]
+fn init_provisions_speech_unless_told_not_to() {
+    let invocation = AppOptions::from_args(args(&["init"])).expect("parses");
+    assert_eq!(invocation.command, LaunchCommand::Init { speech: true });
+    let invocation = AppOptions::from_args(args(&["init", "--no-stt"])).expect("parses");
+    assert_eq!(invocation.command, LaunchCommand::Init { speech: false });
+}
+
+#[test]
+fn init_accepts_a_config_path() {
+    let invocation = AppOptions::from_args(args(&["init", "--config", "gateway.toml", "--no-stt"]))
+        .expect("parses");
+    assert_eq!(invocation.command, LaunchCommand::Init { speech: false });
+    assert_eq!(
+        invocation.serve.config_path,
+        Some(PathBuf::from("gateway.toml"))
+    );
+}
+
+#[test]
+fn init_rejects_serving_flags() {
+    for rest in [
+        "--no-tray",
+        "--login",
+        "--print-url",
+        "--browser",
+        "--profile",
+    ] {
+        assert_eq!(
+            error_kind(&["init", rest]),
+            ErrorKind::UnknownArgument,
+            "init rejects {rest}"
+        );
+    }
+}
+
+#[test]
+fn init_has_its_own_help() {
+    let error = AppOptions::from_args(args(&["init", "--help"])).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::DisplayHelp);
+    let help = error.to_string();
+    assert!(help.contains("--no-stt"), "{help}");
+    assert!(help.contains("--config"), "{help}");
+    assert!(!help.contains("--no-tray"), "{help}");
+    let help = Cli::command().render_long_help().to_string();
+    assert!(help.contains("init"), "the root help lists init: {help}");
 }
 
 #[test]

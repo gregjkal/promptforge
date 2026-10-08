@@ -9,8 +9,8 @@ pub(crate) struct AppOptions {
     /// What the launch does.
     pub command: LaunchCommand,
 
-    /// What to serve. Under [`LaunchCommand::Diagnostics`] only the config path
-    /// is meaningful: the report names it.
+    /// What to serve. Under [`LaunchCommand::Diagnostics`] and
+    /// [`LaunchCommand::Init`] only the config path is meaningful.
     pub serve: ServeOptions,
 
     /// Whether the system tray occupies the main thread (default).
@@ -54,6 +54,14 @@ impl AppOptions {
                 print_url: false,
             },
 
+            Some(SubCommand::Init { no_stt }) => Self {
+                command: LaunchCommand::Init { speech: !no_stt },
+                serve: ServeOptions::new(config_path, None),
+                tray: false,
+                login: false,
+                print_url: false,
+            },
+
             None => Self {
                 command: LaunchCommand::Serve,
                 // `--login`'s contract is absolute - a login launch never opens a
@@ -77,6 +85,13 @@ pub(crate) enum LaunchCommand {
 
     /// Prints the diagnostics report and exits.
     Diagnostics,
+
+    /// Writes the default config when absent and, when `speech` holds,
+    /// provisions the speech artifacts it declares, then exits.
+    Init {
+        /// Whether to provision speech-to-text (`--no-stt` clears it).
+        speech: bool,
+    },
 }
 
 /// The command line as clap reads it
@@ -140,6 +155,14 @@ enum SubCommand {
     /// Print a JSON report of the state dir, config, logs, and gateway
     /// discovery file. Does not serve, rotate logs, or parse the config
     Diagnostics,
+
+    /// Write the default config when none exists, then download the
+    /// speech-to-text runtime and models it declares; the installers run this
+    Init {
+        /// Download nothing, and generate a config that declares no speech
+        #[arg(long)]
+        no_stt: bool,
+    },
 }
 
 /// Resolves the config path: the `--config` flag wins, then the
@@ -147,8 +170,8 @@ enum SubCommand {
 /// names an existing file. A stale env var warns and falls through to boot
 /// discovery: ambient state rots in ways a typed CLI path does not, and a
 /// forgotten variable must not hard-fail a first-run boot. A `--config`
-/// path is deliberate, so a missing file there stays an error
-/// downstream.
+/// path is deliberate, so a missing file there stays an error for a boot,
+/// and `init` writes the default there.
 ///
 /// Tests pass both sources explicitly and never touch the process
 /// environment (edition 2024 makes `set_var` unsafe); the existence check

@@ -161,6 +161,23 @@ fn toggle_login(tray: &mut Tray) {
     }
 }
 
+/// Logs why Open Workshop is disabled when the gateway runs from an App
+/// Translocation copy, where an installed Workshop beside the original is
+/// not visible. The tray calls it once at build: `probe_workshop` runs on
+/// every tick and stays silent.
+pub(super) fn log_translocation() {
+    if let Ok(exe) = std::env::current_exe()
+        && gateway_api_discovery::translocated(&exe)
+    {
+        tracing::warn!(
+            "Open Workshop is disabled: macOS runs PromptForge Gateway.app from a translocated \
+             copy at {}, where PromptForge.app is not visible if it is installed; {}",
+            exe.display(),
+            gateway_api_discovery::TRANSLOCATION_REMEDY
+        );
+    }
+}
+
 /// Ends the run loop. `stop` is observed once the current event finishes
 /// dispatching, and both call sites - the Quit menu action and the tick
 /// timer - run inside event processing, so the loop exits promptly.
@@ -169,22 +186,10 @@ fn request_quit(tray: &Tray) {
 }
 
 /// The installed Workshop for this gateway, when the installer laid one
-/// down. A translocated gateway cannot see the Workshop beside it, so the
-/// disabled menu item gets a logged reason and remedy.
+/// down.
 pub(super) fn probe_workshop() -> Option<PathBuf> {
     match std::env::current_exe() {
-        Ok(exe) => {
-            let workshop = gateway_api_discovery::installed_workshop(&exe);
-            if workshop.is_none() && gateway_api_discovery::translocated(&exe) {
-                tracing::warn!(
-                    "Open Workshop is disabled: macOS runs PromptForge Gateway.app from a \
-                     translocated copy at {}, where PromptForge.app is not visible; {}",
-                    exe.display(),
-                    gateway_api_discovery::TRANSLOCATION_REMEDY
-                );
-            }
-            workshop
-        }
+        Ok(exe) => gateway_api_discovery::installed_workshop(&exe),
         Err(error) => {
             tracing::warn!("could not locate the gateway executable: {error}");
             None

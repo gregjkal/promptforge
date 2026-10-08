@@ -76,6 +76,7 @@ pub(crate) fn supervise(
         gateway_api_discovery::default_run_dir().context("locate the sidecar run directory")?;
     let exe = std::env::current_exe().context("locate the executable")?;
     let sibling = boot::sibling_gateway(&exe);
+    let missing = boot::missing_gateway(&exe);
     let supervisor_publication = updater.clone();
     GatewaySupervisor::spawn_with_publication(supervisor_publication, move |cancellation| {
         run_supervision(
@@ -102,9 +103,9 @@ pub(crate) fn supervise(
                 }
             },
             |cancellation| {
-                let exe = sibling.as_deref().context(
-                    "the local gateway disappeared and no gateway executable is installed",
-                )?;
+                let exe = sibling
+                    .as_deref()
+                    .with_context(|| format!("the local gateway disappeared; {missing}"))?;
                 let recovery = launch_and_attach_cancellable(&run_dir, exe, cancellation)?;
                 validate_recovery(recovery, cancellation)
             },

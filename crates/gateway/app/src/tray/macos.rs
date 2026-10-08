@@ -53,7 +53,7 @@ use crate::tray::menu::{BuiltMenu, MenuBuildError};
 #[path = "macos-actions.rs"]
 mod actions;
 
-use self::actions::{act, probe_workshop, tick};
+use self::actions::{act, log_translocation, probe_workshop, tick};
 
 /// The status-refresh cadence: the label, tooltip, Workshop enabled bit,
 /// and login check all re-read their sources on this timer, never from
@@ -240,6 +240,9 @@ impl Tray {
         let glyph = Icon::from_rgba(glyph, ICON_SIZE, ICON_SIZE).map_err(TrayError::Icon)?;
         let auth_url = crate::auth::primitives::auth_url(handle.url(), handle.tray_key());
         let workshop_exe = probe_workshop();
+        if workshop_exe.is_none() {
+            log_translocation();
+        }
         let login = LoginService::new();
         let login_checked = login
             .as_ref()

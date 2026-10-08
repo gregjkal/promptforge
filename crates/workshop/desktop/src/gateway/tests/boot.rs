@@ -259,8 +259,12 @@ fn the_no_gateway_error_names_both_remedies() {
     let (_dir, workshop) = workshop_exe(false);
     let message = no_gateway_error(&workshop).to_string();
     assert!(
-        message.contains("promptforge-gateway"),
-        "the error names the Gateway component remedy: {message}"
+        message.contains(&workshop.display().to_string()),
+        "the error names the Workshop it searched from: {message}"
+    );
+    assert!(
+        message.contains(&format!("{GATEWAY_EXE_NAME} beside it")),
+        "the error names the beside-Workshop location: {message}"
     );
     assert!(
         message.contains("workshop.toml"),

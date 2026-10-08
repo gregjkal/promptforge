@@ -85,6 +85,9 @@ Var OldMainBinaryName
 ; Set when a running promptforge-gateway.exe was stopped in the Gateway
 ; section, so the Finalize section can relaunch it after the update.
 Var GatewayWasRunning
+; The exit code of the install-time `promptforge-gateway init`, or empty
+; when it did not run; the finish page reports a failure.
+Var GatewayInitExit
 
 ; Persists one component's checkbox state as a DWORD (1 = installed,
 ; 0 = declined) under the product key, so update and passive installs can
@@ -420,9 +423,10 @@ Function PageLeaveReinstall
  reinst_done:
 FunctionEnd
 
-; 4b. Components page: Gateway, Workshop, and STT are independently
-; checkable, all checked by default. Skipped in passive and update modes,
-; where .onInit forces the persisted selection onto the sections instead.
+; 4b. Components page: Gateway, Workshop, and STT are checkable, all
+; checked by default; STT requires Gateway (.onSelChange). Skipped in
+; passive and update modes, where .onInit forces the persisted selection
+; onto the sections instead.
 !define MUI_COMPONENTSPAGE_NODESC
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassiveOrUpdate
 !insertmacro MUI_PAGE_COMPONENTS
@@ -479,6 +483,10 @@ Function FinishPageShow
  SendMessage $mui.FinishPage.Run ${WM_SETTEXT} 0 "STR:Open PromptForge Gateway settings in your browser"
  ${Else}
  ShowWindow $mui.FinishPage.Run ${SW_HIDE}
+ ${EndIf}
+ ${If} $GatewayInitExit != ""
+ ${AndIf} $GatewayInitExit != 0
+ SendMessage $mui.FinishPage.Text ${WM_SETTEXT} 0 "STR:PromptForge Gateway is installed, but its first-run setup failed (exit code $GatewayInitExit), so speech to text is not ready yet. The details on the previous page show why. To retry, run promptforge-gateway.exe init from $INSTDIR."
  ${EndIf}
 FunctionEnd
 
@@ -575,6 +583,7 @@ Function .onInit
  ${OrIf} $PassiveMode = 1
  Call RestoreComponentSelections
  ${EndIf}
+ Call SelectComponentsFromCommandLine
 
  !if "${DISPLAYLANGUAGESELECTOR}" == "true"
  !insertmacro MUI_LANGDLL_DISPLAY
@@ -810,9 +819,39 @@ Section "PromptForge Gateway" SecGateway
  {{/each}}
 SectionEnd
 
-Section "Speech to Text (Transcription)" SecSTT
- ; No files: STT is a config gate. The Finalize section records the
- ; selection for the gateway's first-run config generation.
+Section "Speech to Text (downloads about 0.6 GB, 1.1 GB with an NVIDIA GPU)" SecSTT
+ ; No files: the -GatewayInit section's `promptforge-gateway init`
+ ; downloads the speech runtime and models into the user's profile.
+SectionEnd
+
+Section "-GatewayInit"
+ ; Install-time initialization: write the default config when none exists
+ ; and, with Speech to Text selected, download its runtime and models, so
+ ; speech works offline from the first launch. It runs after the STT
+ ; section because a section's id is defined only at its Section line.
+ ; Update installs skip it: a passive auto-update must never start a large
+ ; download, and the original install already ran it. nsExec waits,
+ ; returns the exit code, opens no console window, and streams init's
+ ; progress lines into the details pane. The install is currentUser, so
+ ; init runs as the installing user, whose profile holds the config and
+ ; the artifact store.
+ SectionGetFlags ${SecGateway} $0
+ IntOp $0 $0 & ${SF_SELECTED}
+ ${If} $0 = ${SF_SELECTED}
+ ${AndIf} $UpdateMode <> 1
+ SectionGetFlags ${SecSTT} $0
+ IntOp $0 $0 & ${SF_SELECTED}
+ ${If} $0 = ${SF_SELECTED}
+ DetailPrint "Downloading the speech to text runtime and models"
+ nsExec::ExecToLog '"$INSTDIR\promptforge-gateway.exe" init'
+ ${Else}
+ nsExec::ExecToLog '"$INSTDIR\promptforge-gateway.exe" init --no-stt'
+ ${EndIf}
+ Pop $GatewayInitExit
+ ${If} $GatewayInitExit != 0
+ DetailPrint "promptforge-gateway init failed (exit code $GatewayInitExit); Gateway stays installed"
+ ${EndIf}
+ ${EndIf}
 SectionEnd
 
 Section "-Finalize"
@@ -862,19 +901,6 @@ Section "-Finalize"
  !insertmacro PersistComponent ${SecGateway} Gateway
  !insertmacro PersistComponent ${SecWorkshop} Workshop
  !insertmacro PersistComponent ${SecSTT} STT
-
- ; The STT checkbox writes the first-run config gate: checked deletes the
- ; value (absent = STT on), unchecked writes 0. Update mode never touches
- ; it - the user's first run already consumed the original choice.
- ${If} $UpdateMode <> 1
- SectionGetFlags ${SecSTT} $0
- IntOp $0 $0 & ${SF_SELECTED}
- ${If} $0 = ${SF_SELECTED}
- DeleteRegValue HKCU "${MANUPRODUCTKEY}" "InstallSTT"
- ${Else}
- WriteRegDWORD HKCU "${MANUPRODUCTKEY}" "InstallSTT" 0
- ${EndIf}
- ${EndIf}
 
  ; Update mode installs over the top without uninstalling; delete the
  ; payloads of declined components or they would linger.
@@ -1127,6 +1153,45 @@ Function RestoreComponentSelections
  ${EndIf}
  ${EndIf}
 FunctionEnd
+; STT installs through the gateway's init, so it requires Gateway: with
+; Gateway unchecked, STT is cleared.
+Function EnforceSttNeedsGateway
+ SectionGetFlags ${SecGateway} $0
+ IntOp $0 $0 & ${SF_SELECTED}
+ ${If} $0 <> ${SF_SELECTED}
+ !insertmacro UnselectSection ${SecSTT}
+ ${EndIf}
+FunctionEnd
+
+Function .onSelChange
+ Call EnforceSttNeedsGateway
+FunctionEnd
+
+; Selects exactly the sections a /COMPONENTS= list names, for silent
+; installs in CI: /COMPONENTS=gateway,stt. Names are workshop, gateway,
+; and stt, comma separated, in any case.
+!macro SelectComponentIfListed LIST NAME SECTION_ID
+ ${StrLoc} $1 "${LIST}" ",${NAME}," ">"
+ ${If} $1 == ""
+ SectionSetFlags ${SECTION_ID} 0
+ ${Else}
+ SectionSetFlags ${SECTION_ID} ${SF_SELECTED}
+ ${EndIf}
+!macroend
+
+Function SelectComponentsFromCommandLine
+ ClearErrors
+ ${GetOptions} $CMDLINE "/COMPONENTS=" $0
+ ${If} ${Errors}
+ Return
+ ${EndIf}
+ ${StrCase} $0 ",$0," "L"
+ !insertmacro SelectComponentIfListed $0 workshop ${SecWorkshop}
+ !insertmacro SelectComponentIfListed $0 gateway ${SecGateway}
+ !insertmacro SelectComponentIfListed $0 stt ${SecSTT}
+ Call EnforceSttNeedsGateway
+FunctionEnd
+
 Function un.SkipIfPassive
  ${IfThen} $PassiveMode = 1 ${|} Abort ${|}
 FunctionEnd

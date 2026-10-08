@@ -352,11 +352,12 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
 
 <step-3>
 
-### Step 3: NSIS components run `init` [pending]
+### Step 3: NSIS components run `init` [completed; the pull request's NSIS compile check is pending]
 
 - Component: `crates/workshop/desktop/installer.nsi`
 
 - Covers todo `nsis-components`. No local test support; the pull request's `workshop-installer-smoke.yml` run compiles the template.
+- As built: `init` runs in a hidden `-GatewayInit` section placed after the STT section rather than inside the Gateway section, because NSIS defines `${SecSTT}` only at the STT `Section` line. It runs only when Gateway is selected. List membership for `/COMPONENTS=` uses the already-declared `${StrCase}` and `${StrLoc}` (`StrFunc.nsh`) on the comma-wrapped list instead of `${WordFind}`. The components page has no descriptions (`MUI_COMPONENTSPAGE_NODESC`), so the STT section's title states the download: about 0.6 GB, 1.1 GB with an NVIDIA GPU.
 - Gateway section: after the file copy, outside `/UPDATE`, run `"$INSTDIR\promptforge-gateway.exe" init` (plus `--no-stt` when STT is unchecked) through `nsExec::ExecToLog`, keep the exit code in a new `Var GatewayInitExit`, and `DetailPrint` a failure naming the code. When the code is nonzero, `FinishPageShow` replaces the finish text with a notice: Gateway stays installed, and rerunning `promptforge-gateway init` retries.
 - `.onSelChange`: when STT is selected and Gateway is not, clear STT.
 - `.onInit`: after `RestoreComponentSelections`, `${GetOptions} $CMDLINE "/COMPONENTS="` takes a comma list of `workshop`, `gateway`, `stt` and sets exactly those sections, then applies the same STT rule. Membership uses `WordFunc.nsh`'s `${WordFind}` on the comma-wrapped list.

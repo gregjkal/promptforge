@@ -13,7 +13,7 @@ use super::{
 #[cfg(windows)]
 use crate::gateway::boot::spawn_detached_windows_with;
 use crate::gateway::boot::{
-    GatewayPlan, no_gateway_error, plan_gateway, sibling_gateway, spawn_detached,
+    GatewayPlan, WorkshopInstall, no_gateway_error, plan_gateway, spawn_detached,
 };
 use crate::gateway::identity::GatewayAttachment;
 use crate::gateway::supervisor::RECOVERY_POLL_INTERVAL;
@@ -22,6 +22,14 @@ use crate::gateway::supervisor::RECOVERY_POLL_INTERVAL;
 mod launch_wait;
 
 const FIXTURE_PHASE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// A Workshop at `exe`, running from no AppImage.
+fn install(exe: &std::path::Path) -> WorkshopInstall {
+    WorkshopInstall {
+        exe: exe.to_path_buf(),
+        appimage: None,
+    }
+}
 
 #[cfg(windows)]
 #[test]
@@ -139,7 +147,7 @@ fn a_live_file_attaches_without_looking_for_a_sibling_exe() {
     file.write_to(run.path()).expect("write");
     let (_dir, exe) = workshop_exe(false);
 
-    match plan_gateway(run.path(), &exe, false, probe_own_image) {
+    match plan_gateway(run.path(), &install(&exe), false, probe_own_image) {
         GatewayPlan::Attach(attached) => assert_eq!(attached, file),
         other => panic!("a live gateway must be attached, not {other:?}"),
     }
@@ -150,7 +158,7 @@ fn no_file_and_a_sibling_exe_launches() {
     let run = tempfile::TempDir::new().expect("tempdir");
     let (_dir, exe) = workshop_exe(true);
 
-    match plan_gateway(run.path(), &exe, false, probe_own_image) {
+    match plan_gateway(run.path(), &install(&exe), false, probe_own_image) {
         GatewayPlan::Launch(gateway) => {
             assert_eq!(gateway, exe.with_file_name(GATEWAY_EXE_NAME));
         }
@@ -164,7 +172,7 @@ fn no_file_and_no_sibling_exe_falls_through_to_explicit_config() {
     let (_dir, exe) = workshop_exe(false);
 
     assert_eq!(
-        plan_gateway(run.path(), &exe, true, probe_own_image),
+        plan_gateway(run.path(), &install(&exe), true, probe_own_image),
         GatewayPlan::ConfigOnly,
         "a Workshop-only install attaches to the configured LAN gateway"
     );
@@ -176,7 +184,7 @@ fn no_file_no_sibling_exe_and_no_config_fails() {
     let (_dir, exe) = workshop_exe(false);
 
     assert_eq!(
-        plan_gateway(run.path(), &exe, false, probe_own_image),
+        plan_gateway(run.path(), &install(&exe), false, probe_own_image),
         GatewayPlan::Fail,
         "nothing to connect to must fail loud, not serve a broken window"
     );
@@ -193,7 +201,7 @@ fn a_stale_file_is_cleaned_and_the_sibling_exe_launches() {
     .expect("write");
     let (_dir, exe) = workshop_exe(true);
 
-    let plan = plan_gateway(run.path(), &exe, false, probe_own_image);
+    let plan = plan_gateway(run.path(), &install(&exe), false, probe_own_image);
     assert!(
         matches!(plan, GatewayPlan::Launch(_)),
         "a stale file must not block the relaunch: {plan:?}"
@@ -216,7 +224,7 @@ fn a_stale_file_with_no_sibling_exe_falls_through_to_explicit_config() {
     let (_dir, exe) = workshop_exe(false);
 
     assert_eq!(
-        plan_gateway(run.path(), &exe, true, probe_own_image),
+        plan_gateway(run.path(), &install(&exe), true, probe_own_image),
         GatewayPlan::ConfigOnly,
         "a stale file must not wedge the LAN fallback"
     );
@@ -231,7 +239,7 @@ fn a_resolve_error_still_launches_the_sibling_exe() {
     let run = tempfile::TempDir::new().expect("tempdir");
     let (_dir, exe) = workshop_exe(true);
 
-    let plan = plan_gateway(run.path(), &exe, false, probe_read_failure);
+    let plan = plan_gateway(run.path(), &install(&exe), false, probe_read_failure);
     assert!(
         matches!(plan, GatewayPlan::Launch(_)),
         "a discovery error must not read as no-gateway: {plan:?}"
@@ -242,13 +250,13 @@ fn a_resolve_error_still_launches_the_sibling_exe() {
 fn the_sibling_probe_finds_only_the_gateway_exe_beside_the_desktop_app() {
     let (_dir, with) = workshop_exe(true);
     assert_eq!(
-        sibling_gateway(&with),
+        install(&with).gateway(),
         Some(with.with_file_name(GATEWAY_EXE_NAME)),
         "the installed sibling is found"
     );
     let (_dir, without) = workshop_exe(false);
     assert_eq!(
-        sibling_gateway(&without),
+        install(&without).gateway(),
         None,
         "a Workshop-only install has no sibling"
     );
@@ -257,14 +265,11 @@ fn the_sibling_probe_finds_only_the_gateway_exe_beside_the_desktop_app() {
 #[test]
 fn the_no_gateway_error_names_both_remedies() {
     let (_dir, workshop) = workshop_exe(false);
-    let message = no_gateway_error(&workshop).to_string();
+    let message = no_gateway_error(&install(&workshop)).to_string();
+    let beside = workshop.with_file_name(GATEWAY_EXE_NAME);
     assert!(
-        message.contains(&workshop.display().to_string()),
-        "the error names the Workshop it searched from: {message}"
-    );
-    assert!(
-        message.contains(&format!("{GATEWAY_EXE_NAME} beside it")),
-        "the error names the beside-Workshop location: {message}"
+        message.contains(&beside.display().to_string()),
+        "the error names each path searched: {message}"
     );
     assert!(
         message.contains("workshop.toml"),
@@ -278,7 +283,7 @@ fn a_translocated_workshop_is_told_to_move_the_app() {
     let exe = std::path::Path::new(
         "/private/var/folders/xy/T/AppTranslocation/0A1B/d/PromptForge.app/Contents/MacOS/promptforge-workshop",
     );
-    let message = no_gateway_error(exe).to_string();
+    let message = no_gateway_error(&install(exe)).to_string();
     assert!(
         message.contains("Applications/PromptForge"),
         "the error names the move remedy and the install folder: {message}"

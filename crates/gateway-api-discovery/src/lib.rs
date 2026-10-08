@@ -66,7 +66,7 @@ pub use crate::paths::{
 };
 pub use crate::peer::{
     GATEWAY_BUNDLE_NAME, TRANSLOCATION_REMEDY, WORKSHOP_APPIMAGE_NAME, WORKSHOP_BUNDLE_NAME,
-    installed_gateway, installed_workshop, translocated,
+    gateway_search_paths, installed_gateway, installed_workshop, running_appimage, translocated,
 };
 pub use crate::shutdown::{ShutdownError, request_shutdown, request_shutdown_before};
 pub use crate::stale::resolve_cancellable;

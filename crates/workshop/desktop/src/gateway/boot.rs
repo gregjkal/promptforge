@@ -56,19 +56,19 @@ pub(super) enum RecoveryLaunch {
 /// # Errors
 /// Returns an error when no attachment path exists or launch fails.
 pub(crate) fn ensure_gateway(config: &Config) -> anyhow::Result<GatewayAttachment> {
-    let exe = std::env::current_exe().context("locate the executable")?;
+    let install = WorkshopInstall::current()?;
     let explicit = !config.gateway.base_url.is_empty();
     let Some(run_dir) = gateway_api_discovery::default_run_dir() else {
         return if explicit {
             Ok(GatewayAttachment::Config)
         } else {
-            Err(no_gateway_error(&exe))
+            Err(no_gateway_error(&install))
         };
     };
-    match plan_gateway(&run_dir, &exe, explicit, gateway_api_discovery::resolve) {
+    match plan_gateway(&run_dir, &install, explicit, gateway_api_discovery::resolve) {
         GatewayPlan::Attach(file) => validated_attachment(file),
         GatewayPlan::ConfigOnly => Ok(GatewayAttachment::Config),
-        GatewayPlan::Fail => Err(no_gateway_error(&exe)),
+        GatewayPlan::Fail => Err(no_gateway_error(&install)),
         GatewayPlan::Launch(exe) => {
             launch_and_attach_cancellable(&run_dir, &exe, &CancellationToken::new())
                 .and_then(validated_recovery_attachment)
@@ -103,7 +103,7 @@ fn validated_recovery_attachment(recovery: RecoveryLaunch) -> anyhow::Result<Gat
 /// Chooses attach, launch, configured fallback, or failure.
 pub(super) fn plan_gateway(
     run_dir: &Path,
-    workshop_exe: &Path,
+    install: &WorkshopInstall,
     explicit_config: bool,
     resolve: fn(&Path) -> Result<Resolution, SidecarError>,
 ) -> GatewayPlan {
@@ -114,65 +114,77 @@ pub(super) fn plan_gateway(
             eprintln!("could not resolve the gateway discovery file: {error}");
         }
     }
-    match sibling_gateway(workshop_exe) {
+    match install.gateway() {
         Some(exe) => GatewayPlan::Launch(exe),
         None if explicit_config => GatewayPlan::ConfigOnly,
         None => GatewayPlan::Fail,
     }
 }
 
-/// Locates the installed Gateway executable for the Workshop running from
-/// `workshop_exe`.
-pub(super) fn sibling_gateway(workshop_exe: &Path) -> Option<PathBuf> {
-    let appimage = std::env::var_os("APPIMAGE");
-    gateway_api_discovery::installed_gateway(workshop_exe, appimage.as_deref())
+/// Where this Workshop runs from, which decides where the gateway lookup
+/// searches. Read from the process once, so planning never reads the
+/// environment.
+#[derive(Debug)]
+pub(super) struct WorkshopInstall {
+    /// Workshop's executable.
+    pub(super) exe: PathBuf,
+    /// The AppImage Workshop runs from, per
+    /// [`gateway_api_discovery::running_appimage`].
+    pub(super) appimage: Option<PathBuf>,
 }
 
-/// The places the lookup searches for the gateway, relative to Workshop.
-fn gateway_location() -> String {
-    use gateway_api_discovery::{
-        GATEWAY_BUNDLE_NAME, WORKSHOP_APPIMAGE_NAME, WORKSHOP_BUNDLE_NAME,
-    };
-    if cfg!(windows) {
-        "promptforge-gateway.exe beside it".to_owned()
-    } else if cfg!(target_os = "macos") {
-        format!(
-            "promptforge-gateway beside it, or {GATEWAY_BUNDLE_NAME} beside {WORKSHOP_BUNDLE_NAME}"
-        )
-    } else {
-        format!("promptforge-gateway beside it, or beside {WORKSHOP_APPIMAGE_NAME}")
+impl WorkshopInstall {
+    /// Reads the running Workshop's executable, `$APPIMAGE`, and `$APPDIR`.
+    ///
+    /// # Errors
+    /// Returns an error when the executable path cannot be read.
+    pub(super) fn current() -> anyhow::Result<Self> {
+        let exe = std::env::current_exe().context("locate the executable")?;
+        let appimage = gateway_api_discovery::running_appimage(
+            &exe,
+            std::env::var_os("APPIMAGE").as_deref(),
+            std::env::var_os("APPDIR").as_deref(),
+        );
+        Ok(Self { exe, appimage })
     }
-}
 
-/// States which Workshop found no gateway and where it looked, for the
-/// boot failure and the supervisor's recovery failure.
-pub(super) fn missing_gateway(workshop_exe: &Path) -> String {
-    format!(
-        "Workshop at {} found no gateway executable; it looks for {}",
-        workshop_exe.display(),
-        gateway_location()
-    )
+    /// The installed gateway executable, when one exists.
+    pub(super) fn gateway(&self) -> Option<PathBuf> {
+        gateway_api_discovery::installed_gateway(&self.exe, self.appimage.as_deref())
+    }
+
+    /// States every path the lookup searched, for the boot failure and the
+    /// supervisor's recovery failure.
+    pub(super) fn missing_gateway(&self) -> String {
+        let searched =
+            gateway_api_discovery::gateway_search_paths(&self.exe, self.appimage.as_deref())
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+        format!("Workshop found no gateway executable at {searched}")
+    }
 }
 
 /// Builds the loud boot failure naming both supported remedies. A
 /// translocated Workshop cannot see the Gateway beside it, so the first
 /// remedy becomes moving the app.
-pub(super) fn no_gateway_error(workshop_exe: &Path) -> anyhow::Error {
-    if cfg!(target_os = "macos") && gateway_api_discovery::translocated(workshop_exe) {
+pub(super) fn no_gateway_error(install: &WorkshopInstall) -> anyhow::Error {
+    if cfg!(target_os = "macos") && gateway_api_discovery::translocated(&install.exe) {
         return anyhow::anyhow!(
             "no gateway configured or running; macOS runs PromptForge.app from a \
              translocated copy at {}, where PromptForge Gateway.app is not visible; {}, \
              or set gateway.base_url and gateway.api_key in workshop.toml to attach to \
              a gateway over the network",
-            workshop_exe.display(),
+            install.exe.display(),
             gateway_api_discovery::TRANSLOCATION_REMEDY
         );
     }
     anyhow::anyhow!(
-        "no gateway configured or running; {}; install the Gateway component there, or set \
+        "no gateway configured or running; {}; install the Gateway component, or set \
          gateway.base_url and gateway.api_key in workshop.toml to attach to a gateway over \
          the network",
-        missing_gateway(workshop_exe)
+        install.missing_gateway()
     )
 }
 

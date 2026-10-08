@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use super::{
     GATEWAY_BUNDLE_NAME, Layout, WORKSHOP_APPIMAGE_NAME, WORKSHOP_BUNDLE_NAME, bundle_exe,
-    first_file, gateway_candidates, installed_gateway, installed_workshop, translocated,
-    workshop_candidates,
+    first_file, gateway_candidates, installed_gateway, installed_workshop, running_appimage,
+    translocated, workshop_candidates,
 };
 
 /// Plants an empty file at `root/relative`, creating its directories.
@@ -16,7 +16,7 @@ fn plant(root: &Path, relative: &Path) -> PathBuf {
     path
 }
 
-fn gateway_for(layout: Layout, workshop_exe: &Path, appimage: Option<&OsStr>) -> Option<PathBuf> {
+fn gateway_for(layout: Layout, workshop_exe: &Path, appimage: Option<&Path>) -> Option<PathBuf> {
     first_file(gateway_candidates(layout, workshop_exe, appimage))
 }
 
@@ -111,7 +111,7 @@ fn linux_workshop_finds_the_gateway_beside_its_appimage() {
         .join("promptforge-workshop");
 
     assert_eq!(
-        gateway_for(Layout::Linux, &mount, Some(appimage.as_os_str())),
+        gateway_for(Layout::Linux, &mount, Some(appimage.as_path())),
         Some(gateway)
     );
 }
@@ -127,23 +127,55 @@ fn linux_workshop_prefers_the_gateway_beside_its_appimage_to_one_in_its_mount() 
     plant(&bin, Path::new("promptforge-gateway"));
 
     assert_eq!(
-        gateway_for(Layout::Linux, &workshop, Some(appimage.as_os_str())),
+        gateway_for(Layout::Linux, &workshop, Some(appimage.as_path())),
         Some(installed)
     );
 }
 
 #[test]
-fn linux_workshop_ignores_a_relative_or_empty_appimage() {
+fn an_appimage_counts_only_when_workshop_runs_from_its_mount() {
     let root = tempfile::TempDir::new().expect("tempdir");
-    let workshop = root.path().join("bin").join("promptforge-workshop");
+    let mount = root.path().join(".mount_PromptXYZ");
+    let workshop = mount.join("usr").join("bin").join("promptforge-workshop");
+    let appimage = root.path().join("PromptForge").join(WORKSHOP_APPIMAGE_NAME);
+    let other_mount = root.path().join(".mount_CodeXYZ");
+    let other_appimage = root.path().join("Apps").join("Code.AppImage");
+    let found = |appimage: &OsStr, appdir: &OsStr| {
+        running_appimage(&workshop, Some(appimage), Some(appdir))
+    };
 
-    for appimage in [WORKSHOP_APPIMAGE_NAME, ""] {
-        assert_eq!(
-            gateway_candidates(Layout::Linux, &workshop, Some(OsStr::new(appimage))),
-            vec![root.path().join("bin").join("promptforge-gateway")],
-            "$APPIMAGE {appimage:?} adds no candidate resolved against the working directory"
-        );
-    }
+    assert_eq!(
+        found(appimage.as_os_str(), mount.as_os_str()),
+        Some(appimage.clone())
+    );
+    assert_eq!(
+        found(other_appimage.as_os_str(), other_mount.as_os_str()),
+        None,
+        "an $APPIMAGE inherited from another AppImage is ignored"
+    );
+    assert_eq!(
+        found(OsStr::new(WORKSHOP_APPIMAGE_NAME), mount.as_os_str()),
+        None,
+        "a relative $APPIMAGE is ignored"
+    );
+    assert_eq!(
+        found(OsStr::new(""), mount.as_os_str()),
+        None,
+        "empty $APPIMAGE"
+    );
+    assert_eq!(
+        found(appimage.as_os_str(), OsStr::new("")),
+        None,
+        "empty $APPDIR"
+    );
+    assert_eq!(
+        running_appimage(&workshop, Some(appimage.as_os_str()), None),
+        None
+    );
+    assert_eq!(
+        running_appimage(&workshop, None, Some(mount.as_os_str())),
+        None
+    );
 }
 
 #[test]
@@ -167,18 +199,32 @@ fn linux_gateway_finds_the_appimage_by_name_in_its_own_directory() {
 
 #[test]
 fn a_missing_peer_is_none_in_every_layout() {
-    let root = tempfile::TempDir::new().expect("tempdir");
-    let workshop = plant(root.path(), Path::new("promptforge-workshop"));
-    let gateway = plant(root.path(), Path::new("promptforge-gateway"));
-    std::fs::remove_file(&workshop).expect("remove workshop");
-    let alone = plant(
-        &root.path().join("alone"),
-        Path::new("promptforge-workshop"),
-    );
-
     for layout in [Layout::Windows, Layout::MacOs, Layout::Linux] {
-        assert_eq!(workshop_for(layout, &gateway), None, "{layout:?}");
-        assert_eq!(gateway_for(layout, &alone, None), None, "{layout:?}");
+        let root = tempfile::TempDir::new().expect("tempdir");
+        let workshop = plant(root.path(), Path::new(layout.workshop_exe()));
+        let gateway = plant(root.path(), Path::new(layout.gateway_exe()));
+        assert_eq!(
+            workshop_for(layout, &gateway),
+            Some(workshop.clone()),
+            "{layout:?} control: both peers present"
+        );
+        std::fs::remove_file(&workshop).expect("remove workshop");
+        std::fs::remove_file(&gateway).expect("remove gateway");
+        let lone_gateway = plant(
+            &root.path().join("gateway"),
+            Path::new(layout.gateway_exe()),
+        );
+        let lone_workshop = plant(
+            &root.path().join("workshop"),
+            Path::new(layout.workshop_exe()),
+        );
+
+        assert_eq!(workshop_for(layout, &lone_gateway), None, "{layout:?}");
+        assert_eq!(
+            gateway_for(layout, &lone_workshop, None),
+            None,
+            "{layout:?}"
+        );
     }
 }
 

@@ -1,6 +1,5 @@
 //! The platform-independent tray rules: the menu layout, the status
-//! label, the icon phase machine, the workshop sibling probe, the
-//! launch-at-login entry, and the icon tinting. Every backend consumes
+//! label, the icon phase machine, the launch-at-login entry, and the icon tinting. Every backend consumes
 //! these so the idiom cannot drift between platforms, and every rule is
 //! unit-tested here without a tray - CI is headless.
 

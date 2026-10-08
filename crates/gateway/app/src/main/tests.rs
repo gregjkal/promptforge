@@ -1,5 +1,10 @@
 //! Tests for the binary's log filter, command-line parsing, and fatal-error logging.
 
+use std::ffi::OsString;
+
+use gateway::ProfileName;
+
+use super::args::*;
 use super::*;
 
 #[test]
@@ -250,7 +255,7 @@ fn rejects_unknown_flag() {
 }
 
 #[test]
-fn diagnostics_is_the_only_subcommand() {
+fn diagnostics_is_a_subcommand() {
     let invocation = parse_args(args(&["diagnostics"])).expect("parses");
     assert_eq!(invocation.command, Command::Diagnostics);
     assert_eq!(invocation.serve.config_path, None);
@@ -276,6 +281,43 @@ fn diagnostics_rejects_serving_flags() {
         assert!(
             matches!(error, ParseError::Usage(_)),
             "diagnostics rejects {rest}: {error:?}"
+        );
+    }
+}
+
+#[test]
+fn init_provisions_speech_unless_told_not_to() {
+    let invocation = parse_args(args(&["init"])).expect("parses");
+    assert_eq!(invocation.command, Command::Init { speech: true });
+    assert_eq!(invocation.serve.config_path, None);
+    let invocation = parse_args(args(&["init", "--no-stt"])).expect("parses");
+    assert_eq!(invocation.command, Command::Init { speech: false });
+}
+
+#[test]
+fn init_accepts_a_config_path() {
+    let invocation =
+        parse_args(args(&["init", "--config", "gateway.toml", "--no-stt"])).expect("parses");
+    assert_eq!(invocation.command, Command::Init { speech: false });
+    assert_eq!(
+        invocation.serve.config_path,
+        Some(PathBuf::from("gateway.toml"))
+    );
+}
+
+#[test]
+fn init_rejects_serving_flags() {
+    for rest in [
+        "--no-tray",
+        "--login",
+        "--print-url",
+        "--browser",
+        "--profile",
+    ] {
+        let error = parse_args(args(&["init", rest])).unwrap_err();
+        assert!(
+            matches!(error, ParseError::Usage(_)),
+            "init rejects {rest}: {error:?}"
         );
     }
 }

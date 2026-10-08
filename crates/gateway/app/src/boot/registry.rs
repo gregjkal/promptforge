@@ -1,10 +1,10 @@
-//! The installer's STT choice and the tray's Launch at Login entry, both
-//! recorded in the registry. Raw Win32 FFI has no safe wrapper in the tree.
+//! The tray's Launch at Login entry, recorded in the registry. Raw Win32
+//! FFI has no safe wrapper in the tree.
 
 use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
 use windows_sys::Win32::System::Registry::{
-    HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE, REG_DWORD, REG_SZ, RegCloseKey,
-    RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
+    HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE, REG_SZ, RegCloseKey, RegDeleteValueW,
+    RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
 };
 
 /// The autostart entry the tray's Launch at Login check item manages:
@@ -48,37 +48,6 @@ fn close_key(key: HKEY) {
 /// callers report failures.
 fn status_error(status: u32) -> std::io::Error {
     std::io::Error::from_raw_os_error(status.cast_signed())
-}
-
-/// Reads `HKCU\Software\PromptForge\PromptForge\InstallSTT` as a DWORD,
-/// or `None` when the key or value is absent, has another type, or
-/// cannot be read.
-pub(super) fn install_stt_dword() -> Option<u32> {
-    let key = open_key("Software\\PromptForge\\PromptForge", KEY_READ).ok()?;
-    let value: Vec<u16> = "InstallSTT".encode_utf16().chain(Some(0)).collect();
-    let mut data = 0u32;
-    let mut kind = 0u32;
-    // A REG_DWORD is 4 bytes; the query fails rather than truncates when
-    // the buffer is too small.
-    let mut len = 4u32;
-    // SAFETY: `key` is the live handle opened above; `value` is a valid
-    // null-terminated UTF-16 string; `data` is valid for `len` bytes of
-    // writes and `kind` and `len` are valid for one u32 write each.
-    let status = unsafe {
-        RegQueryValueExW(
-            key,
-            value.as_ptr(),
-            std::ptr::null(),
-            &raw mut kind,
-            std::ptr::from_mut(&mut data).cast::<u8>(),
-            &raw mut len,
-        )
-    };
-    close_key(key);
-    if status != ERROR_SUCCESS || kind != REG_DWORD || len != 4 {
-        return None;
-    }
-    Some(data)
 }
 
 /// Reads the Launch at Login command line from the Run key, or `None`

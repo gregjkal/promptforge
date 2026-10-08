@@ -33,6 +33,16 @@ enum InitRepr {
         #[source]
         source: gateway_config::ConfigError,
     },
+    #[error(
+        "speech-to-text requested, but {} {}; speech needs a selected profile whose `models` \
+         name at least one [[stt_model]]: add one, or rerun init with --no-stt",
+        path.display(),
+        selected_profile(profile.as_deref())
+    )]
+    NoSpeechModels {
+        path: PathBuf,
+        profile: Option<String>,
+    },
     #[cfg(feature = "stt")]
     #[error("provision speech-to-text for the selected profile")]
     Speech(#[source] gateway_stt::SpeechError),
@@ -42,6 +52,14 @@ enum InitRepr {
          rerun init with --no-stt"
     )]
     SpeechUnavailable,
+}
+
+/// The actual selection [`InitRepr::NoSpeechModels`] reports.
+fn selected_profile(profile: Option<&str>) -> String {
+    profile.map_or_else(
+        || "selects no profile".to_owned(),
+        |name| format!("selects profile {name}, which lists no [[stt_model]]"),
+    )
 }
 
 /// Writes the default configuration when none exists and, when
@@ -59,8 +77,11 @@ enum InitRepr {
 ///
 /// # Errors
 /// Returns [`InitError`] when the configuration cannot be resolved,
-/// generated, or loaded, or when a speech artifact cannot be provisioned;
-/// its source chain names the failing artifact and cause.
+/// generated, or loaded; when `provision_speech` holds but the selected
+/// profile declares no speech model, as in a config generated under
+/// `--no-stt`, which `init` never rewrites; or when a speech artifact
+/// cannot be provisioned. Its source chain names the failing artifact and
+/// cause.
 pub fn init(
     explicit_config: Option<PathBuf>,
     provision_speech: bool,
@@ -128,9 +149,16 @@ fn init_in(
             source,
         })
     })?;
-    if stt == InstallerStt::Included {
-        provision(&config)?;
+    if stt == InstallerStt::Omitted {
+        return Ok(path);
     }
+    if config.stt_models().is_empty() {
+        let profile = config
+            .active_profile()
+            .map(|profile| profile.name().to_owned());
+        return Err(InitError(InitRepr::NoSpeechModels { path, profile }));
+    }
+    provision(&config)?;
     Ok(path)
 }
 
@@ -138,16 +166,6 @@ fn init_in(
 /// store's progress text through [`progress::ProgressLines`].
 #[cfg(feature = "stt")]
 fn provision_speech_artifacts(config: &Config) -> Result<(), InitError> {
-    if config.stt_models().is_empty() {
-        match config.active_profile() {
-            Some(profile) => println!(
-                "profile {} lists no [[stt_model]]; no speech-to-text to provision",
-                profile.name()
-            ),
-            None => println!("no profile is selected; no speech-to-text to provision"),
-        }
-        return Ok(());
-    }
     let hub = gateway_progress::ProgressHub::new();
     let activity = std::sync::Arc::new(hub.begin("Provisioning speech-to-text"));
     let printer = progress::Printer::spawn(hub.subscribe());

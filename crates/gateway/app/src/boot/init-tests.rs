@@ -133,6 +133,63 @@ fn speech_on_a_config_without_speech_models_fails_and_leaves_it() {
     assert_eq!(std::fs::read(&path).expect("read the config"), before);
 }
 
+/// Speech requested on a selection without speech models fails with the
+/// input that made the selection and the remedy that fits it.
+#[test]
+fn a_selection_without_speech_models_names_its_source() {
+    let temp = tempfile::TempDir::new().expect("tempdir");
+    let explicit = temp.path().join("custom.toml");
+    std::fs::write(
+        &explicit,
+        format!(
+            "config-version = 0\n\
+             [server]\nbind = \"127.0.0.1:0\"\napi_key = \"k\"\n\
+             {STT_MODELS_TOML}\n\
+             [[profile]]\nname = \"work\"\n\
+             models = [\"whisper-base-en\", \"whisper-small-en\"]\n\
+             [[profile]]\nname = \"bare\"\nmodels = []\n"
+        ),
+    )
+    .expect("write fixture");
+    let fail = |environment: Option<&str>| {
+        init_in(
+            Some(explicit.clone()),
+            || panic!("an explicit path never gathers locations"),
+            InstallerStt::Included,
+            |_| environment.map(str::to_owned),
+            |_| panic!("a selection without speech models never provisions"),
+        )
+        .expect_err("speech needs a selected profile with speech models")
+        .to_string()
+    };
+
+    let none = fail(None);
+    assert!(none.contains("selects no profile"), "{none}");
+    assert!(none.contains("select a profile"), "{none}");
+
+    let state_file = gateway_config::profile_state_path(&explicit);
+    std::fs::write(&state_file, "active_profile = \"gone\"\n").expect("write state");
+    let stale = fail(None);
+    assert!(
+        stale.contains(&format!(
+            "{} selects profile \"gone\"",
+            state_file.display()
+        )),
+        "{stale}"
+    );
+    assert!(stale.contains("defined profiles: work, bare"), "{stale}");
+
+    let environment = fail(Some("bare"));
+    assert!(
+        environment.contains("PROMPTFORGE_PROFILE selects profile bare"),
+        "{environment}"
+    );
+    assert!(
+        environment.contains("in that profile's `models`"),
+        "{environment}"
+    );
+}
+
 #[test]
 fn a_missing_explicit_config_is_generated_there() {
     let temp = tempfile::TempDir::new().expect("tempdir");

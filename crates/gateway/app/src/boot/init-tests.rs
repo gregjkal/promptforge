@@ -70,7 +70,7 @@ fn init_leaves_an_existing_config_byte_identical() {
     let first = init_in(
         None,
         || Ok(locations(temp.path())),
-        InstallerStt::Omitted,
+        InstallerStt::Included,
         |_| None,
         |_| Ok(()),
     )
@@ -102,6 +102,35 @@ fn init_leaves_an_existing_config_byte_identical() {
         1,
         "only the STT rerun provisions what the config declares"
     );
+}
+
+#[test]
+fn speech_on_a_config_without_speech_models_fails_and_leaves_it() {
+    let temp = tempfile::TempDir::new().expect("tempdir");
+    let path = init_in(
+        None,
+        || Ok(locations(temp.path())),
+        InstallerStt::Omitted,
+        |_| None,
+        |_| panic!("--no-stt must never provision"),
+    )
+    .expect("the --no-stt init succeeds");
+    let before = std::fs::read(&path).expect("read the config");
+
+    let error = init_in(
+        None,
+        || Ok(locations(temp.path())),
+        InstallerStt::Included,
+        |_| None,
+        |_| panic!("a profile without speech models never provisions"),
+    )
+    .expect_err("speech cannot be added to a config that declares none");
+
+    let message = error.to_string();
+    assert!(message.contains(&path.display().to_string()), "{message}");
+    assert!(message.contains("selects profile default"), "{message}");
+    assert!(message.contains("--no-stt"), "{message}");
+    assert_eq!(std::fs::read(&path).expect("read the config"), before);
 }
 
 #[test]

@@ -31,9 +31,14 @@ pub const WORKSHOP_APPIMAGE_NAME: &str = "PromptForge.AppImage";
 /// The remedy for a macOS bundle that runs from an App Translocation copy.
 /// Gatekeeper stops translocating a bundle once the user moves it with
 /// Finder, and the installer's default folder is `Applications/PromptForge`.
-pub const TRANSLOCATION_REMEDY: &str = "move PromptForge.app and PromptForge Gateway.app \
-     with Finder into one folder, such as the default Applications/PromptForge, or out of \
-     that folder and back in if they are already there, then open the app from there";
+#[must_use]
+pub fn translocation_remedy() -> String {
+    format!(
+        "move {WORKSHOP_BUNDLE_NAME} and {GATEWAY_BUNDLE_NAME} with Finder into one folder, \
+         such as the default Applications/PromptForge, or out of that folder and back in if \
+         they are already there, then open the app from there"
+    )
+}
 
 /// Whether `exe` runs from a macOS App Translocation copy: macOS runs a
 /// quarantined app that Finder has not moved from a randomized read-only
@@ -88,7 +93,10 @@ impl Layout {
 /// the mount Workshop's executable runs from. A value counts only when both
 /// are absolute and `workshop_exe` sits under `$APPDIR`, so a relative
 /// value never resolves against the working directory and a value inherited
-/// from another AppImage's environment is ignored.
+/// from another AppImage's environment is ignored. `$APPDIR` is compared
+/// both as given and with symlinks resolved: the runtime builds it from the
+/// temporary directory unresolved, while the executable path arrives
+/// resolved.
 #[must_use]
 pub fn running_appimage(
     workshop_exe: &Path,
@@ -97,7 +105,10 @@ pub fn running_appimage(
 ) -> Option<PathBuf> {
     let appimage = Path::new(appimage?);
     let appdir = Path::new(appdir?);
-    let inside = appimage.is_absolute() && appdir.is_absolute() && workshop_exe.starts_with(appdir);
+    let under = |dir: &Path| workshop_exe.starts_with(dir);
+    let inside = appimage.is_absolute()
+        && appdir.is_absolute()
+        && (under(appdir) || std::fs::canonicalize(appdir).is_ok_and(|dir| under(&dir)));
     inside.then(|| appimage.to_path_buf())
 }
 

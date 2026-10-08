@@ -153,37 +153,35 @@ impl WorkshopInstall {
         gateway_api_discovery::installed_gateway(&self.exe, self.appimage.as_deref())
     }
 
-    /// States every path the lookup searched, for the boot failure and the
-    /// supervisor's recovery failure.
+    /// Why the lookup found no gateway and how to install one, for the boot
+    /// failure and the supervisor's recovery failure: a translocated Workshop
+    /// cannot see the gateway beside it and must be moved; otherwise every
+    /// path searched.
     pub(super) fn missing_gateway(&self) -> String {
+        use gateway_api_discovery::{GATEWAY_BUNDLE_NAME, WORKSHOP_BUNDLE_NAME};
+        if cfg!(target_os = "macos") && gateway_api_discovery::translocated(&self.exe) {
+            return format!(
+                "macOS runs {WORKSHOP_BUNDLE_NAME} from a translocated copy at {}, where \
+                 {GATEWAY_BUNDLE_NAME} is not visible; {}",
+                self.exe.display(),
+                gateway_api_discovery::translocation_remedy()
+            );
+        }
         let searched =
             gateway_api_discovery::gateway_search_paths(&self.exe, self.appimage.as_deref())
                 .iter()
                 .map(|path| path.display().to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
-        format!("Workshop found no gateway executable at {searched}")
+        format!("Workshop found no gateway executable at {searched}; install the Gateway component")
     }
 }
 
-/// Builds the loud boot failure naming both supported remedies. A
-/// translocated Workshop cannot see the Gateway beside it, so the first
-/// remedy becomes moving the app.
+/// Builds the loud boot failure naming both supported remedies.
 pub(super) fn no_gateway_error(install: &WorkshopInstall) -> anyhow::Error {
-    if cfg!(target_os = "macos") && gateway_api_discovery::translocated(&install.exe) {
-        return anyhow::anyhow!(
-            "no gateway configured or running; macOS runs PromptForge.app from a \
-             translocated copy at {}, where PromptForge Gateway.app is not visible; {}, \
-             or set gateway.base_url and gateway.api_key in workshop.toml to attach to \
-             a gateway over the network",
-            install.exe.display(),
-            gateway_api_discovery::TRANSLOCATION_REMEDY
-        );
-    }
     anyhow::anyhow!(
-        "no gateway configured or running; {}; install the Gateway component, or set \
-         gateway.base_url and gateway.api_key in workshop.toml to attach to a gateway over \
-         the network",
+        "no gateway configured or running; {}, or set gateway.base_url and gateway.api_key \
+         in workshop.toml to attach to a gateway over the network",
         install.missing_gateway()
     )
 }

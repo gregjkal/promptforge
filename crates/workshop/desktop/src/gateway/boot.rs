@@ -128,16 +128,31 @@ pub(super) fn sibling_gateway(workshop_exe: &Path) -> Option<PathBuf> {
     gateway_api_discovery::installed_gateway(workshop_exe, appimage.as_deref())
 }
 
-/// Where the Gateway component installs, relative to Workshop.
-#[cfg(windows)]
-const GATEWAY_LOCATION: &str = "promptforge-gateway.exe sits beside promptforge-workshop.exe";
-/// Where the Gateway component installs, relative to Workshop.
-#[cfg(target_os = "macos")]
-const GATEWAY_LOCATION: &str =
-    "PromptForge Gateway.app sits beside PromptForge.app (promptforge-gateway)";
-/// Where the Gateway component installs, relative to Workshop.
-#[cfg(not(any(windows, target_os = "macos")))]
-const GATEWAY_LOCATION: &str = "promptforge-gateway sits beside PromptForge.AppImage";
+/// The places the lookup searches for the gateway, relative to Workshop.
+fn gateway_location() -> String {
+    use gateway_api_discovery::{
+        GATEWAY_BUNDLE_NAME, WORKSHOP_APPIMAGE_NAME, WORKSHOP_BUNDLE_NAME,
+    };
+    if cfg!(windows) {
+        "promptforge-gateway.exe beside it".to_owned()
+    } else if cfg!(target_os = "macos") {
+        format!(
+            "promptforge-gateway beside it, or {GATEWAY_BUNDLE_NAME} beside {WORKSHOP_BUNDLE_NAME}"
+        )
+    } else {
+        format!("promptforge-gateway beside it, or beside {WORKSHOP_APPIMAGE_NAME}")
+    }
+}
+
+/// States which Workshop found no gateway and where it looked, for the
+/// boot failure and the supervisor's recovery failure.
+pub(super) fn missing_gateway(workshop_exe: &Path) -> String {
+    format!(
+        "Workshop at {} found no gateway executable; it looks for {}",
+        workshop_exe.display(),
+        gateway_location()
+    )
+}
 
 /// Builds the loud boot failure naming both supported remedies. A
 /// translocated Workshop cannot see the Gateway beside it, so the first
@@ -154,9 +169,10 @@ pub(super) fn no_gateway_error(workshop_exe: &Path) -> anyhow::Error {
         );
     }
     anyhow::anyhow!(
-        "no gateway configured or running; install the Gateway component so \
-         {GATEWAY_LOCATION}, or set gateway.base_url and gateway.api_key in \
-         workshop.toml to attach to a gateway over the network"
+        "no gateway configured or running; {}; install the Gateway component there, or set \
+         gateway.base_url and gateway.api_key in workshop.toml to attach to a gateway over \
+         the network",
+        missing_gateway(workshop_exe)
     )
 }
 

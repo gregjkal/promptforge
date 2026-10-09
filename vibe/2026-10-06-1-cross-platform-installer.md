@@ -302,7 +302,7 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
 
 ## Execution Instructions
 
-- Status: steps 1 to 3 decomposed (`peer-lookup`, `gateway-init`, `nsis-components`); the remaining todos are decomposed after those land.
+- Status: steps 1 to 3 (`peer-lookup`, `gateway-init`, `nsis-components`) completed and merged; `build-installer` is next and is not yet decomposed, so decompose it as Step 4 before implementing.
 - Expected order: `peer-lookup`, `gateway-init`, `nsis-components`, `build-installer`, `platform-bundles`, `ifw-definition`, `gateway-update`, `installers-workflow`, `docs`, `verify`. The first three change no packaging and can land on master ahead of the rest; `platform-bundles` changes what the existing release workflow produces, so it lands with `installers-workflow` or behind it.
 - Writing: plain English, single dashes only, never em dashes or double dashes.
 

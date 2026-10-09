@@ -92,6 +92,9 @@ pub(super) fn build_installer(
     preflight(request, environment)?;
     let target = resolve_target(request.target.as_deref(), environment, runner)?;
     let platform = Platform::from_triple(&target).map_err(failure)?;
+    if request.sign && platform.system != System::Windows {
+        preflight_archive_signing(environment)?;
+    }
     let release = environment.target_root.join(&target).join("release");
     // A bundle left by an earlier build, possibly at another version, would
     // make the collection ambiguous.
@@ -101,6 +104,7 @@ pub(super) fn build_installer(
         environment,
         &target,
         runner,
+        "Workshop bundle",
         |runner| {
             run_checked(
                 runner,
@@ -146,38 +150,30 @@ fn preflight(request: &InstallerRequest, environment: &BuildEnvironment) -> Resu
             environment.tauri_cli.display()
         )));
     }
-    if request.sign {
-        preflight_signing(environment)?;
+    if request.sign && environment.signing_key.is_none() {
+        return Err(failure(
+            "`--sign` needs TAURI_SIGNING_PRIVATE_KEY set to the release minisign key; it is \
+             unset or empty"
+                .to_owned(),
+        ));
     }
     Ok(())
 }
 
-/// `tauri signer sign` accepts less than `tauri build`: it reads the key
-/// variable only as the key's contents, and prompts for a password when its
-/// variable is unset, so both are checked before the release build.
-fn preflight_signing(environment: &BuildEnvironment) -> Result<(), BuildError> {
-    let Some(key) = &environment.signing_key else {
-        return Err(failure(
-            "`--sign` needs TAURI_SIGNING_PRIVATE_KEY set to the release minisign key's \
-             contents; it is unset or empty"
-                .to_owned(),
-        ));
-    };
-    if Path::new(key).is_file() {
-        return Err(failure(format!(
-            "`--sign` needs TAURI_SIGNING_PRIVATE_KEY set to the key's contents, not a path; it \
+/// `tauri build` reads a key variable that names a file from the file;
+/// `tauri signer sign`, which signs the macOS and Linux Gateway archive,
+/// reads it only as the key's contents, so a path would fail only after the
+/// release build.
+fn preflight_archive_signing(environment: &BuildEnvironment) -> Result<(), BuildError> {
+    match &environment.signing_key {
+        Some(key) if Path::new(key).is_file() => Err(failure(format!(
+            "`--sign` on macOS and Linux needs TAURI_SIGNING_PRIVATE_KEY set to the key's \
+             contents, not a path, because `tauri signer sign` signs the Gateway archive; it \
              names the file {}",
             Path::new(key).display()
-        )));
+        ))),
+        _ => Ok(()),
     }
-    if !environment.signing_password_set {
-        return Err(failure(
-            "`--sign` needs TAURI_SIGNING_PRIVATE_KEY_PASSWORD set, empty for a key without a \
-             password; it is unset"
-                .to_owned(),
-        ));
-    }
-    Ok(())
 }
 
 fn check_gateway_version(
@@ -264,7 +260,8 @@ fn tauri_build_command(
 
 /// The CLI reads the key and its password from the same variables `tauri
 /// build` does, and binds the signature to the version as `tauri build`
-/// does for Workshop's files.
+/// does for Workshop's files. It prompts for an unset password, where
+/// `tauri build --ci` signs with an empty one, so it gets the empty one too.
 fn sign_command(environment: &BuildEnvironment, archive: &Path) -> CommandSpec {
     let mut args = vec![environment.tauri_cli.clone().into_os_string()];
     args.extend(["signer", "sign", "--app-version", VERSION].map(OsString::from));
@@ -273,7 +270,14 @@ fn sign_command(environment: &BuildEnvironment, archive: &Path) -> CommandSpec {
         program: environment.node.clone(),
         args,
         current_dir: environment.workspace_root.clone(),
-        envs: Vec::new(),
+        envs: if environment.signing_password_set {
+            Vec::new()
+        } else {
+            vec![(
+                OsString::from("TAURI_SIGNING_PRIVATE_KEY_PASSWORD"),
+                OsString::new(),
+            )]
+        },
         output_mode: OutputMode::Inherit,
     }
 }

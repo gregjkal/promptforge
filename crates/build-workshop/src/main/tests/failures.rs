@@ -159,7 +159,7 @@ fn interruption_raced_with_completion_removes_the_sidecar() {
     assert!(
         error
             .primary
-            .contains("build interrupted after its last step completed"),
+            .contains("Workshop build interrupted after child completion"),
         "{error}"
     );
     assert!(!test_environment.sidecar(triple).exists());

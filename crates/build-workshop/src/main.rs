@@ -98,6 +98,9 @@ struct InterruptState {
 struct BuildEnvironment {
     workspace_root: PathBuf,
     target_root: PathBuf,
+    /// Whether `CARGO_TARGET_DIR` chose `target_root`; otherwise Cargo's
+    /// own configuration does, and children are left to it.
+    target_root_from_env: bool,
     cargo: PathBuf,
     node: PathBuf,
     tauri_cli: PathBuf,
@@ -118,6 +121,7 @@ impl BuildEnvironment {
                 )
             })?
             .to_path_buf();
+        let target_root_from_env = std::env::var_os("CARGO_TARGET_DIR").is_some();
         let target_root = match std::env::var_os("CARGO_TARGET_DIR") {
             Some(value) if value.is_empty() => {
                 return Err(anyhow::anyhow!("CARGO_TARGET_DIR must not be empty"));
@@ -155,6 +159,7 @@ impl BuildEnvironment {
         Ok(Self {
             workspace_root,
             target_root,
+            target_root_from_env,
             cargo,
             node: PathBuf::from("node"),
             tauri_cli,
@@ -168,6 +173,9 @@ impl BuildEnvironment {
     /// `crates/workshop/desktop`), so every child that runs Cargo gets the
     /// absolute root this process reads its outputs from.
     fn cargo_envs(&self) -> Vec<(OsString, OsString)> {
+        if !self.target_root_from_env {
+            return Vec::new();
+        }
         vec![(
             OsString::from("CARGO_TARGET_DIR"),
             self.target_root.clone().into_os_string(),

@@ -21,6 +21,7 @@ pub(super) fn build_workshop(
         environment,
         &target,
         runner,
+        "Workshop build",
         |runner| {
             run_checked(
                 runner,
@@ -58,12 +59,14 @@ pub(super) fn resolve_target(
 }
 
 /// Runs `build_gateway`, stages the Gateway binary it returns as the Tauri
-/// sidecar, runs `build_workshop`, and removes the sidecar whatever happened,
-/// unless an interrupt arrived before anything was staged.
+/// sidecar, runs `build_workshop` (named `workshop_label` in diagnostics),
+/// and removes the sidecar whatever happened, unless an interrupt arrived
+/// before anything was staged.
 pub(super) fn with_staged_sidecar<R: CommandRunner>(
     environment: &BuildEnvironment,
     target: &str,
     runner: &mut R,
+    workshop_label: &str,
     build_gateway: impl FnOnce(&mut R) -> Result<PathBuf, StepError>,
     build_workshop: impl FnOnce(&mut R) -> Result<(), StepError>,
 ) -> Result<(), BuildError> {
@@ -81,13 +84,13 @@ pub(super) fn with_staged_sidecar<R: CommandRunner>(
         result => result,
     };
     if primary.is_ok() && runner.interruption_observed() {
-        primary = Err(interrupted_after_completion());
+        primary = Err(interrupted_after_completion(workshop_label));
     }
     let cleanup = sidecar::remove(&environment.workspace_root, target)
         .map(|_| ())
         .map_err(|error| StepError::failed(format!("Gateway sidecar cleanup failed: {error}")));
     if primary.is_ok() && cleanup.is_ok() && runner.interruption_observed() {
-        primary = Err(interrupted_after_completion());
+        primary = Err(interrupted_after_completion(workshop_label));
     }
 
     match (primary, cleanup) {
@@ -123,9 +126,9 @@ fn build_around_sidecar<R: CommandRunner>(
     build_workshop(runner)
 }
 
-fn interrupted_after_completion() -> StepError {
+fn interrupted_after_completion(workshop_label: &str) -> StepError {
     StepError {
-        message: "build interrupted after its last step completed".to_owned(),
+        message: format!("{workshop_label} interrupted after child completion"),
         interrupted: true,
     }
 }

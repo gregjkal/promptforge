@@ -68,7 +68,6 @@ fn platform_interrupt_after_staging_kills_child_cleans_and_fails() {
         preserved,
     };
     let fake_cargo = write_fake_cargo(&temp);
-    let target_root = temp.path().join("target");
     let blocked_marker = temp.path().join("workshop-blocked");
     let stdout_path = temp.path().join("orchestrator.stdout");
     let stderr_path = temp.path().join("orchestrator.stderr");
@@ -80,7 +79,11 @@ fn platform_interrupt_after_staging_kills_child_cleans_and_fails() {
         .arg("--target")
         .arg(TARGET)
         .env("CARGO", fake_cargo)
-        .env("CARGO_TARGET_DIR", &target_root)
+        // Relative, resolved against this directory: the fake Cargo runs
+        // from the repository root and finds the Gateway's output only if
+        // the orchestrator passes the absolute root on.
+        .current_dir(temp.path())
+        .env("CARGO_TARGET_DIR", "interruption-target")
         .env("BUILD_WORKSHOP_TEST_TARGET", TARGET)
         .env("BUILD_WORKSHOP_BLOCKED_MARKER", &blocked_marker)
         .stdout(Stdio::from(stdout))

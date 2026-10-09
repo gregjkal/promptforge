@@ -162,6 +162,7 @@ fn environment() -> TestEnvironment {
         environment: BuildEnvironment {
             workspace_root,
             target_root,
+            target_root_from_env: true,
             cargo: PathBuf::from("selected-cargo"),
             node: PathBuf::from("selected-node"),
             tauri_cli,
@@ -190,17 +191,26 @@ fn command(
     }
 }
 
+/// The environment a child that runs Cargo gets: the test target root
+/// stands in for an absolute `CARGO_TARGET_DIR`.
+fn target_root_env(environment: &BuildEnvironment) -> Vec<(OsString, OsString)> {
+    vec![(
+        OsString::from("CARGO_TARGET_DIR"),
+        environment.target_root.clone().into_os_string(),
+    )]
+}
+
 /// A Cargo build, which runs with the absolute target root.
 fn cargo_build(environment: &BuildEnvironment, args: &[&str]) -> CommandSpec {
     CommandSpec {
-        envs: environment.cargo_envs(),
+        envs: target_root_env(environment),
         ..command(environment, "selected-cargo", args, OutputMode::Inherit)
     }
 }
 
-/// Sets the signing variables `--sign` needs, as the release secrets do.
+/// Sets a key and its password, both of which the release secrets set.
 fn set_signing_key(environment: &mut BuildEnvironment) {
-    environment.signing_key = Some(OsString::from("untrusted comment: key\nRWR"));
+    environment.signing_key = Some(OsString::from("dW50cnVzdGVkIGNvbW1lbnQ6"));
     environment.signing_password_set = true;
 }
 
@@ -408,4 +418,36 @@ fn explicit_release_target_uses_target_output_without_a_host_probe() {
         ]
     );
     assert!(!test_environment.sidecar(triple).exists(), "sidecar left");
+}
+
+#[test]
+fn a_target_root_from_cargo_configuration_is_left_to_cargo() {
+    let mut test_environment = environment();
+    test_environment.environment.target_root_from_env = false;
+    let environment = &test_environment.environment;
+    let triple = "aarch64-unknown-linux-gnu";
+    let source = environment
+        .target_root
+        .join(triple)
+        .join("release")
+        .join("promptforge-gateway");
+    let mut runner = FakeRunner::with_responses(vec![gateway_built(source), success("")]);
+
+    build_workshop(
+        &BuildRequest {
+            profile: Profile::Release,
+            target: Some(triple.to_owned()),
+        },
+        environment,
+        &mut runner,
+    )
+    .expect("Workshop build");
+
+    assert_eq!(runner.commands.len(), 2);
+    assert!(
+        runner
+            .commands
+            .iter()
+            .all(|command| command.envs.is_empty())
+    );
 }

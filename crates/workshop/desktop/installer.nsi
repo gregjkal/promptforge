@@ -83,12 +83,20 @@ Var NoShortcutMode
 Var WixMode
 Var OldMainBinaryName
 ; Set when a running promptforge-gateway.exe was stopped in the Gateway
-; section, so the Finalize section can relaunch it after the update.
+; section, so the -Relaunch section can relaunch it after the update.
 Var GatewayWasRunning
+; The arguments of the install-time `promptforge-gateway init` and its
+; nsExec result (an exit code, or "error" when it could not start), both
+; empty when it did not run; the finish page reports a failure.
+Var GatewayInitArgs
+Var GatewayInitExit
+; The STT selection the previous install persisted: 1, 0, or empty when
+; none was found; -GatewayInit downloads speech only on a new opt-in.
+Var SttBefore
 
 ; Persists one component's checkbox state as a DWORD (1 = installed,
-; 0 = declined) under the product key, so update and passive installs can
-; re-apply the original selection (see RestoreComponentSelections).
+; 0 = declined) under the product key, so every later install starts from
+; it (see RestoreComponentSelections).
 !macro PersistComponent SECTION_ID VALUE_NAME
  SectionGetFlags ${SECTION_ID} $0
  IntOp $0 $0 & ${SF_SELECTED}
@@ -420,9 +428,10 @@ Function PageLeaveReinstall
  reinst_done:
 FunctionEnd
 
-; 4b. Components page: Gateway, Workshop, and STT are independently
-; checkable, all checked by default. Skipped in passive and update modes,
-; where .onInit forces the persisted selection onto the sections instead.
+; 4b. Components page: Gateway, Workshop, and STT are checkable, checked
+; as the previous install left them, or all checked on a first install;
+; STT requires Gateway (.onSelChange). Skipped in passive and update
+; modes, which install the selection .onInit applied.
 !define MUI_COMPONENTSPAGE_NODESC
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassiveOrUpdate
 !insertmacro MUI_PAGE_COMPONENTS
@@ -458,6 +467,8 @@ Var AppStartMenuFolder
 !define MUI_FINISHPAGE_RUN_FUNCTION RunMainBinary
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW FinishPageShow
+; Room for FinishPageShow's init failure notice beside both checkboxes.
+!define MUI_FINISHPAGE_TEXT_LARGE
 !insertmacro MUI_PAGE_FINISH
 
 !define /ifndef WM_SETTEXT 0x000C
@@ -479,6 +490,10 @@ Function FinishPageShow
  SendMessage $mui.FinishPage.Run ${WM_SETTEXT} 0 "STR:Open PromptForge Gateway settings in your browser"
  ${Else}
  ShowWindow $mui.FinishPage.Run ${SW_HIDE}
+ ${EndIf}
+ ${If} $GatewayInitExit != ""
+ ${AndIf} $GatewayInitExit != 0
+ SendMessage $mui.FinishPage.Text ${WM_SETTEXT} 0 "STR:PromptForge Gateway is installed, but its setup, promptforge-gateway.exe $GatewayInitArgs, failed (result: $GatewayInitExit). The installation details show the cause. Once that is fixed, rerun the same command from $INSTDIR."
  ${EndIf}
 FunctionEnd
 
@@ -568,13 +583,13 @@ Function .onInit
  StrCpy $UpdateMode 1
  ${EndIf}
 
- ; Passive and update installs skip the components page; force the
- ; persisted component selection onto the sections instead, so an update
- ; never resurrects a component the user declined at the original install.
- ${If} $UpdateMode = 1
- ${OrIf} $PassiveMode = 1
+ ; Start from the persisted component selection, so no install resurrects
+ ; a component the user declined before: passive and update installs skip
+ ; the components page and install it as is, and the page starts from it.
+ ; A /COMPONENTS= list then replaces it.
  Call RestoreComponentSelections
- ${EndIf}
+ Call SelectComponentsFromCommandLine
+ Call EnforceSttNeedsGateway
 
  !if "${DISPLAYLANGUAGESELECTOR}" == "true"
  !insertmacro MUI_LANGDLL_DISPLAY
@@ -788,10 +803,10 @@ Section "PromptForge Gateway" SecGateway
  ; process name through nsis_tauri_utils - parsing
  ; %USERPROFILE%\.promptforge\run\gateway.json for the pid in NSIS buys
  ; nothing when the image name is unique - stop it through the same
- ; CheckIfAppIsRunning, and relaunch it in the Finalize section. Living inside the Gateway section, the stop runs
- ; only when the component is selected: a declined section leaves the
- ; payload untouched, and a daemon the install does not overwrite is
- ; not the installer's to kill.
+ ; CheckIfAppIsRunning, and relaunch it in the -Relaunch section. Living
+ ; inside the Gateway section, the stop runs only when the component is
+ ; selected: a declined section leaves the payload untouched, and a
+ ; daemon the install does not overwrite is not the installer's to kill.
  !if "${INSTALLMODE}" == "currentUser"
  nsis_tauri_utils::FindProcessCurrentUser "promptforge-gateway.exe"
  !else
@@ -810,9 +825,9 @@ Section "PromptForge Gateway" SecGateway
  {{/each}}
 SectionEnd
 
-Section "Speech to Text (Transcription)" SecSTT
- ; No files: STT is a config gate. The Finalize section records the
- ; selection for the gateway's first-run config generation.
+Section "Speech to Text (downloads about 0.6 GB, 1.1 GB with an NVIDIA GPU)" SecSTT
+ ; No files: the -GatewayInit section's `promptforge-gateway init`
+ ; downloads the speech runtime and models into the user's profile.
 SectionEnd
 
 Section "-Finalize"
@@ -857,33 +872,75 @@ Section "-Finalize"
  WriteRegStr SHCTX "${UNINSTKEY}" "HelpLink" "${HOMEPAGE}"
  !endif
 
- ; Persist the component selection so update and passive installs can
- ; re-apply it (see RestoreComponentSelections).
+ ; Persist the component selection so every later install starts from it
+ ; (see RestoreComponentSelections).
  !insertmacro PersistComponent ${SecGateway} Gateway
  !insertmacro PersistComponent ${SecWorkshop} Workshop
  !insertmacro PersistComponent ${SecSTT} STT
-
- ; The STT checkbox writes the first-run config gate: checked deletes the
- ; value (absent = STT on), unchecked writes 0. Update mode never touches
- ; it - the user's first run already consumed the original choice.
- ${If} $UpdateMode <> 1
- SectionGetFlags ${SecSTT} $0
- IntOp $0 $0 & ${SF_SELECTED}
- ${If} $0 = ${SF_SELECTED}
- DeleteRegValue HKCU "${MANUPRODUCTKEY}" "InstallSTT"
- ${Else}
- WriteRegDWORD HKCU "${MANUPRODUCTKEY}" "InstallSTT" 0
- ${EndIf}
- ${EndIf}
 
  ; Update mode installs over the top without uninstalling; delete the
  ; payloads of declined components or they would linger.
  !insertmacro DeleteComponentPayloadIfDeclined ${SecGateway} $INSTDIR\promptforge-gateway.exe
  !insertmacro DeleteComponentPayloadIfDeclined ${SecWorkshop} $INSTDIR\${MAINBINARYNAME}.exe
 
+SectionEnd
+
+Section "-GatewayInit"
+ ; Install-time initialization: write the default config when none exists
+ ; and, when Speech to Text is newly selected (no config yet, or a
+ ; previous install that persisted none or declined it), download its
+ ; runtime and models, so speech works offline from the first launch; over
+ ; a config without speech, init refuses and says how to add a model. A
+ ; reinstall over an existing config whose previous install had speech
+ ; runs init --no-stt: since then the user may have selected a profile
+ ; without speech in Settings, which init with speech would refuse, and
+ ; the boot provisions anything missing. It runs after the STT section
+ ; because a section's id is defined only at its Section line, and after
+ ; -Finalize so the uninstaller and the Add/Remove entry exist if the
+ ; installer is killed during the download, which nothing else can stop.
+ ; Update installs skip it: a passive auto-update must never start a large
+ ; download, and the boot provisions anything the original install did
+ ; not. nsExec waits, returns the exit code, opens no console window, and
+ ; streams init's progress lines into the details pane. The install is
+ ; currentUser, so init runs as the installing user, whose profile holds
+ ; the config and the artifact store.
+ SectionGetFlags ${SecGateway} $0
+ IntOp $0 $0 & ${SF_SELECTED}
+ ${If} $0 = ${SF_SELECTED}
+ ${AndIf} $UpdateMode <> 1
+ SectionGetFlags ${SecSTT} $0
+ IntOp $0 $0 & ${SF_SELECTED}
+ ${If} $0 = ${SF_SELECTED}
+ Call GatewayConfigExists
+ ${If} $SttBefore == 1
+ ${AndIf} $0 == 1
+ StrCpy $GatewayInitArgs "init --no-stt"
+ ${Else}
+ StrCpy $GatewayInitArgs "init"
+ DetailPrint "Provisioning speech to text (downloads what is missing)"
+ ${EndIf}
+ ${Else}
+ StrCpy $GatewayInitArgs "init --no-stt"
+ ${EndIf}
+ nsExec::ExecToLog '"$INSTDIR\promptforge-gateway.exe" $GatewayInitArgs'
+ Pop $GatewayInitExit
+ ${If} $GatewayInitExit != 0
+ DetailPrint "promptforge-gateway.exe $GatewayInitArgs failed (result: $GatewayInitExit); Gateway stays installed"
+ ; Keep the cause in view: the GUI install stops on this page
+ ; (MUI_FINISHPAGE_NOAUTOCLOSE) and the finish page cannot go back.
+ SetDetailsView show
+ ; Silent and passive installs have no finish page; the exit code is
+ ; their only report. NSIS itself uses 1 (cancelled) and 2 (aborted).
+ SetErrorLevel 3
+ ${EndIf}
+ ${EndIf}
+SectionEnd
+
+Section "-Relaunch"
  ; Relaunch the gateway when the install stopped one and the component
- ; stays installed. `--login` keeps the relaunch headless: no
- ; browser, no window.
+ ; stays installed, after -GatewayInit so a booting gateway does not race
+ ; init's download. `--login` keeps the relaunch headless: no browser, no
+ ; window.
  ${If} $GatewayWasRunning = 1
  SectionGetFlags ${SecGateway} $0
  IntOp $0 $0 & ${SF_SELECTED}
@@ -1032,11 +1089,10 @@ Section Uninstall
  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "PromptForgeGateway"
  ${EndIf}
 
- ; Remove the persisted component selection and the STT first-run gate
- ; when not updating (updates preserve both).
+ ; Remove the STT first-run gate older installers wrote, when not
+ ; updating.
  ${If} $UpdateMode <> 1
  DeleteRegValue HKCU "${MANUPRODUCTKEY}" "InstallSTT"
- DeleteRegKey HKCU "${MANUPRODUCTKEY}\Components"
  ${EndIf}
 
  ; Delete app data if the checkbox is selected
@@ -1049,6 +1105,12 @@ Section Uninstall
 
  ; Clear the install language from registry
  DeleteRegValue HKCU "${MANUPRODUCTKEY}" "Installer Language"
+ ; The persisted component selection lives as long as the config it
+ ; shaped: a reinstall over a kept speechless config that offered Speech
+ ; to Text checked would fail init. SHCTX above already removed it on a
+ ; currentUser install; this covers a perMachine one, which keeps it in
+ ; HKCU.
+ DeleteRegKey HKCU "${MANUPRODUCTKEY}\Components"
  DeleteRegKey /ifempty HKCU "${MANUPRODUCTKEY}"
  DeleteRegKey /ifempty HKCU "${MANUKEY}"
 
@@ -1092,9 +1154,11 @@ Function SkipIfPassiveOrUpdate
  ${EndIf}
 FunctionEnd
 
-; Forces the persisted component selection onto the sections in passive
-; and update mode, which skip the components page. Values absent from the
-; registry (installs that predate persistence) keep the default:
+; Forces the persisted component selection onto the sections, the
+; selection passive and update installs install and the components page
+; starts from. Values absent from the registry (a first install, one
+; after an uninstall that deleted app data or ran an earlier release's
+; uninstaller, or one predating persistence) keep the default:
 ; everything selected.
 Function RestoreComponentSelections
  ClearErrors
@@ -1120,6 +1184,7 @@ Function RestoreComponentSelections
  ClearErrors
  ReadRegDWORD $0 HKCU "${MANUPRODUCTKEY}\Components" "STT"
  ${IfNot} ${Errors}
+ StrCpy $SttBefore $0
  ${If} $0 = 1
  SectionSetFlags ${SecSTT} ${SF_SELECTED}
  ${Else}
@@ -1127,6 +1192,99 @@ Function RestoreComponentSelections
  ${EndIf}
  ${EndIf}
 FunctionEnd
+
+; Sets $0 to 1 when $0 is still empty and PATH is a file; a directory
+; does not count, since PATH\*.* finds its entries.
+!macro SetIfConfigFile PATH
+ ${If} $0 == ""
+ ${AndIf} ${FileExists} "${PATH}"
+ ${AndIfNot} ${FileExists} "${PATH}\*.*"
+ StrCpy $0 1
+ ${EndIf}
+!macroend
+
+; Sets $0 to 1 when init would find a gateway config, searching where it
+; does: PROMPTFORGE_GATEWAY_CONFIG when it names a file, else beside the
+; executable and in the working directory (both $INSTDIR here), then the
+; profile. Like init, it counts files only, not directories. Clobbers $1.
+Function GatewayConfigExists
+ StrCpy $0 ""
+ ReadEnvStr $1 PROMPTFORGE_GATEWAY_CONFIG
+ ${If} $1 != ""
+ !insertmacro SetIfConfigFile "$1"
+ ${EndIf}
+ !insertmacro SetIfConfigFile "$INSTDIR\gateway.toml"
+ !insertmacro SetIfConfigFile "$PROFILE\.promptforge\gateway.toml"
+FunctionEnd
+
+; STT installs through the gateway's init, so it requires Gateway: with
+; Gateway unchecked, STT is cleared.
+Function EnforceSttNeedsGateway
+ SectionGetFlags ${SecGateway} $0
+ IntOp $0 $0 & ${SF_SELECTED}
+ ${If} $0 <> ${SF_SELECTED}
+ !insertmacro UnselectSection ${SecSTT}
+ ${EndIf}
+FunctionEnd
+
+Function .onSelChange
+ Call EnforceSttNeedsGateway
+FunctionEnd
+
+; Selects exactly the sections a /COMPONENTS= list names, for silent
+; installs in CI: /COMPONENTS=gateway,stt. Names are workshop, gateway,
+; and stt, comma separated, in any case. An empty list, any other name,
+; or stt without gateway quits with exit code 2 rather than install a
+; selection nobody asked for.
+!macro SelectComponentIfListed LIST NAME SECTION_ID
+ ${StrLoc} $1 "${LIST}" ",${NAME}," ">"
+ ${If} $1 == ""
+ SectionSetFlags ${SECTION_ID} 0
+ ${Else}
+ SectionSetFlags ${SECTION_ID} ${SF_SELECTED}
+ ${EndIf}
+!macroend
+
+; Passive mode never prompts, so it reports through the exit code alone.
+!macro RejectComponentsList MESSAGE
+ ${If} $PassiveMode <> 1
+ MessageBox MB_OK|MB_ICONSTOP "${MESSAGE}" /SD IDOK
+ ${EndIf}
+ SetErrorLevel 2
+ Quit
+!macroend
+
+Function SelectComponentsFromCommandLine
+ ClearErrors
+ ${GetOptions} $CMDLINE "/COMPONENTS=" $0
+ ${If} ${Errors}
+ Return
+ ${EndIf}
+ ${StrCase} $0 ",$0," "L"
+ ; Strip every known name from a copy until nothing changes; a valid
+ ; list leaves only its outer comma. Repeating covers a repeated name,
+ ; whose adjacent matches share a comma.
+ StrCpy $1 $0
+ ${Do}
+ StrCpy $2 $1
+ ${WordReplace} $1 ",workshop," "," "+" $1
+ ${WordReplace} $1 ",gateway," "," "+" $1
+ ${WordReplace} $1 ",stt," "," "+" $1
+ ${LoopUntil} $1 == $2
+ ${If} $1 != ","
+ !insertmacro RejectComponentsList "/COMPONENTS= lists unknown or empty names (left after removing the known ones: $1); the names are workshop, gateway, and stt, comma separated, without spaces."
+ ${EndIf}
+ ${StrLoc} $1 $0 ",stt," ">"
+ ${StrLoc} $2 $0 ",gateway," ">"
+ ${If} $1 != ""
+ ${AndIf} $2 == ""
+ !insertmacro RejectComponentsList "/COMPONENTS= lists stt without gateway; speech to text installs through the gateway, so list gateway too."
+ ${EndIf}
+ !insertmacro SelectComponentIfListed $0 workshop ${SecWorkshop}
+ !insertmacro SelectComponentIfListed $0 gateway ${SecGateway}
+ !insertmacro SelectComponentIfListed $0 stt ${SecSTT}
+FunctionEnd
+
 Function un.SkipIfPassive
  ${IfThen} $PassiveMode = 1 ${|} Abort ${|}
 FunctionEnd

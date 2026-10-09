@@ -6,10 +6,11 @@
 //! Why the refresh exists: on Windows, `tauri.windows.conf.json` declares
 //! the gateway as an `externalBin`, so tauri-build copies
 //! `binaries/promptforge-gateway-<target-triple>.exe` over
-//! `target/<profile>/promptforge-gateway.exe` on every workshop build. That is the same path cargo writes the gateway crate's
-//! own binary to, so without this step a `cargo build -p gateway` followed
-//! by `cargo build -p workshop` ends with the stale sidecar copy in place
-//! of the gateway just built. Copying the built gateway forward into
+//! `target/<profile>/promptforge-gateway.exe` on every workshop build.
+//! That is the same path cargo writes the gateway crate's own binary to,
+//! so without this step a `cargo build -p gateway` followed by
+//! `cargo build -p workshop` ends with the stale sidecar copy in place of
+//! the gateway just built. Copying the built gateway forward into
 //! `binaries/` first makes that build order correct. Other targets bundle
 //! no gateway, so they skip the refresh.
 

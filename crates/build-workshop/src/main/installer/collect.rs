@@ -10,8 +10,10 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use gateway_api_discovery::{GATEWAY_BUNDLE_NAME, WORKSHOP_APPIMAGE_NAME, WORKSHOP_BUNDLE_NAME};
+
 use super::archive::write_archive;
-use super::bundle::{self, BundleSources, GATEWAY_BUNDLE};
+use super::bundle::{self, BundleSources};
 use super::{Arch, Platform, System, VERSION};
 
 const PRODUCT: &str = "PromptForge";
@@ -66,9 +68,11 @@ pub(crate) fn collect(
                 move_path(&signature_path(&archive), &signature_path(&published))?;
                 move_path(&archive, &published)?;
             }
-            let app = format!("{PRODUCT}.app");
-            move_path(&bundle.join(&app), &payload.join(&app))?;
-            let gateway = payload.join(GATEWAY_BUNDLE);
+            move_path(
+                &bundle.join(format!("{PRODUCT}.app")),
+                &payload.join(WORKSHOP_BUNDLE_NAME),
+            )?;
+            let gateway = payload.join(GATEWAY_BUNDLE_NAME);
             bundle::assemble(
                 &BundleSources::in_workspace(workspace_root),
                 &release.join(GATEWAY),
@@ -88,7 +92,7 @@ pub(crate) fn collect(
                 move_path(&signature_path(&appimage), &signature_path(&published))?;
                 copy_file(&appimage, &published)?;
             }
-            move_path(&appimage, &payload.join(format!("{PRODUCT}.AppImage")))?;
+            move_path(&appimage, &payload.join(WORKSHOP_APPIMAGE_NAME))?;
             let gateway = payload.join(GATEWAY);
             copy_executable(&release.join(GATEWAY), &gateway)?;
             archive_gateway(&gateway, platform, sign, &publish)

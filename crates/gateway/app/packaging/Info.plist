@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
     PromptForge Gateway.app, the macOS Gateway payload. `cargo workshop
-    installer` assembles the bundle and replaces @VERSION@ with the
+    installer` assembles the bundle and fills both version keys with the
     workspace version. LSUIElement keeps the tray-only gateway out of the
     Dock, and CFBundleExecutable makes the gateway the bundle's principal
     executable, which Launch at Login registers.

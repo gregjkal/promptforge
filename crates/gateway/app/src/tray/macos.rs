@@ -6,10 +6,11 @@
 //! `PromptForge Gateway.app`, whose Info.plist (`packaging/Info.plist`)
 //! sets `LSUIElement`. A development build runs as a bare executable with
 //! no Info.plist, so the early `setActivationPolicy(.accessory)` call in
-//! [`run`] still keeps the daemon out of the Dock there, and it runs before
-//! any other AppKit initialization. The tray itself is built on the first pass of the run
-//! loop (a zero-delay one-shot timer), because status-item construction
-//! before the loop runs is the classic source of invisible trays.
+//! [`run`] still keeps the daemon out of the Dock there, and it runs
+//! before any other AppKit initialization. The tray itself is built on the
+//! first pass of the run loop (a zero-delay one-shot timer), because
+//! status-item construction before the loop runs is the classic source of
+//! invisible trays.
 //!
 //! Menu discipline: muda 0.19.3 does not contain the use-after-free fix
 //! for `set_menu` while the menu is displayed

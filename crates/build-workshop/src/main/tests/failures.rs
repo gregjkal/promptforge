@@ -169,6 +169,31 @@ fn interruption_raced_with_completion_removes_the_sidecar() {
 }
 
 #[test]
+fn interruption_raced_with_completion_fails_a_build_without_a_sidecar() {
+    let test_environment = environment();
+    let environment = &test_environment.environment;
+    let triple = "x86_64-unknown-linux-gnu";
+    let mut runner = FakeRunner::with_responses(vec![
+        gateway_built(debug_gateway(environment, triple)),
+        workshop_built_without_sidecar(
+            test_environment.sidecar(triple),
+            FakeResponse::CompletedAndInterrupted,
+        ),
+    ]);
+
+    let error = build_workshop(&debug_request(triple), environment, &mut runner)
+        .expect_err("Workshop completion race");
+
+    assert!(
+        error
+            .primary
+            .contains("Workshop build interrupted after child completion"),
+        "{error}"
+    );
+    assert_eq!(error.cleanup, None);
+}
+
+#[test]
 fn interruption_preserves_cleanup_failure_diagnostics() {
     let test_environment = environment();
     let environment = &test_environment.environment;
@@ -295,42 +320,46 @@ fn a_failed_version_check_stops_before_staging_and_removes_a_stale_sidecar() {
 }
 
 #[test]
-fn a_failed_unstartable_or_interrupted_bundle_removes_the_sidecar_and_collects_nothing() {
-    for (response, expected) in [
-        (
-            failure("bundle broke"),
-            "Workshop bundle failed: bundle broke",
-        ),
-        (
-            FakeResponse::SpawnFailed(io::ErrorKind::NotFound, "node not found"),
-            "Workshop bundle could not start: node not found",
-        ),
-        (
-            FakeResponse::InterruptedAfterStart,
-            "Workshop bundle interrupted",
-        ),
-    ] {
-        let test_environment = environment();
-        let environment = &test_environment.environment;
-        let target = "x86_64-pc-windows-msvc";
-        let mut runner = FakeRunner::with_responses(vec![
-            node_found(),
-            gateway_built(gateway(environment, target)),
-            version_printed(),
-            bundled(
-                test_environment.sidecar(target),
-                target,
-                Vec::new(),
-                response,
+fn a_failed_unstartable_or_interrupted_bundle_leaves_no_sidecar_and_collects_nothing() {
+    let cases = || {
+        [
+            (
+                failure("bundle broke"),
+                "Workshop bundle failed: bundle broke",
             ),
-        ]);
+            (
+                FakeResponse::SpawnFailed(io::ErrorKind::NotFound, "node not found"),
+                "Workshop bundle could not start: node not found",
+            ),
+            (
+                FakeResponse::InterruptedAfterStart,
+                "Workshop bundle interrupted",
+            ),
+        ]
+    };
+    for target in ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"] {
+        for (response, expected) in cases() {
+            let test_environment = environment();
+            let environment = &test_environment.environment;
+            let mut runner = FakeRunner::with_responses(vec![
+                node_found(),
+                gateway_built(gateway(environment, target)),
+                version_printed(),
+                bundled(
+                    test_environment.sidecar(target),
+                    target,
+                    Vec::new(),
+                    response,
+                ),
+            ]);
 
-        let error = build_installer(&request(target, false), environment, &mut runner)
-            .expect_err("bundle failure");
+            let error = build_installer(&request(target, false), environment, &mut runner)
+                .expect_err("bundle failure");
 
-        assert!(error.primary.contains(expected), "{error}");
-        assert!(!test_environment.sidecar(target).exists());
-        assert!(!output(environment, target).exists());
+            assert!(error.primary.contains(expected), "{target}: {error}");
+            assert!(!test_environment.sidecar(target).exists(), "{target}");
+            assert!(!output(environment, target).exists(), "{target}");
+        }
     }
 }
 

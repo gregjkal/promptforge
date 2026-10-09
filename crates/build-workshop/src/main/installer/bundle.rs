@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 use super::VERSION;
 use super::collect::{GATEWAY, copy_executable, create_directory};
 
-pub(crate) const GATEWAY_BUNDLE: &str = "PromptForge Gateway.app";
 /// Stands for the workspace version in the template's two version keys.
 const VERSION_PLACEHOLDER: &str = "@VERSION@";
 

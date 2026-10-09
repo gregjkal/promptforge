@@ -59,13 +59,13 @@ fn the_gateway_bundle_holds_the_versioned_plist_the_executable_and_the_icon() {
     let gateway = temp.path().join("promptforge-gateway");
     write_file(&gateway, b"gateway");
     let app = temp.path().join("PromptForge Gateway.app");
+    let sources = BundleSources::in_workspace(&repository_root());
+    // The guard in `assemble` only checks that the placeholder appears, so
+    // anywhere but the two version keys would defeat it.
+    let template = std::fs::read_to_string(&sources.info_plist).expect("template");
+    assert_eq!(template.matches("@VERSION@").count(), 2, "{template}");
 
-    bundle::assemble(
-        &BundleSources::in_workspace(&repository_root()),
-        &gateway,
-        &app,
-    )
-    .expect("assemble");
+    bundle::assemble(&sources, &gateway, &app).expect("assemble");
 
     let mut files = Vec::new();
     collect_files(&app, &app, &mut files);

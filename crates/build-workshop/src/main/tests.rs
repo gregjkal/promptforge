@@ -137,10 +137,10 @@ fn workshop_built_with_sidecar(sidecar: PathBuf, response: FakeResponse) -> Fake
 }
 
 /// A Workshop build that asserts no sidecar is staged while it runs.
-fn workshop_built_without_sidecar(sidecar: PathBuf) -> FakeResponse {
+fn workshop_built_without_sidecar(sidecar: PathBuf, response: FakeResponse) -> FakeResponse {
     act(
         move || assert!(!sidecar.exists(), "sidecar staged for a target without one"),
-        success(""),
+        response,
     )
 }
 
@@ -361,7 +361,7 @@ fn rejects_duplicate_incomplete_or_malformed_options() {
         arguments(&["installer", "--target", "--sign"]),
         arguments(&["sidecar"]),
         arguments(&["sidecar", "copy"]),
-        arguments(&["sidecar", "stage", "--target", "x86_64-unknown-linux-gnu"]),
+        arguments(&["sidecar", "stage", "--target", "x86_64-pc-windows-msvc"]),
         arguments(&["sidecar", "stage", "--source", "gateway"]),
         arguments(&["sidecar", "remove"]),
     ] {
@@ -417,7 +417,7 @@ fn explicit_linux_release_target_builds_without_a_host_probe_or_sidecar() {
         .join("promptforge-gateway");
     let mut runner = FakeRunner::with_responses(vec![
         gateway_built(source),
-        workshop_built_without_sidecar(test_environment.sidecar(triple)),
+        workshop_built_without_sidecar(test_environment.sidecar(triple), success("")),
     ]);
 
     build_workshop(

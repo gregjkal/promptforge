@@ -2,46 +2,45 @@
 
 use super::*;
 
+fn debug_request(target: &str) -> BuildRequest {
+    BuildRequest {
+        profile: Profile::Debug,
+        target: Some(target.to_owned()),
+    }
+}
+
+fn debug_gateway(environment: &BuildEnvironment, target: &str) -> PathBuf {
+    environment
+        .target_root
+        .join(target)
+        .join("debug")
+        .join(sidecar::gateway_binary_name(target))
+}
+
+/// Stands in for a file the cleanup cannot remove: a directory with content
+/// at the sidecar's path.
+fn block_sidecar_removal(sidecar: PathBuf) -> impl FnOnce() {
+    move || {
+        std::fs::remove_file(&sidecar).expect("remove the staged sidecar");
+        write_file(&sidecar.join("held"), b"held");
+    }
+}
+
 #[test]
-fn gateway_failure_still_removes_any_staged_sidecar() {
+fn gateway_failure_runs_no_workshop_build_and_leaves_no_sidecar() {
     let test_environment = environment();
     let environment = &test_environment.environment;
     let triple = "x86_64-pc-windows-msvc";
-    let mut runner = FakeRunner::with_responses(vec![failure("gateway broke"), success("")]);
+    let mut runner = FakeRunner::with_responses(vec![failure("gateway broke")]);
 
-    let error = build_workshop(
-        &BuildRequest {
-            profile: Profile::Debug,
-            target: Some(triple.to_owned()),
-        },
-        environment,
-        &mut runner,
-    )
-    .expect_err("Gateway failure");
+    let error = build_workshop(&debug_request(triple), environment, &mut runner)
+        .expect_err("Gateway failure");
 
     assert!(error.primary.contains("Gateway build failed"), "{error}");
     assert!(error.primary.contains("gateway broke"), "{error}");
     assert_eq!(error.cleanup, None);
-    assert_eq!(runner.commands.len(), 2);
-    assert_eq!(
-        runner.commands[1],
-        command(
-            environment,
-            "selected-node",
-            &[
-                environment
-                    .workspace_root
-                    .join("tools")
-                    .join("stage-gateway-sidecar.mjs")
-                    .to_str()
-                    .expect("UTF-8 script"),
-                "remove",
-                "--target",
-                triple,
-            ],
-            OutputMode::Inherit,
-        )
-    );
+    assert_eq!(runner.commands.len(), 1);
+    assert!(!test_environment.sidecar(triple).exists());
 }
 
 #[test]
@@ -50,69 +49,59 @@ fn workshop_failure_is_primary_when_cleanup_also_fails() {
     let environment = &test_environment.environment;
     let triple = "x86_64-unknown-linux-gnu";
     let mut runner = FakeRunner::with_responses(vec![
-        success(""),
-        success(""),
-        failure("workshop broke"),
-        FakeResponse::SpawnFailed(io::ErrorKind::NotFound, "node disappeared"),
+        gateway_built(debug_gateway(environment, triple)),
+        act(
+            block_sidecar_removal(test_environment.sidecar(triple)),
+            failure("workshop broke"),
+        ),
     ]);
 
-    let error = build_workshop(
-        &BuildRequest {
-            profile: Profile::Release,
-            target: Some(triple.to_owned()),
-        },
-        environment,
-        &mut runner,
-    )
-    .expect_err("Workshop and cleanup failure");
+    let error = build_workshop(&debug_request(triple), environment, &mut runner)
+        .expect_err("Workshop and cleanup failure");
 
     assert!(error.primary.contains("Workshop build failed"), "{error}");
     assert!(error.primary.contains("workshop broke"), "{error}");
     let cleanup = error.cleanup.expect("separate cleanup failure");
-    assert!(cleanup.contains("Gateway sidecar cleanup"), "{cleanup}");
-    assert!(cleanup.contains("node disappeared"), "{cleanup}");
-}
-
-#[test]
-fn stage_failure_is_followed_by_cleanup() {
-    let test_environment = environment();
-    let environment = &test_environment.environment;
-    let mut runner =
-        FakeRunner::with_responses(vec![success(""), failure("copy failed"), success("")]);
-
-    let error = build_workshop(
-        &BuildRequest {
-            profile: Profile::Debug,
-            target: Some("x86_64-unknown-linux-gnu".to_owned()),
-        },
-        environment,
-        &mut runner,
-    )
-    .expect_err("staging failure");
-
-    assert!(error.primary.contains("Gateway sidecar staging failed"));
-    assert_eq!(runner.commands.len(), 3);
-    assert_eq!(
-        runner.commands[2].args[1..],
-        strings(&["remove", "--target", "x86_64-unknown-linux-gnu"])
+    assert!(
+        cleanup.contains("Gateway sidecar cleanup failed"),
+        "{cleanup}"
     );
+    assert!(cleanup.contains("cannot remove"), "{cleanup}");
 }
 
 #[test]
-fn interruption_before_staging_does_not_run_removal() {
+fn stage_failure_names_the_missing_source_and_skips_the_workshop_build() {
     let test_environment = environment();
     let environment = &test_environment.environment;
+    let triple = "x86_64-unknown-linux-gnu";
+    let mut runner = FakeRunner::with_responses(vec![success("")]);
+
+    let error = build_workshop(&debug_request(triple), environment, &mut runner)
+        .expect_err("staging failure");
+
+    assert!(
+        error.primary.contains("Gateway sidecar staging failed"),
+        "{error}"
+    );
+    assert!(
+        error
+            .primary
+            .contains(&debug_gateway(environment, triple).display().to_string()),
+        "{error}"
+    );
+    assert_eq!(runner.commands.len(), 1);
+    assert!(!test_environment.sidecar(triple).exists());
+}
+
+#[test]
+fn interruption_during_the_gateway_build_stages_nothing() {
+    let test_environment = environment();
+    let environment = &test_environment.environment;
+    let triple = "x86_64-pc-windows-msvc";
     let mut runner = FakeRunner::with_responses(vec![FakeResponse::InterruptedBeforeStart]);
 
-    let error = build_workshop(
-        &BuildRequest {
-            profile: Profile::Debug,
-            target: Some("x86_64-pc-windows-msvc".to_owned()),
-        },
-        environment,
-        &mut runner,
-    )
-    .expect_err("Gateway interruption");
+    let error = build_workshop(&debug_request(triple), environment, &mut runner)
+        .expect_err("Gateway interruption");
 
     assert!(
         error.primary.contains("Gateway build interrupted"),
@@ -120,128 +109,71 @@ fn interruption_before_staging_does_not_run_removal() {
     );
     assert_eq!(error.cleanup, None);
     assert_eq!(runner.commands.len(), 1);
+    assert!(!test_environment.sidecar(triple).exists());
 }
 
 #[test]
-fn interruption_after_gateway_completion_does_not_run_removal() {
+fn interruption_after_gateway_completion_stages_nothing() {
     let test_environment = environment();
     let environment = &test_environment.environment;
     let triple = "x86_64-pc-windows-msvc";
-    let mut runner = FakeRunner::with_responses(vec![FakeResponse::CompletedAndInterrupted]);
-
-    let error = build_workshop(
-        &BuildRequest {
-            profile: Profile::Debug,
-            target: Some(triple.to_owned()),
-        },
-        environment,
-        &mut runner,
-    )
-    .expect_err("pre-staging interruption");
-
-    assert!(
-        error
-            .primary
-            .contains("Gateway sidecar staging interrupted"),
-        "{error}"
-    );
-    assert!(
-        runner
-            .commands
-            .iter()
-            .all(|command| { command.args[1..] != strings(&["remove", "--target", triple]) })
-    );
-}
-
-#[test]
-fn interruption_during_staging_runs_target_cleanup_once() {
-    let test_environment = environment();
-    let environment = &test_environment.environment;
-    let triple = "x86_64-pc-windows-msvc";
-    let mut runner = FakeRunner::with_responses(vec![
-        success(""),
-        FakeResponse::InterruptedAfterStart,
-        success(""),
-    ]);
-
-    let error = build_workshop(
-        &BuildRequest {
-            profile: Profile::Debug,
-            target: Some(triple.to_owned()),
-        },
-        environment,
-        &mut runner,
-    )
-    .expect_err("staging interruption");
-
-    assert!(
-        error
-            .primary
-            .contains("Gateway sidecar staging interrupted"),
-        "{error}"
-    );
-    let removals = runner
-        .commands
-        .iter()
-        .filter(|command| command.args[1..] == strings(&["remove", "--target", triple]))
-        .count();
-    assert_eq!(removals, 1);
-}
-
-#[test]
-fn interruption_raced_with_completion_runs_cleanup_once() {
-    let test_environment = environment();
-    let environment = &test_environment.environment;
-    let triple = "x86_64-pc-windows-msvc";
-    let mut runner = FakeRunner::with_responses(vec![
-        success(""),
-        success(""),
+    let source = debug_gateway(environment, triple);
+    let mut runner = FakeRunner::with_responses(vec![act(
+        move || write_file(&source, b"gateway"),
         FakeResponse::CompletedAndInterrupted,
-        success(""),
+    )]);
+
+    let error = build_workshop(&debug_request(triple), environment, &mut runner)
+        .expect_err("pre-staging interruption");
+
+    assert!(
+        error
+            .primary
+            .contains("Gateway sidecar staging interrupted"),
+        "{error}"
+    );
+    assert_eq!(runner.commands.len(), 1);
+    assert!(!test_environment.sidecar(triple).exists());
+}
+
+#[test]
+fn interruption_raced_with_completion_removes_the_sidecar() {
+    let test_environment = environment();
+    let environment = &test_environment.environment;
+    let triple = "x86_64-pc-windows-msvc";
+    let mut runner = FakeRunner::with_responses(vec![
+        gateway_built(debug_gateway(environment, triple)),
+        workshop_built_with_sidecar(
+            test_environment.sidecar(triple),
+            FakeResponse::CompletedAndInterrupted,
+        ),
     ]);
 
-    let error = build_workshop(
-        &BuildRequest {
-            profile: Profile::Debug,
-            target: Some(triple.to_owned()),
-        },
-        environment,
-        &mut runner,
-    )
-    .expect_err("Workshop completion race");
+    let error = build_workshop(&debug_request(triple), environment, &mut runner)
+        .expect_err("Workshop completion race");
 
     assert!(
         error.primary.contains("Workshop build interrupted"),
         "{error}"
     );
-    let removals = runner
-        .commands
-        .iter()
-        .filter(|command| command.args[1..] == strings(&["remove", "--target", triple]))
-        .count();
-    assert_eq!(removals, 1);
+    assert!(!test_environment.sidecar(triple).exists());
 }
 
 #[test]
 fn interruption_preserves_cleanup_failure_diagnostics() {
     let test_environment = environment();
     let environment = &test_environment.environment;
+    let triple = "x86_64-unknown-linux-gnu";
     let mut runner = FakeRunner::with_responses(vec![
-        success(""),
-        success(""),
-        FakeResponse::InterruptedAfterStart,
-        failure("remove broke"),
+        gateway_built(debug_gateway(environment, triple)),
+        act(
+            block_sidecar_removal(test_environment.sidecar(triple)),
+            FakeResponse::InterruptedAfterStart,
+        ),
     ]);
 
-    let error = build_workshop(
-        &BuildRequest {
-            profile: Profile::Debug,
-            target: Some("x86_64-unknown-linux-gnu".to_owned()),
-        },
-        environment,
-        &mut runner,
-    )
-    .expect_err("Workshop interruption and cleanup failure");
+    let error = build_workshop(&debug_request(triple), environment, &mut runner)
+        .expect_err("Workshop interruption and cleanup failure");
 
     assert!(
         error.primary.contains("Workshop build interrupted"),
@@ -252,35 +184,28 @@ fn interruption_preserves_cleanup_failure_diagnostics() {
         cleanup.contains("Gateway sidecar cleanup failed"),
         "{cleanup}"
     );
-    assert!(cleanup.contains("remove broke"), "{cleanup}");
 }
 
 #[test]
 fn cleanup_failure_after_success_fails_the_command_clearly() {
     let test_environment = environment();
     let environment = &test_environment.environment;
+    let triple = "x86_64-unknown-linux-gnu";
     let mut runner = FakeRunner::with_responses(vec![
-        success(""),
-        success(""),
-        success(""),
-        failure("remove failed"),
+        gateway_built(debug_gateway(environment, triple)),
+        act(
+            block_sidecar_removal(test_environment.sidecar(triple)),
+            success(""),
+        ),
     ]);
 
-    let error = build_workshop(
-        &BuildRequest {
-            profile: Profile::Debug,
-            target: Some("x86_64-unknown-linux-gnu".to_owned()),
-        },
-        environment,
-        &mut runner,
-    )
-    .expect_err("cleanup failure");
+    let error = build_workshop(&debug_request(triple), environment, &mut runner)
+        .expect_err("cleanup failure");
 
     assert!(
         error.primary.contains("Gateway sidecar cleanup failed"),
         "{error}"
     );
-    assert!(error.primary.contains("remove failed"), "{error}");
     assert_eq!(error.cleanup, None);
 }
 

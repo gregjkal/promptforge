@@ -652,6 +652,8 @@ dependencies = [
  "anyhow",
  "build-ceiling",
  "ctrlc",
+ "flate2",
+ "tar",
  "tempfile",
  "workspace-hack",
 ]

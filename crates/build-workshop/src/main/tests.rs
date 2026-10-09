@@ -1,28 +1,52 @@
 //! Unit tests for argument parsing and the build command sequence.
 
 use std::collections::VecDeque;
+use std::path::Path;
 
 use tempfile::TempDir;
 
 use super::*;
+use args::InstallerRequest;
 
+#[path = "tests-collect.rs"]
+mod collect_tests;
 #[path = "tests-failures.rs"]
 mod failures;
+#[path = "tests-installer.rs"]
+mod installer_tests;
+#[path = "tests-sidecar.rs"]
+mod sidecar_tests;
 
-#[derive(Debug)]
 enum FakeResponse {
     Completed(CommandResult),
     CompletedAndInterrupted,
     InterruptedBeforeStart,
     InterruptedAfterStart,
     SpawnFailed(io::ErrorKind, &'static str),
+    /// Runs the effect, standing in for what the real child does to the
+    /// filesystem, then answers with the inner response.
+    Act(Box<dyn FnOnce()>, Box<FakeResponse>),
+}
+
+impl fmt::Debug for FakeResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Completed(result) => write!(formatter, "Completed({result:?})"),
+            Self::CompletedAndInterrupted => formatter.write_str("CompletedAndInterrupted"),
+            Self::InterruptedBeforeStart => formatter.write_str("InterruptedBeforeStart"),
+            Self::InterruptedAfterStart => formatter.write_str("InterruptedAfterStart"),
+            Self::SpawnFailed(kind, message) => {
+                write!(formatter, "SpawnFailed({kind:?}, {message})")
+            }
+            Self::Act(_, response) => write!(formatter, "Act({response:?})"),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
 struct FakeRunner {
     responses: VecDeque<FakeResponse>,
     commands: Vec<CommandSpec>,
-    last_command_started: bool,
     interruption_observed: bool,
 }
 
@@ -31,33 +55,14 @@ impl FakeRunner {
         Self {
             responses: responses.into(),
             commands: Vec::new(),
-            last_command_started: false,
             interruption_observed: false,
         }
     }
-}
 
-impl CommandRunner for FakeRunner {
-    fn run(
-        &mut self,
-        command: &CommandSpec,
-        interrupt_policy: InterruptPolicy,
-    ) -> io::Result<CommandResult> {
-        self.commands.push(command.clone());
-        self.last_command_started = false;
-        if interrupt_policy == InterruptPolicy::RejectExisting && self.interruption_observed {
-            return Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "interrupted before child start",
-            ));
-        }
-        match self.responses.pop_front().expect("unexpected command") {
-            FakeResponse::Completed(result) => {
-                self.last_command_started = true;
-                Ok(result)
-            }
+    fn answer(&mut self, response: FakeResponse) -> io::Result<CommandResult> {
+        match response {
+            FakeResponse::Completed(result) => Ok(result),
             FakeResponse::CompletedAndInterrupted => {
-                self.last_command_started = true;
                 self.interruption_observed = true;
                 Ok(CommandResult {
                     success: true,
@@ -65,21 +70,30 @@ impl CommandRunner for FakeRunner {
                     stderr: String::new(),
                 })
             }
-            FakeResponse::InterruptedBeforeStart => {
-                self.interruption_observed = true;
-                Err(io::Error::new(io::ErrorKind::Interrupted, "interrupted"))
-            }
-            FakeResponse::InterruptedAfterStart => {
-                self.last_command_started = true;
+            FakeResponse::InterruptedBeforeStart | FakeResponse::InterruptedAfterStart => {
                 self.interruption_observed = true;
                 Err(io::Error::new(io::ErrorKind::Interrupted, "interrupted"))
             }
             FakeResponse::SpawnFailed(kind, message) => Err(io::Error::new(kind, message)),
+            FakeResponse::Act(effect, response) => {
+                effect();
+                self.answer(*response)
+            }
         }
     }
+}
 
-    fn last_command_started(&self) -> bool {
-        self.last_command_started
+impl CommandRunner for FakeRunner {
+    fn run(&mut self, command: &CommandSpec) -> io::Result<CommandResult> {
+        self.commands.push(command.clone());
+        if self.interruption_observed {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "interrupted before child start",
+            ));
+        }
+        let response = self.responses.pop_front().expect("unexpected command");
+        self.answer(response)
     }
 
     fn interruption_observed(&self) -> bool {
@@ -103,16 +117,46 @@ fn failure(stderr: &str) -> FakeResponse {
     })
 }
 
+fn act(effect: impl FnOnce() + 'static, response: FakeResponse) -> FakeResponse {
+    FakeResponse::Act(Box::new(effect), Box::new(response))
+}
+
+/// A Cargo build that writes the Gateway binary where the pipeline looks.
+fn gateway_built(path: PathBuf) -> FakeResponse {
+    act(move || write_file(&path, b"gateway"), success(""))
+}
+
+/// A Workshop build that asserts the sidecar is staged while it runs.
+fn workshop_built_with_sidecar(sidecar: PathBuf, response: FakeResponse) -> FakeResponse {
+    act(
+        move || assert!(sidecar.is_file(), "sidecar not staged during the build"),
+        response,
+    )
+}
+
+fn write_file(path: &Path, contents: &[u8]) {
+    std::fs::create_dir_all(path.parent().expect("parent")).expect("parent directory");
+    std::fs::write(path, contents).expect("write file");
+}
+
 struct TestEnvironment {
     _temp: TempDir,
     environment: BuildEnvironment,
+}
+
+impl TestEnvironment {
+    fn sidecar(&self, target: &str) -> PathBuf {
+        sidecar::sidecar_path(&self.environment.workspace_root, target)
+    }
 }
 
 fn environment() -> TestEnvironment {
     let temp = tempfile::tempdir().expect("temporary workspace");
     let workspace_root = temp.path().join("repo");
     let target_root = temp.path().join("cargo-target");
+    let tauri_cli = temp.path().join("tauri-cli").join("tauri.js");
     std::fs::create_dir_all(&workspace_root).expect("workspace root");
+    write_file(&tauri_cli, b"");
     TestEnvironment {
         _temp: temp,
         environment: BuildEnvironment {
@@ -120,6 +164,8 @@ fn environment() -> TestEnvironment {
             target_root,
             cargo: PathBuf::from("selected-cargo"),
             node: PathBuf::from("selected-node"),
+            tauri_cli,
+            signing_key_set: false,
         },
     }
 }
@@ -142,70 +188,148 @@ fn command(
     }
 }
 
+fn arguments(values: &[&str]) -> Vec<String> {
+    values.iter().map(|value| (*value).to_owned()).collect()
+}
+
 #[test]
 fn parses_only_the_documented_profile_and_target_options() {
     assert_eq!(
         parse_arguments(&[]).expect("debug request"),
-        BuildRequest {
+        Request::Build(BuildRequest {
             profile: Profile::Debug,
             target: None,
-        }
+        })
     );
     assert_eq!(
-        parse_arguments(&[
-            "--target".to_owned(),
-            "aarch64-apple-darwin".to_owned(),
-            "--release".to_owned(),
-        ])
+        parse_arguments(&arguments(&[
+            "--target",
+            "aarch64-apple-darwin",
+            "--release"
+        ]))
         .expect("release target request"),
-        BuildRequest {
+        Request::Build(BuildRequest {
             profile: Profile::Release,
             target: Some("aarch64-apple-darwin".to_owned()),
-        }
+        })
+    );
+}
+
+#[test]
+fn parses_the_installer_and_sidecar_modes() {
+    assert_eq!(
+        parse_arguments(&arguments(&["installer"])).expect("installer"),
+        Request::Installer(InstallerRequest {
+            target: None,
+            sign: false,
+        })
+    );
+    assert_eq!(
+        parse_arguments(&arguments(&[
+            "installer",
+            "--sign",
+            "--target",
+            "x86_64-pc-windows-msvc",
+        ]))
+        .expect("signed installer"),
+        Request::Installer(InstallerRequest {
+            target: Some("x86_64-pc-windows-msvc".to_owned()),
+            sign: true,
+        })
+    );
+    assert_eq!(
+        parse_arguments(&arguments(&[
+            "sidecar",
+            "stage",
+            "--source",
+            "target/debug/promptforge-gateway",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+        ]))
+        .expect("stage"),
+        Request::Sidecar(SidecarRequest::Stage {
+            target: "x86_64-unknown-linux-gnu".to_owned(),
+            source: PathBuf::from("target/debug/promptforge-gateway"),
+        })
+    );
+    assert_eq!(
+        parse_arguments(&arguments(&[
+            "sidecar",
+            "remove",
+            "--target",
+            "x86_64-pc-windows-msvc",
+        ]))
+        .expect("remove"),
+        Request::Sidecar(SidecarRequest::Remove {
+            target: "x86_64-pc-windows-msvc".to_owned(),
+        })
     );
 }
 
 #[test]
 fn rejects_product_features_and_other_unsupported_arguments() {
     for args in [
-        vec!["--features".to_owned(), "local".to_owned()],
-        vec!["--profile".to_owned(), "dist".to_owned()],
-        vec!["gateway".to_owned()],
+        arguments(&["--features", "local"]),
+        arguments(&["--profile", "dist"]),
+        arguments(&["gateway"]),
+        arguments(&["--sign"]),
+        arguments(&["installer", "--release"]),
+        arguments(&["installer", "--source", "gateway"]),
+        arguments(&[
+            "sidecar",
+            "remove",
+            "--target",
+            "x86_64-pc-windows-msvc",
+            "--source",
+            "x",
+        ]),
+        arguments(&["sidecar", "stage", "--release"]),
     ] {
         let error = parse_arguments(&args)
             .expect_err("unsupported argument")
             .to_string();
-        assert!(error.contains("unsupported argument"), "{error}");
-        assert!(error.contains(USAGE), "{error}");
+        assert!(error.contains("unsupported argument"), "{args:?}: {error}");
+        assert!(error.contains(args::USAGE), "{error}");
     }
 }
 
 #[test]
-fn rejects_duplicate_or_incomplete_options() {
+fn rejects_duplicate_incomplete_or_malformed_options() {
     for args in [
-        vec!["--release".to_owned(), "--release".to_owned()],
-        vec!["--target".to_owned()],
-        vec![
-            "--target".to_owned(),
-            "x86_64-pc-windows-msvc".to_owned(),
-            "--target".to_owned(),
-            "x86_64-unknown-linux-gnu".to_owned(),
-        ],
+        arguments(&["--release", "--release"]),
+        arguments(&["--target"]),
+        arguments(&[
+            "--target",
+            "x86_64-pc-windows-msvc",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+        ]),
+        arguments(&["--target", "../outside"]),
+        arguments(&["installer", "--sign", "--sign"]),
+        arguments(&["installer", "--target", "--sign"]),
+        arguments(&["sidecar"]),
+        arguments(&["sidecar", "copy"]),
+        arguments(&["sidecar", "stage", "--target", "x86_64-unknown-linux-gnu"]),
+        arguments(&["sidecar", "stage", "--source", "gateway"]),
+        arguments(&["sidecar", "remove"]),
     ] {
         assert!(parse_arguments(&args).is_err(), "{args:?}");
     }
 }
 
 #[test]
-fn default_build_derives_host_and_cleans_up_in_order() {
+fn default_build_derives_host_and_stages_around_the_workshop_build() {
     let test_environment = environment();
     let environment = &test_environment.environment;
+    let triple = "x86_64-pc-windows-msvc";
+    let source = environment
+        .target_root
+        .join("debug")
+        .join("promptforge-gateway.exe");
     let mut runner = FakeRunner::with_responses(vec![
         success("cargo 1.89.0\nhost: x86_64-pc-windows-msvc\n"),
-        success(""),
-        success(""),
-        success(""),
-        success(""),
+        gateway_built(source),
+        workshop_built_with_sidecar(test_environment.sidecar(triple), success("")),
     ]);
 
     build_workshop(
@@ -218,10 +342,6 @@ fn default_build_derives_host_and_cleans_up_in_order() {
     )
     .expect("Workshop build");
 
-    let source = environment
-        .target_root
-        .join("debug")
-        .join("promptforge-gateway.exe");
     assert_eq!(
         runner.commands,
         vec![
@@ -234,46 +354,13 @@ fn default_build_derives_host_and_cleans_up_in_order() {
             ),
             command(
                 environment,
-                "selected-node",
-                &[
-                    environment
-                        .workspace_root
-                        .join("tools")
-                        .join("stage-gateway-sidecar.mjs")
-                        .to_str()
-                        .expect("UTF-8 script"),
-                    "stage",
-                    "--target",
-                    "x86_64-pc-windows-msvc",
-                    "--source",
-                    source.to_str().expect("UTF-8 source"),
-                ],
-                OutputMode::Inherit,
-            ),
-            command(
-                environment,
                 "selected-cargo",
                 &["build", "-p", "workshop"],
                 OutputMode::Inherit,
             ),
-            command(
-                environment,
-                "selected-node",
-                &[
-                    environment
-                        .workspace_root
-                        .join("tools")
-                        .join("stage-gateway-sidecar.mjs")
-                        .to_str()
-                        .expect("UTF-8 script"),
-                    "remove",
-                    "--target",
-                    "x86_64-pc-windows-msvc",
-                ],
-                OutputMode::Inherit,
-            ),
         ]
     );
+    assert!(!test_environment.sidecar(triple).exists(), "sidecar left");
 }
 
 #[test]
@@ -281,8 +368,15 @@ fn explicit_release_target_uses_target_output_without_a_host_probe() {
     let test_environment = environment();
     let environment = &test_environment.environment;
     let triple = "aarch64-unknown-linux-gnu";
-    let mut runner =
-        FakeRunner::with_responses(vec![success(""), success(""), success(""), success("")]);
+    let source = environment
+        .target_root
+        .join(triple)
+        .join("release")
+        .join("promptforge-gateway");
+    let mut runner = FakeRunner::with_responses(vec![
+        gateway_built(source),
+        workshop_built_with_sidecar(test_environment.sidecar(triple), success("")),
+    ]);
 
     build_workshop(
         &BuildRequest {
@@ -294,60 +388,22 @@ fn explicit_release_target_uses_target_output_without_a_host_probe() {
     )
     .expect("Workshop build");
 
-    let source = environment
-        .target_root
-        .join(triple)
-        .join("release")
-        .join("promptforge-gateway");
     assert_eq!(
         runner.commands,
         vec![
             command(
                 environment,
                 "selected-cargo",
-                &["build", "-p", "gateway", "--release", "--target", triple,],
-                OutputMode::Inherit,
-            ),
-            command(
-                environment,
-                "selected-node",
-                &[
-                    environment
-                        .workspace_root
-                        .join("tools")
-                        .join("stage-gateway-sidecar.mjs")
-                        .to_str()
-                        .expect("UTF-8 script"),
-                    "stage",
-                    "--target",
-                    triple,
-                    "--source",
-                    source.to_str().expect("UTF-8 source"),
-                ],
+                &["build", "-p", "gateway", "--release", "--target", triple],
                 OutputMode::Inherit,
             ),
             command(
                 environment,
                 "selected-cargo",
-                &["build", "-p", "workshop", "--release", "--target", triple,],
-                OutputMode::Inherit,
-            ),
-            command(
-                environment,
-                "selected-node",
-                &[
-                    environment
-                        .workspace_root
-                        .join("tools")
-                        .join("stage-gateway-sidecar.mjs")
-                        .to_str()
-                        .expect("UTF-8 script"),
-                    "remove",
-                    "--target",
-                    triple,
-                ],
+                &["build", "-p", "workshop", "--release", "--target", triple],
                 OutputMode::Inherit,
             ),
         ]
     );
+    assert!(!test_environment.sidecar(triple).exists(), "sidecar left");
 }

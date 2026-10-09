@@ -7,7 +7,8 @@ on:
       - crates/build-workshop/**
       - crates/workshop/desktop/installer.nsi
       - crates/workshop/desktop/tauri*.conf.json
-      - tools/stage-gateway-sidecar.mjs
+      - crates/workshop/package.json
+      - crates/workshop/package-lock.json
   workflow_dispatch:
 
 jobs:
@@ -27,25 +28,23 @@ jobs:
         with:
           node-version: 22
 
+      # The workshop install brings the pinned Tauri CLI; the release
+      # Gateway's default `config-ui` feature needs the config UI's.
       - name: Install UI dependencies
-        working-directory: crates/workshop
-        run: npm ci
+        run: |
+          npm ci --prefix crates/workshop
+          npm ci --prefix crates/gateway/config-ui/ui
 
-      - name: Build featureless Gateway
-        run: cargo build --locked -p gateway --no-default-features
+      - name: Build the unsigned installer
+        run: cargo workshop installer --target x86_64-pc-windows-msvc
 
-      - name: Stage Gateway sidecar
-        run: node tools/stage-gateway-sidecar.mjs stage --target x86_64-pc-windows-msvc --source target/debug/promptforge-gateway.exe
-
-      - name: Compile unsigned debug NSIS installer
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
-        with:
-          projectPath: crates/workshop/desktop
-          args: --debug --bundles nsis --config tauri.nightly.conf.json
-
-      - name: Remove Gateway sidecar
-        if: always()
-        run: node tools/stage-gateway-sidecar.mjs remove --target x86_64-pc-windows-msvc
+      - name: The installer was collected
+        shell: bash
+        run: |
+          shopt -s nullglob
+          setups=(target/installer/x86_64-pc-windows-msvc/publish/PromptForge_*_x64-setup.exe)
+          [ "${#setups[@]}" -eq 1 ] || { echo "expected one setup, found ${#setups[@]}"; ls -R target/installer; exit 1; }
+          echo "built ${setups[0]}"
 
       - name: Clean tree
         shell: bash

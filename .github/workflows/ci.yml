@@ -169,7 +169,7 @@ jobs:
         run: cargo build --locked -p gateway --no-default-features
 
       - name: Stage Gateway sidecar
-        run: node tools/stage-gateway-sidecar.mjs stage --target x86_64-pc-windows-msvc --source target/debug/promptforge-gateway.exe
+        run: cargo workshop sidecar stage --target x86_64-pc-windows-msvc --source target/debug/promptforge-gateway.exe
 
       # workshop-server-api is the desktop app's re-export view of workshop-server,
       # so it runs in this partition with the crates it fronts and stays
@@ -211,7 +211,7 @@ jobs:
 
       - name: Remove Gateway sidecar
         if: always()
-        run: node tools/stage-gateway-sidecar.mjs remove --target x86_64-pc-windows-msvc
+        run: cargo workshop sidecar remove --target x86_64-pc-windows-msvc
 
       - name: Clean tree
         shell: bash
@@ -257,7 +257,7 @@ jobs:
         run: cargo build --locked -p gateway --no-default-features
 
       - name: Stage Gateway sidecar
-        run: node tools/stage-gateway-sidecar.mjs stage --target x86_64-unknown-linux-gnu --source target/debug/promptforge-gateway
+        run: cargo workshop sidecar stage --target x86_64-unknown-linux-gnu --source target/debug/promptforge-gateway
 
       - name: Build (workshop, Linux)
         run: cargo build --locked -p workshop
@@ -273,7 +273,7 @@ jobs:
 
       - name: Remove Gateway sidecar
         if: always()
-        run: node tools/stage-gateway-sidecar.mjs remove --target x86_64-unknown-linux-gnu
+        run: cargo workshop sidecar remove --target x86_64-unknown-linux-gnu
 
       - name: Clean tree
         shell: bash

@@ -1,0 +1,6 @@
+{
+  "bundle": {
+    "externalBin": ["binaries/promptforge-gateway"],
+    "targets": ["nsis"]
+  }
+}

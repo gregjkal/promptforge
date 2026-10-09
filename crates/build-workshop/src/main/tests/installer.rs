@@ -29,15 +29,22 @@ pub(super) fn version_printed() -> FakeResponse {
     success(&format!("promptforge-gateway {VERSION}\n"))
 }
 
-/// A Tauri build that writes `files` while the sidecar is staged.
+/// A Tauri build that writes `files`, with the sidecar staged exactly when
+/// `target`'s Workshop bundle carries the Gateway.
 pub(super) fn bundled(
     sidecar: PathBuf,
+    target: &str,
     files: Vec<PathBuf>,
     response: FakeResponse,
 ) -> FakeResponse {
+    let staged = sidecar::bundles_sidecar(target);
     act(
         move || {
-            assert!(sidecar.is_file(), "sidecar not staged during the bundle");
+            assert_eq!(
+                sidecar.is_file(),
+                staged,
+                "sidecar staging during the bundle"
+            );
             for file in files {
                 write_file(&file, b"bundle");
             }
@@ -46,7 +53,7 @@ pub(super) fn bundled(
     )
 }
 
-fn expected_commands(
+pub(super) fn expected_commands(
     environment: &BuildEnvironment,
     target: &str,
     bundle: &str,
@@ -102,7 +109,7 @@ fn expected_commands(
     ]
 }
 
-fn signer_command(environment: &BuildEnvironment, archive: &Path) -> CommandSpec {
+pub(super) fn signer_command(environment: &BuildEnvironment, archive: &Path) -> CommandSpec {
     command(
         environment,
         "selected-node",
@@ -142,7 +149,12 @@ fn windows_unsigned_builds_the_setup_on_the_unsigned_config() {
         node_found(),
         gateway_built(gateway(environment, target)),
         version_printed(),
-        bundled(test_environment.sidecar(target), vec![setup], success("")),
+        bundled(
+            test_environment.sidecar(target),
+            target,
+            vec![setup],
+            success(""),
+        ),
     ]);
 
     build_installer(&request(target, false), environment, &mut runner).expect("installer");
@@ -182,6 +194,7 @@ fn windows_signed_publishes_the_setup_signature_without_a_gateway_archive() {
         version_printed(),
         bundled(
             test_environment.sidecar(target),
+            target,
             vec![collect_signature(&setup), setup],
             success(""),
         ),
@@ -200,115 +213,6 @@ fn windows_signed_publishes_the_setup_signature_without_a_gateway_archive() {
 }
 
 #[test]
-fn macos_signed_collects_the_payload_and_signs_the_gateway_archive() {
-    let mut test_environment = environment();
-    set_signing_key(&mut test_environment.environment);
-    let environment = &test_environment.environment;
-    let target = "aarch64-apple-darwin";
-    let macos = bundle(environment, target, "macos");
-    let updater = macos.join("PromptForge.app.tar.gz");
-    let output_root = output(environment, target);
-    let archive = output_root.join("publish").join(format!(
-        "promptforge-gateway_{VERSION}_darwin-aarch64.tar.gz"
-    ));
-    let signed_archive = archive.clone();
-    let mut runner = FakeRunner::with_responses(vec![
-        node_found(),
-        gateway_built(gateway(environment, target)),
-        version_printed(),
-        bundled(
-            test_environment.sidecar(target),
-            vec![
-                macos
-                    .join("PromptForge.app")
-                    .join("Contents")
-                    .join("MacOS")
-                    .join("promptforge-workshop"),
-                collect_signature(&updater),
-                updater,
-            ],
-            success(""),
-        ),
-        act(
-            move || {
-                assert!(signed_archive.is_file(), "archive missing when signed");
-                write_file(&collect_signature(&signed_archive), b"signature");
-            },
-            success(""),
-        ),
-    ]);
-
-    build_installer(&request(target, true), environment, &mut runner).expect("installer");
-
-    let mut expected = expected_commands(environment, target, "app", true);
-    expected.push(signer_command(environment, &archive));
-    assert_eq!(runner.commands, expected);
-    let payload = output_root.join("payload");
-    assert!(
-        payload
-            .join("PromptForge.app")
-            .join("Contents")
-            .join("MacOS")
-            .join("promptforge-workshop")
-            .is_file()
-    );
-    assert_eq!(
-        std::fs::read(payload.join("promptforge-gateway")).expect("gateway payload"),
-        b"gateway"
-    );
-    let publish = output_root.join("publish");
-    let app_updater = publish.join(format!("PromptForge_{VERSION}_aarch64.app.tar.gz"));
-    assert!(app_updater.is_file());
-    assert!(collect_signature(&app_updater).is_file());
-    assert!(collect_signature(&archive).is_file());
-}
-
-#[test]
-fn macos_unsigned_collects_the_payload_only() {
-    let test_environment = environment();
-    let environment = &test_environment.environment;
-    let target = "x86_64-apple-darwin";
-    let app = bundle(environment, target, "macos").join("PromptForge.app");
-    let mut runner = FakeRunner::with_responses(vec![
-        node_found(),
-        gateway_built(gateway(environment, target)),
-        version_printed(),
-        bundled(
-            test_environment.sidecar(target),
-            vec![
-                app.join("Contents")
-                    .join("MacOS")
-                    .join("promptforge-workshop"),
-            ],
-            success(""),
-        ),
-    ]);
-
-    build_installer(&request(target, false), environment, &mut runner).expect("installer");
-
-    assert_eq!(
-        runner.commands,
-        expected_commands(environment, target, "app", false)
-    );
-    let payload = output(environment, target).join("payload");
-    assert!(
-        payload
-            .join("PromptForge.app")
-            .join("Contents")
-            .join("MacOS")
-            .join("promptforge-workshop")
-            .is_file()
-    );
-    assert!(payload.join("promptforge-gateway").is_file());
-    assert_eq!(
-        std::fs::read_dir(output(environment, target).join("publish"))
-            .expect("publish")
-            .count(),
-        0
-    );
-}
-
-#[test]
 fn linux_unsigned_from_the_host_collects_the_payload_only() {
     let test_environment = environment();
     let environment = &test_environment.environment;
@@ -321,6 +225,7 @@ fn linux_unsigned_from_the_host_collects_the_payload_only() {
         version_printed(),
         bundled(
             test_environment.sidecar(target),
+            target,
             vec![
                 appimage.join(format!("PromptForge_{VERSION}_amd64.AppImage")),
                 appimage.join("PromptForge.AppDir").join("AppRun"),
@@ -387,6 +292,7 @@ fn linux_signed_publishes_the_appimage_and_the_gateway_archive() {
         version_printed(),
         bundled(
             test_environment.sidecar(target),
+            target,
             vec![collect_signature(&appimage), appimage],
             success(""),
         ),

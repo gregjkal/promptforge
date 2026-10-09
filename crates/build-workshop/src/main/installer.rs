@@ -13,7 +13,13 @@ use super::pipeline::{resolve_target, run_checked, with_staged_sidecar};
 use super::sidecar::gateway_binary_name;
 use super::{BuildEnvironment, BuildError, CommandRunner, CommandSpec, OutputMode, StepError};
 
-#[path = "installer-collect.rs"]
+// This file is loaded through a path attribute, so its children need one
+// too to resolve under `installer/`.
+#[path = "installer/archive.rs"]
+pub(super) mod archive;
+#[path = "installer/bundle.rs"]
+pub(super) mod bundle;
+#[path = "installer/collect.rs"]
 pub(super) mod collect;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -71,7 +77,7 @@ impl Platform {
 
     /// The Tauri bundle format, which is also its output directory's name
     /// except for `app`.
-    fn bundle(self) -> &'static str {
+    pub(super) fn bundle(self) -> &'static str {
         match self.system {
             System::Windows => "nsis",
             System::MacOs => "app",
@@ -128,7 +134,14 @@ pub(super) fn build_installer(
         },
     )?;
     let output = environment.target_root.join("installer").join(&target);
-    let collected = collect::collect(&release, platform, request.sign, &output).map_err(failure)?;
+    let collected = collect::collect(
+        &environment.workspace_root,
+        &release,
+        platform,
+        request.sign,
+        &output,
+    )
+    .map_err(failure)?;
     if let Some(archive) = collected.gateway_archive {
         run_checked(
             runner,

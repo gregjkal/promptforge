@@ -246,18 +246,11 @@ jobs:
           npm ci --prefix crates/workshop
           npm ci --prefix crates/gateway/config-ui/ui
 
-      - name: Build featureless Gateway
-        run: cargo build --locked -p gateway --no-default-features
-
-      - name: Stage Gateway sidecar
-        run: cargo workshop sidecar stage --target x86_64-unknown-linux-gnu --source target/debug/promptforge-gateway
-
+      # No sidecar is staged: Linux ships the Gateway beside the AppImage,
+      # and tauri-build would refuse this build if the Linux config
+      # declared one.
       - name: Build (workshop, Linux)
         run: cargo build --locked -p workshop
-
-      - name: Remove Gateway sidecar
-        if: always()
-        run: cargo workshop sidecar remove --target x86_64-unknown-linux-gnu
 
       - name: Clean tree
         shell: bash

@@ -1,5 +1,7 @@
-//! Builds the PromptForge Gateway, stages it for Tauri, and builds Workshop
-//! or each platform's installer, removing the temporary staged sidecar after.
+//! Builds the PromptForge Gateway, then Workshop or each platform's
+//! installer. For Windows targets it stages the Gateway as Tauri's sidecar
+//! around the Workshop build and removes it after; macOS and Linux payloads
+//! carry the Gateway beside Workshop.
 //! The `sidecar` mode stages or removes it on its own, for CI jobs that build
 //! the Gateway themselves.
 

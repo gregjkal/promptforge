@@ -1,22 +1,23 @@
-//! Moves Tauri's bundle output and copies the Gateway binary into the
-//! installer output directory under stable names, and writes the Gateway
-//! updater archive.
+//! Moves Tauri's bundle output and places the Gateway (on macOS as its own
+//! bundle) into the installer output directory under stable names, and
+//! writes the Gateway updater archive.
 //!
 //! `publish/` holds what a release uploads; `payload/` (macOS and Linux)
 //! holds what the installer packages install, under their installed names.
 
 use std::ffi::OsString;
-use std::fs::{self, File};
-use std::io::{self, BufWriter, Write as _};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
-use flate2::Compression;
-use flate2::write::GzEncoder;
+use gateway_api_discovery::{GATEWAY_BUNDLE_NAME, WORKSHOP_APPIMAGE_NAME, WORKSHOP_BUNDLE_NAME};
 
+use super::archive::write_archive;
+use super::bundle::{self, BundleSources};
 use super::{Arch, Platform, System, VERSION};
 
 const PRODUCT: &str = "PromptForge";
-const GATEWAY: &str = "promptforge-gateway";
+pub(crate) const GATEWAY: &str = "promptforge-gateway";
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct Collected {
@@ -24,7 +25,9 @@ pub(crate) struct Collected {
     pub(crate) gateway_archive: Option<PathBuf>,
 }
 
+/// `workspace_root` holds the sources of the macOS Gateway bundle.
 pub(crate) fn collect(
+    workspace_root: &Path,
     release: &Path,
     platform: Platform,
     sign: bool,
@@ -65,9 +68,17 @@ pub(crate) fn collect(
                 move_path(&signature_path(&archive), &signature_path(&published))?;
                 move_path(&archive, &published)?;
             }
-            let app = format!("{PRODUCT}.app");
-            move_path(&bundle.join(&app), &payload.join(&app))?;
-            collect_gateway(release, platform, sign, &payload, &publish)
+            move_path(
+                &bundle.join(format!("{PRODUCT}.app")),
+                &payload.join(WORKSHOP_BUNDLE_NAME),
+            )?;
+            let gateway = payload.join(GATEWAY_BUNDLE_NAME);
+            bundle::assemble(
+                &BundleSources::in_workspace(workspace_root),
+                &release.join(GATEWAY),
+                &gateway,
+            )?;
+            archive_gateway(&gateway, platform, sign, &publish)
         }
         System::Linux => {
             let payload = output.join("payload");
@@ -81,8 +92,10 @@ pub(crate) fn collect(
                 move_path(&signature_path(&appimage), &signature_path(&published))?;
                 copy_file(&appimage, &published)?;
             }
-            move_path(&appimage, &payload.join(format!("{PRODUCT}.AppImage")))?;
-            collect_gateway(release, platform, sign, &payload, &publish)
+            move_path(&appimage, &payload.join(WORKSHOP_APPIMAGE_NAME))?;
+            let gateway = payload.join(GATEWAY);
+            copy_executable(&release.join(GATEWAY), &gateway)?;
+            archive_gateway(&gateway, platform, sign, &publish)
         }
     }
 }
@@ -93,35 +106,14 @@ pub(crate) fn signature_path(path: &Path) -> PathBuf {
     PathBuf::from(signature)
 }
 
-/// One entry, the Gateway binary at the archive root with mode `0755`; a
-/// zero mtime and owner keep the archive the same for the same binary.
-pub(crate) fn write_gateway_archive(binary: &Path, archive: &Path) -> io::Result<()> {
-    let mut source = File::open(binary)?;
-    let length = source.metadata()?.len();
-    let encoder = GzEncoder::new(
-        BufWriter::new(File::create(archive)?),
-        Compression::default(),
-    );
-    let mut builder = tar::Builder::new(encoder);
-    let mut header = tar::Header::new_gnu();
-    header.set_entry_type(tar::EntryType::Regular);
-    header.set_size(length);
-    header.set_mode(0o755);
-    header.set_mtime(0);
-    builder.append_data(&mut header, GATEWAY, &mut source)?;
-    let mut writer = builder.into_inner()?.finish()?;
-    writer.flush()
-}
-
-fn collect_gateway(
-    release: &Path,
+/// Under `--sign`, writes the Gateway payload item, the binary or the
+/// bundle, into the updater archive `gateway-update` swaps in.
+fn archive_gateway(
+    gateway: &Path,
     platform: Platform,
     sign: bool,
-    payload: &Path,
     publish: &Path,
 ) -> Result<Collected, String> {
-    let gateway = payload.join(GATEWAY);
-    copy_file(&release.join(GATEWAY), &gateway)?;
     if !sign {
         return Ok(Collected {
             gateway_archive: None,
@@ -136,7 +128,7 @@ fn collect_gateway(
         "{GATEWAY}_{VERSION}_{os}-{}.tar.gz",
         arch_name(platform.arch)
     ));
-    write_gateway_archive(&gateway, &archive)
+    write_archive(gateway, &archive)
         .map_err(|error| format!("cannot write {}: {error}", archive.display()))?;
     Ok(Collected {
         gateway_archive: Some(archive),
@@ -189,6 +181,26 @@ fn move_path(source: &Path, destination: &Path) -> Result<(), String> {
     })
 }
 
+/// Copies a binary the installer packages install as a program, with mode
+/// `0755` whatever the source's mode.
+pub(crate) fn copy_executable(source: &Path, destination: &Path) -> Result<(), String> {
+    copy_file(source, destination)?;
+    set_executable(destination)
+        .map_err(|error| format!("cannot make {} executable: {error}", destination.display()))
+}
+
+#[cfg(unix)]
+fn set_executable(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755))
+}
+
+/// Only macOS and Linux payloads hold the Gateway outside Workshop.
+#[cfg(not(unix))]
+fn set_executable(_path: &Path) -> io::Result<()> {
+    Ok(())
+}
+
 fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {
     fs::copy(source, destination).map(|_| ()).map_err(|error| {
         format!(
@@ -199,7 +211,7 @@ fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {
     })
 }
 
-fn create_directory(path: &Path) -> Result<(), String> {
+pub(crate) fn create_directory(path: &Path) -> Result<(), String> {
     fs::create_dir_all(path).map_err(|error| format!("cannot create {}: {error}", path.display()))
 }
 

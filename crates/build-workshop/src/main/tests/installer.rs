@@ -13,12 +13,16 @@ pub(super) fn gateway(environment: &BuildEnvironment, target: &str) -> PathBuf {
     release(environment, target).join(sidecar::gateway_binary_name(target))
 }
 
-fn bundle(environment: &BuildEnvironment, target: &str, directory: &str) -> PathBuf {
+pub(super) fn bundle(environment: &BuildEnvironment, target: &str, directory: &str) -> PathBuf {
     release(environment, target).join("bundle").join(directory)
 }
 
 pub(super) fn output(environment: &BuildEnvironment, target: &str) -> PathBuf {
     environment.target_root.join("installer").join(target)
+}
+
+pub(super) fn node_found() -> FakeResponse {
+    success("v22.0.0\n")
 }
 
 pub(super) fn version_printed() -> FakeResponse {
@@ -61,6 +65,12 @@ fn expected_commands(
         tauri.extend(["--config", "tauri.nightly.conf.json"]);
     }
     vec![
+        command(
+            environment,
+            "selected-node",
+            &["--version"],
+            OutputMode::Capture,
+        ),
         cargo_build(
             environment,
             &[
@@ -129,6 +139,7 @@ fn windows_unsigned_builds_the_setup_on_the_unsigned_config() {
         b"stale",
     );
     let mut runner = FakeRunner::with_responses(vec![
+        node_found(),
         gateway_built(gateway(environment, target)),
         version_printed(),
         bundled(test_environment.sidecar(target), vec![setup], success("")),
@@ -166,6 +177,7 @@ fn windows_signed_publishes_the_setup_signature_without_a_gateway_archive() {
     let setup =
         bundle(environment, target, "nsis").join(format!("PromptForge_{VERSION}_x64-setup.exe"));
     let mut runner = FakeRunner::with_responses(vec![
+        node_found(),
         gateway_built(gateway(environment, target)),
         version_printed(),
         bundled(
@@ -201,6 +213,7 @@ fn macos_signed_collects_the_payload_and_signs_the_gateway_archive() {
     ));
     let signed_archive = archive.clone();
     let mut runner = FakeRunner::with_responses(vec![
+        node_found(),
         gateway_built(gateway(environment, target)),
         version_printed(),
         bundled(
@@ -257,6 +270,7 @@ fn macos_unsigned_collects_the_payload_only() {
     let target = "x86_64-apple-darwin";
     let app = bundle(environment, target, "macos").join("PromptForge.app");
     let mut runner = FakeRunner::with_responses(vec![
+        node_found(),
         gateway_built(gateway(environment, target)),
         version_printed(),
         bundled(
@@ -302,6 +316,7 @@ fn linux_unsigned_from_the_host_collects_the_payload_only() {
     let appimage = bundle(environment, target, "appimage");
     let mut runner = FakeRunner::with_responses(vec![
         success(&format!("cargo 1.89.0\nhost: {target}\n")),
+        node_found(),
         gateway_built(gateway(environment, target)),
         version_printed(),
         bundled(
@@ -367,6 +382,7 @@ fn linux_signed_publishes_the_appimage_and_the_gateway_archive() {
     ));
     let signed_archive = archive.clone();
     let mut runner = FakeRunner::with_responses(vec![
+        node_found(),
         gateway_built(gateway(environment, target)),
         version_printed(),
         bundled(
@@ -401,31 +417,6 @@ fn linux_signed_publishes_the_appimage_and_the_gateway_archive() {
             .join("PromptForge.AppImage")
             .is_file()
     );
-}
-
-#[test]
-fn a_signer_that_writes_no_signature_fails_the_build() {
-    let mut test_environment = environment();
-    set_signing_key(&mut test_environment.environment);
-    let environment = &test_environment.environment;
-    let target = "x86_64-unknown-linux-gnu";
-    let appimage = bundle(environment, target, "appimage")
-        .join(format!("PromptForge_{VERSION}_amd64.AppImage"));
-    let mut runner = FakeRunner::with_responses(vec![
-        gateway_built(gateway(environment, target)),
-        version_printed(),
-        bundled(
-            test_environment.sidecar(target),
-            vec![collect_signature(&appimage), appimage],
-            success(""),
-        ),
-        success(""),
-    ]);
-
-    let error = build_installer(&request(target, true), environment, &mut runner)
-        .expect_err("missing signature");
-
-    assert!(error.primary.contains("wrote no signature"), "{error}");
 }
 
 #[test]
@@ -471,22 +462,6 @@ fn preflight_failures_run_no_command() {
     assert!(runner.commands.is_empty());
 }
 
-#[test]
-fn an_unsupported_target_fails_before_building() {
-    let test_environment = environment();
-    let mut runner = FakeRunner::default();
-
-    let error = build_installer(
-        &request("x86_64-unknown-freebsd", false),
-        &test_environment.environment,
-        &mut runner,
-    )
-    .expect_err("unsupported target");
-
-    assert!(error.primary.contains("x86_64-unknown-freebsd"), "{error}");
-    assert!(runner.commands.is_empty());
-}
-
-fn collect_signature(path: &Path) -> PathBuf {
+pub(super) fn collect_signature(path: &Path) -> PathBuf {
     crate::installer::collect::signature_path(path)
 }

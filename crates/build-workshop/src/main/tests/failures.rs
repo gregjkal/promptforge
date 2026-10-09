@@ -1,7 +1,10 @@
 //! Unit tests for failure, interruption, and sidecar cleanup paths of both
 //! modes.
 
-use super::installer_tests::{VERSION, bundled, gateway, output, request, version_printed};
+use super::installer_tests::{
+    VERSION, bundle, bundled, collect_signature, gateway, node_found, output, request,
+    version_printed,
+};
 use super::*;
 
 fn debug_request(target: &str) -> BuildRequest {
@@ -242,6 +245,7 @@ fn a_version_mismatch_stops_before_staging_and_removes_a_stale_sidecar() {
     let target = "x86_64-unknown-linux-gnu";
     write_file(&test_environment.sidecar(target), b"stale");
     let mut runner = FakeRunner::with_responses(vec![
+        node_found(),
         gateway_built(gateway(environment, target)),
         success("promptforge-gateway 0.0.1\n"),
     ]);
@@ -261,7 +265,7 @@ fn a_version_mismatch_stops_before_staging_and_removes_a_stale_sidecar() {
             .contains(&format!("expected `promptforge-gateway {VERSION}`")),
         "{error}"
     );
-    assert_eq!(runner.commands.len(), 2);
+    assert_eq!(runner.commands.len(), 3);
     assert!(!test_environment.sidecar(target).exists());
 }
 
@@ -272,6 +276,7 @@ fn a_failed_version_check_stops_before_staging_and_removes_a_stale_sidecar() {
     let target = "aarch64-apple-darwin";
     write_file(&test_environment.sidecar(target), b"stale");
     let mut runner = FakeRunner::with_responses(vec![
+        node_found(),
         gateway_built(gateway(environment, target)),
         failure("bad CPU type in executable"),
     ]);
@@ -285,7 +290,7 @@ fn a_failed_version_check_stops_before_staging_and_removes_a_stale_sidecar() {
             .contains("Gateway version check failed: bad CPU type in executable"),
         "{error}"
     );
-    assert_eq!(runner.commands.len(), 2);
+    assert_eq!(runner.commands.len(), 3);
     assert!(!test_environment.sidecar(target).exists());
 }
 
@@ -309,6 +314,7 @@ fn a_failed_unstartable_or_interrupted_bundle_removes_the_sidecar_and_collects_n
         let environment = &test_environment.environment;
         let target = "x86_64-pc-windows-msvc";
         let mut runner = FakeRunner::with_responses(vec![
+            node_found(),
             gateway_built(gateway(environment, target)),
             version_printed(),
             bundled(test_environment.sidecar(target), Vec::new(), response),
@@ -321,4 +327,68 @@ fn a_failed_unstartable_or_interrupted_bundle_removes_the_sidecar_and_collects_n
         assert!(!test_environment.sidecar(target).exists());
         assert!(!output(environment, target).exists());
     }
+}
+
+#[test]
+fn a_signer_that_writes_no_signature_fails_the_build() {
+    let mut test_environment = environment();
+    set_signing_key(&mut test_environment.environment);
+    let environment = &test_environment.environment;
+    let target = "x86_64-unknown-linux-gnu";
+    let appimage = bundle(environment, target, "appimage")
+        .join(format!("PromptForge_{VERSION}_amd64.AppImage"));
+    let mut runner = FakeRunner::with_responses(vec![
+        node_found(),
+        gateway_built(gateway(environment, target)),
+        version_printed(),
+        bundled(
+            test_environment.sidecar(target),
+            vec![collect_signature(&appimage), appimage],
+            success(""),
+        ),
+        success(""),
+    ]);
+
+    let error = build_installer(&request(target, true), environment, &mut runner)
+        .expect_err("missing signature");
+
+    assert!(error.primary.contains("wrote no signature"), "{error}");
+}
+
+#[test]
+fn an_unsupported_target_fails_before_building() {
+    let test_environment = environment();
+    let mut runner = FakeRunner::default();
+
+    let error = build_installer(
+        &request("x86_64-unknown-freebsd", false),
+        &test_environment.environment,
+        &mut runner,
+    )
+    .expect_err("unsupported target");
+
+    assert!(error.primary.contains("x86_64-unknown-freebsd"), "{error}");
+    assert!(runner.commands.is_empty());
+}
+
+#[test]
+fn a_missing_node_fails_before_the_gateway_build() {
+    let test_environment = environment();
+    let environment = &test_environment.environment;
+    let target = "x86_64-unknown-linux-gnu";
+    let mut runner = FakeRunner::with_responses(vec![FakeResponse::SpawnFailed(
+        io::ErrorKind::NotFound,
+        "program not found",
+    )]);
+
+    let error = build_installer(&request(target, false), environment, &mut runner)
+        .expect_err("missing node");
+
+    assert!(
+        error
+            .primary
+            .contains("the Tauri CLI runs on `node` from PATH) could not start"),
+        "{error}"
+    );
+    assert_eq!(runner.commands.len(), 1);
 }

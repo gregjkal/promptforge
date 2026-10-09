@@ -20,6 +20,9 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Applied to unsigned builds: it turns off `createUpdaterArtifacts`, which
 /// would otherwise demand the release key.
 const UNSIGNED_CONFIG: &str = "tauri.nightly.conf.json";
+/// The Tauri CLI first runs after the release Gateway build, so a missing
+/// `node` is found up front instead.
+const NODE_CHECK: &str = "`node --version` (the Tauri CLI runs on `node` from PATH)";
 /// Base64 of `untrusted comment:`, how every Tauri updater key's contents
 /// begin.
 const KEY_CONTENTS_PREFIX: &[u8] = b"dW50cnVzdGVkIGNvbW1lbnQ6";
@@ -95,6 +98,7 @@ pub(super) fn build_installer(
     if request.sign && platform.system != System::Windows {
         preflight_archive_signing(environment)?;
     }
+    run_checked(runner, &node_check_command(environment), NODE_CHECK)?;
     let release = environment.target_root.join(&target).join("release");
     // A bundle left by an earlier build, possibly at another version, would
     // make the collection ambiguous.
@@ -266,6 +270,16 @@ fn tauri_build_command(
             .join("desktop"),
         envs: environment.cargo_envs(),
         output_mode: OutputMode::Inherit,
+    }
+}
+
+fn node_check_command(environment: &BuildEnvironment) -> CommandSpec {
+    CommandSpec {
+        program: environment.node.clone(),
+        args: vec![OsString::from("--version")],
+        current_dir: environment.workspace_root.clone(),
+        envs: Vec::new(),
+        output_mode: OutputMode::Capture,
     }
 }
 

@@ -123,6 +123,11 @@ impl Options {
 pub(super) fn parse_arguments(args: &[String]) -> Result<Request, anyhow::Error> {
     match args.first().map(String::as_str) {
         Some("installer") => {
+            if args[1..].iter().any(|argument| argument == "--release") {
+                return Err(usage_error(
+                    "`installer` always builds the release profile; drop `--release`",
+                ));
+            }
             let options = Options::parse(&args[1..], &[Flag::Target, Flag::Sign])?;
             Ok(Request::Installer(InstallerRequest {
                 target: options.target,

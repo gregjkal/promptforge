@@ -300,7 +300,6 @@ fn rejects_product_features_and_other_unsupported_arguments() {
         arguments(&["--profile", "dist"]),
         arguments(&["gateway"]),
         arguments(&["--sign"]),
-        arguments(&["installer", "--release"]),
         arguments(&["installer", "--source", "gateway"]),
         arguments(&[
             "sidecar",
@@ -450,5 +449,17 @@ fn a_target_root_from_cargo_configuration_is_left_to_cargo() {
             .commands
             .iter()
             .all(|command| command.envs.is_empty())
+    );
+}
+
+#[test]
+fn installer_release_says_the_installer_always_builds_release() {
+    let error = parse_arguments(&arguments(&["installer", "--target", "x", "--release"]))
+        .expect_err("installer --release")
+        .to_string();
+
+    assert!(
+        error.starts_with("`installer` always builds the release profile; drop `--release`"),
+        "{error}"
     );
 }

@@ -19,7 +19,9 @@ OPTIONS:
     --target <triple>   Build for this target triple instead of the host
     --sign              Sign the updater files with TAURI_SIGNING_PRIVATE_KEY
                         and TAURI_SIGNING_PRIVATE_KEY_PASSWORD (unset is empty);
-                        on macOS and Linux the key must be contents, not a path
+                        on macOS and Linux the key must be contents, not a
+                        path, with TAURI_SIGNING_PRIVATE_KEY_PATH and
+                        TAURI_PRIVATE_KEY_PATH unset
     --source <path>     The built Gateway binary to stage
     -h, --help          Print this help
 ";

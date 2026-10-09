@@ -20,6 +20,9 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Applied to unsigned builds: it turns off `createUpdaterArtifacts`, which
 /// would otherwise demand the release key.
 const UNSIGNED_CONFIG: &str = "tauri.nightly.conf.json";
+/// Base64 of `untrusted comment:`, how every Tauri updater key's contents
+/// begin.
+const KEY_CONTENTS_PREFIX: &[u8] = b"dW50cnVzdGVkIGNvbW1lbnQ6";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum System {
@@ -48,14 +51,11 @@ impl Platform {
             Some(&"aarch64") => Some(Arch::Aarch64),
             _ => None,
         };
-        let system = if parts.contains(&"windows") && parts.contains(&"msvc") {
-            Some(System::Windows)
-        } else if parts.contains(&"apple") && parts.contains(&"darwin") {
-            Some(System::MacOs)
-        } else if parts.contains(&"linux") && parts.contains(&"gnu") {
-            Some(System::Linux)
-        } else {
-            None
+        let system = match parts.get(1..) {
+            Some(["pc", "windows", "msvc"]) => Some(System::Windows),
+            Some(["apple", "darwin"]) => Some(System::MacOs),
+            Some(["unknown", "linux", "gnu"]) => Some(System::Linux),
+            _ => None,
         };
         match (system, arch) {
             (Some(system), Some(arch)) => Ok(Self { system, arch }),
@@ -165,7 +165,9 @@ fn preflight(request: &InstallerRequest, environment: &BuildEnvironment) -> Resu
 /// variable only as the key's contents, and it also reads the key path
 /// variables, refusing the current one beside the key and preferring the
 /// deprecated one over it. Either would fail or sign with another key only
-/// after the release build.
+/// after the release build. Key contents are base64 of minisign text, which
+/// starts with the 18 bytes `untrusted comment:`, so their first 24
+/// characters are fixed.
 fn preflight_archive_signing(environment: &BuildEnvironment) -> Result<(), BuildError> {
     if let Some(name) = environment.signing_key_path_variable {
         return Err(failure(format!(
@@ -175,12 +177,12 @@ fn preflight_archive_signing(environment: &BuildEnvironment) -> Result<(), Build
         )));
     }
     match &environment.signing_key {
-        Some(key) if Path::new(key).is_file() => Err(failure(format!(
+        Some(key) if !key.as_encoded_bytes().starts_with(KEY_CONTENTS_PREFIX) => Err(failure(
             "`--sign` on macOS and Linux needs TAURI_SIGNING_PRIVATE_KEY set to the key's \
-             contents, not a path, because `tauri signer sign` signs the Gateway archive; it \
-             names the file {}",
-            Path::new(key).display()
-        ))),
+                 contents, the base64 text `tauri signer generate` writes, because `tauri signer \
+                 sign` signs the Gateway archive; it holds something else, such as a path"
+                .to_owned(),
+        )),
         _ => Ok(()),
     }
 }

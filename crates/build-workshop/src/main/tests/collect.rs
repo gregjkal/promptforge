@@ -32,6 +32,9 @@ fn maps_each_supported_triple_to_its_platform() {
         "x86_64-unknown-linux-musl",
         "i686-pc-windows-msvc",
         "x86_64-unknown-freebsd",
+        "x86_64-uwp-windows-msvc",
+        "aarch64-apple-ios",
+        "x86_64-unknown-linux-gnux32",
     ] {
         let error = Platform::from_triple(target).expect_err(target);
         assert!(error.contains(target), "{error}");

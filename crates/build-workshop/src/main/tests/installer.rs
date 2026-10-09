@@ -389,7 +389,6 @@ fn preflight_failures_run_no_command() {
     let mut test_environment = environment();
     let target = "x86_64-unknown-linux-gnu";
     let key_file = test_environment.environment.workspace_root.join("key");
-    write_file(&key_file, b"untrusted comment: key");
     let mut runner = FakeRunner::default();
     let mut refusal = |environment: &BuildEnvironment, case: &str| {
         build_installer(&request(target, true), environment, &mut runner)
@@ -400,11 +399,17 @@ fn preflight_failures_run_no_command() {
     let error = refusal(&test_environment.environment, "no signing key");
     assert!(error.contains("TAURI_SIGNING_PRIVATE_KEY set"), "{error}");
 
+    // Relative paths too: `tauri build` resolves them from its own working
+    // directory, so whether they exist from here says nothing.
     set_signing_key(&mut test_environment.environment);
-    test_environment.environment.signing_key = Some(key_file.clone().into_os_string());
-    let error = refusal(&test_environment.environment, "a key path");
-    assert!(error.contains("not a path"), "{error}");
-    assert!(error.contains(&key_file.display().to_string()), "{error}");
+    for key in [
+        key_file.into_os_string(),
+        OsString::from("../../../updater.key"),
+    ] {
+        test_environment.environment.signing_key = Some(key);
+        let error = refusal(&test_environment.environment, "a key path");
+        assert!(error.contains("such as a path"), "{error}");
+    }
 
     set_signing_key(&mut test_environment.environment);
     test_environment.environment.signing_key_path_variable = Some("TAURI_PRIVATE_KEY_PATH");

@@ -1,5 +1,7 @@
-//! Builds the PromptForge Gateway, stages it for Tauri, builds Workshop,
-//! and removes the temporary staged sidecar.
+//! Builds the PromptForge Gateway, stages it for Tauri, and builds Workshop
+//! or each platform's installer, removing the temporary staged sidecar after.
+//! The `sidecar` mode stages or removes it on its own, for CI jobs that build
+//! the Gateway themselves.
 
 use std::ffi::OsString;
 use std::fmt;
@@ -9,25 +11,21 @@ use std::process::{Child, ExitCode};
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
+#[path = "main/args.rs"]
+mod args;
+#[path = "main/installer.rs"]
+mod installer;
 #[path = "main/pipeline.rs"]
 mod pipeline;
 #[path = "main/runner.rs"]
 mod runner;
+#[path = "main/sidecar.rs"]
+mod sidecar;
 
+use args::{Request, SidecarRequest, parse_arguments};
+use installer::build_installer;
 use pipeline::build_workshop;
 use runner::install_interrupt_handler;
-
-const USAGE: &str = "\
-Build PromptForge Gateway and Workshop together.
-
-USAGE:
-    cargo workshop [--release] [--target <triple>]
-
-OPTIONS:
-    --release           Build both products with Cargo's release profile
-    --target <triple>   Build both products for this target triple
-    -h, --help          Print this help
-";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Profile {
@@ -61,6 +59,7 @@ struct CommandSpec {
     program: PathBuf,
     args: Vec<OsString>,
     current_dir: PathBuf,
+    envs: Vec<(OsString, OsString)>,
     output_mode: OutputMode,
 }
 
@@ -72,13 +71,8 @@ struct CommandResult {
 }
 
 trait CommandRunner {
-    fn run(
-        &mut self,
-        command: &CommandSpec,
-        interrupt_policy: InterruptPolicy,
-    ) -> io::Result<CommandResult>;
-
-    fn last_command_started(&self) -> bool;
+    /// Refuses to start once an interrupt has been requested.
+    fn run(&mut self, command: &CommandSpec) -> io::Result<CommandResult>;
 
     fn interruption_observed(&self) -> bool;
 }
@@ -86,13 +80,6 @@ trait CommandRunner {
 #[derive(Debug)]
 struct ProcessRunner {
     interrupt: InterruptController,
-    last_command_started: bool,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum InterruptPolicy {
-    RejectExisting,
-    AllowExisting,
 }
 
 #[derive(Clone, Debug)]
@@ -111,8 +98,17 @@ struct InterruptState {
 struct BuildEnvironment {
     workspace_root: PathBuf,
     target_root: PathBuf,
+    /// Whether `CARGO_TARGET_DIR` chose `target_root`; otherwise Cargo's
+    /// own configuration does, and children are left to it.
+    target_root_from_env: bool,
     cargo: PathBuf,
     node: PathBuf,
+    tauri_cli: PathBuf,
+    signing_key: Option<OsString>,
+    signing_password_set: bool,
+    /// The first key path variable set, which `tauri signer sign` reads
+    /// beside TAURI_SIGNING_PRIVATE_KEY and `tauri build` ignores.
+    signing_key_path_variable: Option<&'static str>,
 }
 
 impl BuildEnvironment {
@@ -128,7 +124,9 @@ impl BuildEnvironment {
                 )
             })?
             .to_path_buf();
-        let target_root = match std::env::var_os("CARGO_TARGET_DIR") {
+        let configured_target = std::env::var_os("CARGO_TARGET_DIR");
+        let target_root_from_env = configured_target.is_some();
+        let target_root = match configured_target {
             Some(value) if value.is_empty() => {
                 return Err(anyhow::anyhow!("CARGO_TARGET_DIR must not be empty"));
             }
@@ -152,12 +150,45 @@ impl BuildEnvironment {
             .ok_or_else(|| {
                 anyhow::anyhow!("Cargo did not provide the executable used for this command")
             })?;
+        let tauri_cli = workspace_root
+            .join("crates")
+            .join("workshop")
+            .join("node_modules")
+            .join("@tauri-apps")
+            .join("cli")
+            .join("tauri.js");
+        let signing_key =
+            std::env::var_os("TAURI_SIGNING_PRIVATE_KEY").filter(|key| !key.is_empty());
+        let signing_password_set = std::env::var_os("TAURI_SIGNING_PRIVATE_KEY_PASSWORD").is_some();
+        let signing_key_path_variable =
+            ["TAURI_SIGNING_PRIVATE_KEY_PATH", "TAURI_PRIVATE_KEY_PATH"]
+                .into_iter()
+                .find(|name| std::env::var_os(name).is_some());
         Ok(Self {
             workspace_root,
             target_root,
+            target_root_from_env,
             cargo,
             node: PathBuf::from("node"),
+            tauri_cli,
+            signing_key,
+            signing_password_set,
+            signing_key_path_variable,
         })
+    }
+
+    /// Cargo resolves a relative `CARGO_TARGET_DIR` against its own working
+    /// directory, which differs between children (the Tauri CLI runs from
+    /// `crates/workshop/desktop`), so every child that runs Cargo gets the
+    /// absolute root this process reads its outputs from.
+    fn cargo_envs(&self) -> Vec<(OsString, OsString)> {
+        if !self.target_root_from_env {
+            return Vec::new();
+        }
+        vec![(
+            OsString::from("CARGO_TARGET_DIR"),
+            self.target_root.clone().into_os_string(),
+        )]
     }
 }
 
@@ -171,7 +202,24 @@ struct BuildError {
 struct StepError {
     message: String,
     interrupted: bool,
-    command_started: bool,
+}
+
+impl StepError {
+    fn failed(message: String) -> Self {
+        Self {
+            message,
+            interrupted: false,
+        }
+    }
+}
+
+impl From<StepError> for BuildError {
+    fn from(error: StepError) -> Self {
+        Self {
+            primary: error.message,
+            cleanup: None,
+        }
+    }
 }
 
 impl fmt::Display for BuildError {
@@ -184,61 +232,13 @@ impl fmt::Display for BuildError {
     }
 }
 
-fn parse_arguments(args: &[String]) -> Result<BuildRequest, anyhow::Error> {
-    let mut profile = Profile::Debug;
-    let mut release_seen = false;
-    let mut target = None;
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--release" if release_seen => {
-                return Err(anyhow::anyhow!("duplicate argument `--release`\n\n{USAGE}"));
-            }
-            "--release" => {
-                profile = Profile::Release;
-                release_seen = true;
-                index += 1;
-            }
-            "--target" if target.is_some() => {
-                return Err(anyhow::anyhow!("duplicate argument `--target`\n\n{USAGE}"));
-            }
-            "--target" => {
-                let value = args.get(index + 1).ok_or_else(|| {
-                    anyhow::anyhow!("argument `--target` needs a target triple\n\n{USAGE}")
-                })?;
-                if value.starts_with('-') || !valid_target_triple(value) {
-                    return Err(anyhow::anyhow!(
-                        "argument `--target` needs a valid target triple, got `{value}`\n\n{USAGE}"
-                    ));
-                }
-                target = Some(value.clone());
-                index += 2;
-            }
-            argument => {
-                return Err(anyhow::anyhow!(
-                    "unsupported argument `{argument}`\n\n{USAGE}"
-                ));
-            }
-        }
-    }
-    Ok(BuildRequest { profile, target })
-}
-
-fn valid_target_triple(target: &str) -> bool {
-    let parts: Vec<&str> = target.split('-').collect();
-    parts.len() >= 3
-        && parts.iter().all(|part| {
-            !part.is_empty()
-                && part
-                    .chars()
-                    .all(|character| character.is_ascii_alphanumeric() || character == '_')
-        })
-}
-
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if matches!(args.as_slice(), [argument] if argument == "-h" || argument == "--help") {
-        print!("{USAGE}");
+    if args
+        .iter()
+        .any(|argument| argument == "-h" || argument == "--help")
+    {
+        print!("{}", args::USAGE);
         return ExitCode::SUCCESS;
     }
     let request = match parse_arguments(&args) {
@@ -255,20 +255,46 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let interrupt = match install_interrupt_handler() {
-        Ok(interrupt) => interrupt,
-        Err(error) => {
-            eprintln!("build-workshop failed: {error}");
-            return ExitCode::FAILURE;
+    let result = match &request {
+        Request::Sidecar(request) => run_sidecar(request, &environment),
+        Request::Build(request) => {
+            with_process_runner(|runner| build_workshop(request, &environment, runner))
+        }
+        Request::Installer(request) => {
+            with_process_runner(|runner| build_installer(request, &environment, runner))
         }
     };
-    match build_workshop(&request, &environment, &mut ProcessRunner::new(interrupt)) {
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("build-workshop failed: {error}");
             ExitCode::FAILURE
         }
     }
+}
+
+fn with_process_runner(
+    build: impl FnOnce(&mut ProcessRunner) -> Result<(), BuildError>,
+) -> Result<(), String> {
+    let interrupt = install_interrupt_handler().map_err(|error| error.to_string())?;
+    build(&mut ProcessRunner::new(interrupt)).map_err(|error| error.to_string())
+}
+
+fn run_sidecar(request: &SidecarRequest, environment: &BuildEnvironment) -> Result<(), String> {
+    let report = match request {
+        SidecarRequest::Stage { target, source } => {
+            format!(
+                "staged {}",
+                sidecar::stage(&environment.workspace_root, target, source)?.display()
+            )
+        }
+        SidecarRequest::Remove { target } => format!(
+            "removed {}",
+            sidecar::remove(&environment.workspace_root, target)?.display()
+        ),
+    };
+    println!("{report}");
+    Ok(())
 }
 
 #[cfg(test)]

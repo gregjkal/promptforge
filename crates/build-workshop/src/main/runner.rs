@@ -8,8 +8,8 @@ use std::thread;
 use std::time::Duration;
 
 use super::{
-    CommandResult, CommandRunner, CommandSpec, InterruptController, InterruptPolicy,
-    InterruptState, OutputMode, ProcessRunner,
+    CommandResult, CommandRunner, CommandSpec, InterruptController, InterruptState, OutputMode,
+    ProcessRunner,
 };
 
 impl InterruptController {
@@ -90,10 +90,7 @@ pub(super) fn install_interrupt_handler() -> Result<InterruptController, Arc<any
 
 impl ProcessRunner {
     pub(super) fn new(interrupt: InterruptController) -> Self {
-        Self {
-            interrupt,
-            last_command_started: false,
-        }
+        Self { interrupt }
     }
 
     fn interrupted_error(&self) -> io::Error {
@@ -130,21 +127,17 @@ impl ProcessRunner {
 }
 
 impl CommandRunner for ProcessRunner {
-    fn run(
-        &mut self,
-        command: &CommandSpec,
-        interrupt_policy: InterruptPolicy,
-    ) -> io::Result<CommandResult> {
-        self.last_command_started = false;
+    fn run(&mut self, command: &CommandSpec) -> io::Result<CommandResult> {
         let generation = self.interrupt.generation();
-        if interrupt_policy == InterruptPolicy::RejectExisting && generation != 0 {
+        if generation != 0 {
             return Err(self.interrupted_error());
         }
 
         let mut process = Command::new(&command.program);
         process
             .args(&command.args)
-            .current_dir(&command.current_dir);
+            .current_dir(&command.current_dir)
+            .envs(command.envs.iter().map(|(key, value)| (key, value)));
         if command.output_mode == OutputMode::Capture {
             process.stdout(Stdio::piped()).stderr(Stdio::piped());
         }
@@ -161,7 +154,6 @@ impl CommandRunner for ProcessRunner {
             }
             self.interrupt.clear_termination_error();
             *active_child = Some(process.spawn()?);
-            self.last_command_started = true;
         }
 
         loop {
@@ -184,10 +176,6 @@ impl CommandRunner for ProcessRunner {
             }
             thread::sleep(Duration::from_millis(10));
         }
-    }
-
-    fn last_command_started(&self) -> bool {
-        self.last_command_started
     }
 
     fn interruption_observed(&self) -> bool {

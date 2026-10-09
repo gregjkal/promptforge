@@ -30,7 +30,7 @@ todos:
     content: README downloads, guide install chapters, build-workshop and desktop AGENTS/README
     status: pending
   - id: verify
-    content: AGENTS.md gates, a dispatched installers.yml run green on all five platforms
+    content: AGENTS.md gates, a dispatched installers.yml run green on all five platforms, the Windows NSIS manual pass (Testing Plan)
     status: pending
 isProject: false
 ---
@@ -192,6 +192,15 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
 - Update (the success criterion's 0.N to 0.N+1): an integration test in `crates/gateway/app` behind `test-fixtures` runs a real gateway at 0.N against a local HTTP server (`PROMPTFORGE_UPDATE_URL`) serving a `latest.json` and archive signed with a test minisign key; the archive's gateway reports 0.N+1. Triggered through `POST /update`, it asserts the handoff: the old process exits, the successor holds the lease and publishes a discovery file, and `--version` of the installed path prints 0.N+1. Cases: Workshop already at 0.N+1 with the gateway at 0.N (the route is called anyway); a bad signature leaves 0.N running and untouched.
 - Workshop supervisor: with a fake gateway whose discovery file carries the handoff mark and that then stops serving, the supervisor launches nothing and attaches once the successor's file appears; it keeps waiting, launching nothing, for as long as the marked file resolves to `Restarting`, including past any fixed interval; once the mark goes stale (the old process died) it relaunches as today. The mark is what it reacts to, so the test does not involve the route.
 - Windows gateway-only relaunch cell (installers.yml): install Gateway only, start the gateway, rerun the same installer with `/P /UPDATE` while it runs, and assert a gateway is running afterward. This covers the NSIS half of the Windows self-update; the gateway's half (verify, start the setup detached, keep serving) is covered by the self-update integration test with a fixture setup signed by the test key, since a release binary only accepts the release key.
+- Windows NSIS checks deferred from Step 3, which shipped with only CI's compile check: nothing ran the installer, and no Windows machine was available.
+  - Install cells (installers.yml) add: `/S /COMPONENTS=stt` and `/S /COMPONENTS=gateway,bogus` exit 2 and install nothing; a second `/S /COMPONENTS=gateway,stt` over the first runs `init --no-stt` (no download in the log) and exits 0; a Gateway and STT install with the network blocked exits 3 with Gateway installed.
+  - Manual pass on a Windows machine, recorded in the `verify` step:
+    - Fresh GUI install with defaults: all three checked, the details pane streams `init`'s progress, speech works offline at first launch.
+    - Unchecking Gateway clears Speech to Text; checking Speech to Text alone does not stick.
+    - GUI reinstall: the components page shows the previous selection; declining STT the first time and reinstalling with the defaults leaves it unchecked.
+    - A failing `init` (network blocked): the details view opens, and the finish notice names the command and its result in full, with nothing clipped.
+    - Uninstall-first upgrade with "Delete app data" ticked and STT kept: `init` downloads speech (the round 5 config check).
+    - Plain uninstall keeping app data, then reinstall: the previous selection returns.
 - Workshop update service: a gateway answering `POST /update` with 404 is recorded as predating self-update and produces no error (UI unit test with a fake gateway).
 - Windows update cell (installers.yml): install with all components, then rerun the same installer with `/P /UPDATE`; assert the run is quick, `init` did not run (no new STT download, config byte-identical), and the persisted selection is unchanged.
 - Regression: today's release-test assertions carry over (installed `--version`, page title, `app.js` size bound, gateway beside Workshop on Windows).

@@ -15,10 +15,10 @@ todos:
     content: "build-workshop: own sidecar staging (retire tools/stage-gateway-sidecar.mjs), an `installer` mode that produces each platform's installer and the signed gateway updater archive, within the crate's 500-line file ceiling and the flat-directory rule"
     status: pending
   - id: platform-bundles
-    content: "Tauri config per platform: externalBin only on Windows; targets nsis / app / appimage; the macOS `PromptForge Gateway.app` bundle"
+    content: "Tauri config per platform: externalBin only on Windows; targets nsis / app / appimage; the macOS `PromptForge Gateway.app` bundle, assembled by `cargo workshop installer` as the macOS gateway payload"
     status: pending
   - id: ifw-definition
-    content: "Qt IFW definition: config, three packages, license page, graphics, desktop entries, the init operation"
+    content: "Qt IFW definition: config, three packages, license page, graphics, desktop entries, the init operation; `cargo workshop installer` runs `binarycreator` over Step 4's payload and wraps the macOS output in a DMG"
     status: pending
   - id: gateway-update
     content: "Gateway self-update from latest.json (minisign check, swap, lease handoff to a successor; NSIS on Windows when no Workshop is installed); a walled update route Workshop calls; discovery's `Restarting` resolution with an explicit arm at every matcher; tests"
@@ -302,7 +302,7 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
 
 ## Execution Instructions
 
-- Status: steps 1 to 3 (`peer-lookup`, `gateway-init`, `nsis-components`) completed and merged; `build-installer` is next and is not yet decomposed, so decompose it as Step 4 before implementing.
+- Status: steps 1 to 3 (`peer-lookup`, `gateway-init`, `nsis-components`) completed and merged; Step 4 (`build-installer`) is decomposed below and awaits the maintainer's review before implementation.
 - Expected order: `peer-lookup`, `gateway-init`, `nsis-components`, `build-installer`, `platform-bundles`, `ifw-definition`, `gateway-update`, `installers-workflow`, `docs`, `verify`. The first three change no packaging and can land on master ahead of the rest; `platform-bundles` changes what the existing release workflow produces, so it lands with `installers-workflow` or behind it.
 - Writing: plain English, single dashes only, never em dashes or double dashes.
 
@@ -383,5 +383,48 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
 - Commit: subject `Install speech through the gateway init command in the Windows installer`.
 
 </step-3>
+
+<step-4>
+
+### Step 4: `cargo workshop installer` and in-crate sidecar staging
+
+- Component: `build-workshop`, `crates/workshop/package.json`, `.github/workflows/ci.yml`, `.github/workflows/workshop-installer-smoke.yml`, `tools/`
+
+- Covers todo `build-installer`. Changes no published output: `release-workshop.yml` and `nightly.yml` keep their own inline staging and `tauri-action` until `installers-workflow` deletes them, so this step can land on master ahead of `platform-bundles`.
+- Split across the later steps: the Technical Design's installer mode also assembles the macOS gateway bundle and runs `binarycreator` and `hdiutil`, but the bundle's `Info.plist` arrives in `platform-bundles` and the IFW definition in `ifw-definition`. This step builds everything those two consume and fixes its layout; `platform-bundles` turns the macOS gateway payload from the bare binary into `PromptForge Gateway.app`, and `ifw-definition` adds the `binarycreator` stage and the DMG wrap. Both todos now say so. On Windows this step's output is the finished installer.
+- Tauri CLI: `@tauri-apps/cli` `2.11.5`, the release matching the locked `tauri` crate (2.11.5), becomes an exact-version `devDependency` of `crates/workshop/package.json`, pinned in its `package-lock.json`. Every build already runs `npm ci --prefix crates/workshop` first, so the CLI arrives with no new step. Today CI gets whatever CLI `tauri-action` installs, unpinned. `build-workshop` runs it as `node crates/workshop/node_modules/@tauri-apps/cli/tauri.js` (the `node` the crate already locates), which avoids the `.cmd` shim on Windows; a missing CLI fails before any build, naming the path and `npm ci --prefix crates/workshop`.
+- Sidecar staging moves into the crate as `src/main/sidecar.rs`: the sidecar name for a triple (`promptforge-gateway-<triple>[.exe]`), stage (the source must exist, be a regular file, and carry the gateway binary name for the triple; copies into `crates/workshop/desktop/binaries/`), and remove (absent is success). `pipeline.rs` calls it in-process instead of `node tools/stage-gateway-sidecar.mjs`, so `sidecar_command` (`src/main/pipeline.rs`, line 164) goes. Staging and cleanup stay ordered exactly as today: staged after the gateway build, removed on success, failure, and interrupt. `tools/stage-gateway-sidecar.mjs` and its test are deleted; nothing runs the test today (no workflow or npm script names it), and its cases move to the crate's unit tests.
+- CLI, parsed in a new `src/main/args.rs` (`main.rs` is at 276 lines and the request type grows):
+  - `cargo workshop [--release] [--target <triple>]`: unchanged.
+  - `cargo workshop sidecar stage --target <triple> --source <path>` and `cargo workshop sidecar remove --target <triple>`: the deleted script's interface, for CI jobs that build the gateway themselves and keep the sidecar staged across several commands.
+  - `cargo workshop installer [--target <triple>] [--sign]`: always the release profile. Without `--target` it uses the host triple through the existing `cargo -vV` discovery, then passes `--target` to every build so output paths are the same either way.
+- Installer pipeline (`src/main/installer.rs`), one step per subprocess through the existing `CommandRunner`, so the fake runner tests every sequence:
+  1. Preflight, before any build: the Tauri CLI exists; under `--sign`, `TAURI_SIGNING_PRIVATE_KEY` is set and non-empty (read once into `BuildEnvironment`, so tests inject it), else fail naming the variable and that `--sign` needs it. Absent the flag the key is never read.
+  2. `cargo build --locked --release -p gateway --target <triple>`.
+  3. Run the built gateway's `--version` and require `promptforge-gateway <workspace version>`, the check `release-workshop.yml` runs today (lines 170 to 173). The workspace version is `build-workshop`'s own `CARGO_PKG_VERSION`. On macOS this runs the Intel binary through Rosetta, as the release workflow's `macos-latest` Intel build already does.
+  4. Stage the sidecar.
+  5. From `crates/workshop/desktop`: `tauri build --target <triple> --bundles <nsis|app|appimage> --ci`, adding `--config tauri.nightly.conf.json` without `--sign`. Under `--sign` Tauri signs the Workshop updater artifacts itself from the same key variables. The bundle list is chosen from the triple, so the DMG and `.deb` drop out of this path now; `platform-bundles` still sets `targets` in config so a plain `tauri build` matches.
+  6. Remove the sidecar (always, as today).
+  7. Collect into `target/installer/<triple>/`, cleared first:
+     - `publish/`: on Windows the NSIS setup, renamed `PromptForge_<version>_x64-setup.exe`; under `--sign`, the Workshop updater files (Windows: the setup and its `.sig`; macOS: `PromptForge_<version>_<arch>.app.tar.gz` and `.sig`, today's rename at `release-workshop.yml` lines 216 to 230; Linux: `PromptForge_<version>_<arch>.AppImage` and `.sig`) and the gateway updater archive below.
+     - `payload/` (macOS and Linux): what the IFW packages will hold, under their installed names: `PromptForge.app` or `PromptForge.AppImage`, and `promptforge-gateway`.
+     - A bundle file that is missing or matched more than once fails naming the glob and the bundle directory searched.
+  8. Gateway updater archive (macOS and Linux, `--sign` only): `promptforge-gateway_<version>_<os>-<arch>.tar.gz` (`darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`, `linux-aarch64`, the key stems of the plan's `*-gateway` entries) holding the gateway payload at its root with mode `0755`, written in-process with the `tar` and `flate2` workspace dependencies (already in `Cargo.lock` through `gateway-local`, whose `extract_tar_gz`, `crates/gateway/local/src/artifacts/archive.rs` line 96, is what `gateway-update` will read it with). In-process writing also keeps macOS `bsdtar`'s `._` metadata entries out. Then `tauri signer sign <archive>`, which reads the same two key variables and writes `<archive>.sig` in the format `latest.json` embeds. Windows has no gateway archive: its gateway updates through the NSIS setup.
+- Files stay under the 500-line ceiling and in `src/main/` beside the existing modules, wired with `#[path]`: `args.rs`, `sidecar.rs`, `installer.rs`, `installer-collect.rs` (step 7 and 8's file work), and tests in `tests-sidecar.rs` and `tests-installer.rs`. `tests.rs` keeps the build-mode tests, with staging no longer a fake subprocess.
+- CI, since the script goes:
+  - `ci.yml`'s Windows `check-workshop` job (lines 172 and 214) and `check-workshop-linux` job (lines 260 and 276) call `cargo workshop sidecar stage|remove`; the Linux job keeps staging until `platform-bundles` makes `externalBin` Windows-only.
+  - `workshop-installer-smoke.yml` replaces its staging, `tauri-action` debug NSIS build, and removal (lines 38 to 48) with `cargo workshop installer --target x86_64-pc-windows-msvc`, so this step's pull request runs the Windows path end to end, on the pinned CLI. It is a release build, slower than today's debug compile; the workflow is deleted in `installers-workflow`. Its path filter swaps `tools/stage-gateway-sidecar.mjs` for `crates/workshop/package.json`.
+- Tests:
+  - Arguments: each mode parses; `installer --release`, `sidecar stage` without `--source`, `sidecar remove --source`, duplicate and unknown flags, and a malformed triple are usage errors.
+  - Sidecar (the script's cases): names per triple, Windows with `.exe`, a malformed triple refused; stage refuses a missing source, a directory, and a wrongly named binary; stage then remove leaves no file; removing an absent sidecar succeeds.
+  - Installer sequence with the fake runner: the exact commands for Windows, macOS, and Linux triples; host discovery only without `--target`; `--config tauri.nightly.conf.json` exactly when unsigned; `signer sign` exactly when signed and never on Windows; a failed `--version` check, a version mismatch, a failed Tauri build, and an interrupt each still remove the sidecar; preflight failures (no CLI, `--sign` without the key) run no command.
+  - Collection over a fake bundle tree in a temp target root: each platform's files land under the names above; a missing or duplicated bundle file fails naming the glob.
+  - Gateway archive: one entry at the root with mode `0755`; extracting with `tar` and `flate2` returns identical bytes; no `._` entries.
+  - `tests/interruption.rs` keeps passing with in-process staging.
+- Smoke on this Mac: `cargo workshop installer` fills `target/installer/aarch64-apple-darwin/payload/` with a launchable `PromptForge.app` and a `promptforge-gateway` that prints the workspace version; with a throwaway key from `tauri signer generate`, `--sign` writes both `.sig` files. Linux and Windows run in CI only (the smoke workflow covers Windows; Linux's first run is `installers-workflow`).
+- Verify: `cargo test --locked -p build-workshop`; with `CARGO_BUILD_WARNINGS=deny`, `cargo clippy --locked -p build-workshop --all-targets --all-features`; `cargo fmt --all --check`; `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps -p build-workshop`; `cargo deny check` and `cargo hakari verify` (new direct dependencies on `tar` and `flate2`); `npm ci --prefix crates/workshop` from a clean `node_modules`; a search for `stage-gateway-sidecar` finds nothing (`release-workshop.yml` and `nightly.yml` inline their own staging without the script).
+- Commit: subject `Build each platform's installer payload with cargo workshop installer`.
+
+</step-4>
 
 </execution-plan>

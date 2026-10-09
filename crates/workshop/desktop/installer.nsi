@@ -890,7 +890,8 @@ Section "-GatewayInit"
  ; and after -Finalize so the uninstaller and the Add/Remove entry exist
  ; if the installer is killed during the download, which nothing else can
  ; stop. Update installs skip it: a passive auto-update must never start
- ; a large download, and the original install already ran it. nsExec
+ ; a large download, and the boot provisions anything the original
+ ; install did not. nsExec
  ; waits, returns the exit code, opens no console window, and streams
  ; init's progress lines into the details pane. The install is
  ; currentUser, so init runs as the installing user, whose profile holds
@@ -903,7 +904,7 @@ Section "-GatewayInit"
  IntOp $0 $0 & ${SF_SELECTED}
  ${If} $0 = ${SF_SELECTED}
  StrCpy $GatewayInitArgs "init"
- DetailPrint "Downloading the speech to text runtime and models"
+ DetailPrint "Provisioning speech to text (downloads what is missing)"
  ${Else}
  StrCpy $GatewayInitArgs "init --no-stt"
  ${EndIf}
@@ -1092,7 +1093,9 @@ Section Uninstall
  DeleteRegValue HKCU "${MANUPRODUCTKEY}" "Installer Language"
  ; The persisted component selection lives as long as the config it
  ; shaped: a reinstall over a kept speechless config that offered Speech
- ; to Text checked would fail init.
+ ; to Text checked would fail init. SHCTX above already removed it on a
+ ; currentUser install; this covers a perMachine one, which keeps it in
+ ; HKCU.
  DeleteRegKey HKCU "${MANUPRODUCTKEY}\Components"
  DeleteRegKey /ifempty HKCU "${MANUPRODUCTKEY}"
  DeleteRegKey /ifempty HKCU "${MANUKEY}"
@@ -1174,6 +1177,7 @@ Function RestoreComponentSelections
  ${EndIf}
  ${EndIf}
 FunctionEnd
+
 ; STT installs through the gateway's init, so it requires Gateway: with
 ; Gateway unchecked, STT is cleared.
 Function EnforceSttNeedsGateway

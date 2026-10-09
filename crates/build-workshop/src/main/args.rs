@@ -18,6 +18,8 @@ OPTIONS:
     --release           Build both products with Cargo's release profile
     --target <triple>   Build for this target triple instead of the host
     --sign              Sign the updater files with TAURI_SIGNING_PRIVATE_KEY
+                        (the key's contents) and
+                        TAURI_SIGNING_PRIVATE_KEY_PASSWORD (empty if none)
     --source <path>     The built Gateway binary to stage
     -h, --help          Print this help
 ";

@@ -8,13 +8,13 @@ use tempfile::TempDir;
 use super::*;
 use args::InstallerRequest;
 
-#[path = "tests-collect.rs"]
+#[path = "tests/collect.rs"]
 mod collect_tests;
-#[path = "tests-failures.rs"]
+#[path = "tests/failures.rs"]
 mod failures;
-#[path = "tests-installer.rs"]
+#[path = "tests/installer.rs"]
 mod installer_tests;
-#[path = "tests-sidecar.rs"]
+#[path = "tests/sidecar.rs"]
 mod sidecar_tests;
 
 enum FakeResponse {
@@ -165,7 +165,8 @@ fn environment() -> TestEnvironment {
             cargo: PathBuf::from("selected-cargo"),
             node: PathBuf::from("selected-node"),
             tauri_cli,
-            signing_key_set: false,
+            signing_key: None,
+            signing_password_set: false,
         },
     }
 }
@@ -184,8 +185,23 @@ fn command(
         program: PathBuf::from(program),
         args: strings(args),
         current_dir: environment.workspace_root.clone(),
+        envs: Vec::new(),
         output_mode,
     }
+}
+
+/// A Cargo build, which runs with the absolute target root.
+fn cargo_build(environment: &BuildEnvironment, args: &[&str]) -> CommandSpec {
+    CommandSpec {
+        envs: environment.cargo_envs(),
+        ..command(environment, "selected-cargo", args, OutputMode::Inherit)
+    }
+}
+
+/// Sets the signing variables `--sign` needs, as the release secrets do.
+fn set_signing_key(environment: &mut BuildEnvironment) {
+    environment.signing_key = Some(OsString::from("untrusted comment: key\nRWR"));
+    environment.signing_password_set = true;
 }
 
 fn arguments(values: &[&str]) -> Vec<String> {
@@ -346,18 +362,8 @@ fn default_build_derives_host_and_stages_around_the_workshop_build() {
         runner.commands,
         vec![
             command(environment, "selected-cargo", &["-vV"], OutputMode::Capture),
-            command(
-                environment,
-                "selected-cargo",
-                &["build", "-p", "gateway"],
-                OutputMode::Inherit,
-            ),
-            command(
-                environment,
-                "selected-cargo",
-                &["build", "-p", "workshop"],
-                OutputMode::Inherit,
-            ),
+            cargo_build(environment, &["build", "-p", "gateway"]),
+            cargo_build(environment, &["build", "-p", "workshop"]),
         ]
     );
     assert!(!test_environment.sidecar(triple).exists(), "sidecar left");
@@ -391,17 +397,13 @@ fn explicit_release_target_uses_target_output_without_a_host_probe() {
     assert_eq!(
         runner.commands,
         vec![
-            command(
+            cargo_build(
                 environment,
-                "selected-cargo",
-                &["build", "-p", "gateway", "--release", "--target", triple],
-                OutputMode::Inherit,
+                &["build", "-p", "gateway", "--release", "--target", triple]
             ),
-            command(
+            cargo_build(
                 environment,
-                "selected-cargo",
-                &["build", "-p", "workshop", "--release", "--target", triple],
-                OutputMode::Inherit,
+                &["build", "-p", "workshop", "--release", "--target", triple]
             ),
         ]
     );

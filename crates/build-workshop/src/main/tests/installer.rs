@@ -3,13 +3,13 @@
 
 use super::*;
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub(super) const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn release(environment: &BuildEnvironment, target: &str) -> PathBuf {
     environment.target_root.join(target).join("release")
 }
 
-fn gateway(environment: &BuildEnvironment, target: &str) -> PathBuf {
+pub(super) fn gateway(environment: &BuildEnvironment, target: &str) -> PathBuf {
     release(environment, target).join(sidecar::gateway_binary_name(target))
 }
 
@@ -17,16 +17,20 @@ fn bundle(environment: &BuildEnvironment, target: &str, directory: &str) -> Path
     release(environment, target).join("bundle").join(directory)
 }
 
-fn output(environment: &BuildEnvironment, target: &str) -> PathBuf {
+pub(super) fn output(environment: &BuildEnvironment, target: &str) -> PathBuf {
     environment.target_root.join("installer").join(target)
 }
 
-fn version_printed() -> FakeResponse {
+pub(super) fn version_printed() -> FakeResponse {
     success(&format!("promptforge-gateway {VERSION}\n"))
 }
 
 /// A Tauri build that writes `files` while the sidecar is staged.
-fn bundled(sidecar: PathBuf, files: Vec<PathBuf>, response: FakeResponse) -> FakeResponse {
+pub(super) fn bundled(
+    sidecar: PathBuf,
+    files: Vec<PathBuf>,
+    response: FakeResponse,
+) -> FakeResponse {
     act(
         move || {
             assert!(sidecar.is_file(), "sidecar not staged during the bundle");
@@ -57,9 +61,8 @@ fn expected_commands(
         tauri.extend(["--config", "tauri.nightly.conf.json"]);
     }
     vec![
-        command(
+        cargo_build(
             environment,
-            "selected-cargo",
             &[
                 "build",
                 "--locked",
@@ -69,12 +72,12 @@ fn expected_commands(
                 "--target",
                 target,
             ],
-            OutputMode::Inherit,
         ),
         CommandSpec {
             program: gateway(environment, target),
             args: strings(&["--version"]),
             current_dir: environment.workspace_root.clone(),
+            envs: Vec::new(),
             output_mode: OutputMode::Capture,
         },
         CommandSpec {
@@ -83,6 +86,7 @@ fn expected_commands(
                 .join("crates")
                 .join("workshop")
                 .join("desktop"),
+            envs: environment.cargo_envs(),
             ..command(environment, "selected-node", &tauri, OutputMode::Inherit)
         },
     ]
@@ -104,7 +108,7 @@ fn signer_command(environment: &BuildEnvironment, archive: &Path) -> CommandSpec
     )
 }
 
-fn request(target: &str, sign: bool) -> InstallerRequest {
+pub(super) fn request(target: &str, sign: bool) -> InstallerRequest {
     InstallerRequest {
         target: Some(target.to_owned()),
         sign,
@@ -150,7 +154,7 @@ fn windows_unsigned_builds_the_setup_on_the_unsigned_config() {
 #[test]
 fn windows_signed_publishes_the_setup_signature_without_a_gateway_archive() {
     let mut test_environment = environment();
-    test_environment.environment.signing_key_set = true;
+    set_signing_key(&mut test_environment.environment);
     let environment = &test_environment.environment;
     let target = "x86_64-pc-windows-msvc";
     let setup =
@@ -180,7 +184,7 @@ fn windows_signed_publishes_the_setup_signature_without_a_gateway_archive() {
 #[test]
 fn macos_signed_collects_the_payload_and_signs_the_gateway_archive() {
     let mut test_environment = environment();
-    test_environment.environment.signing_key_set = true;
+    set_signing_key(&mut test_environment.environment);
     let environment = &test_environment.environment;
     let target = "aarch64-apple-darwin";
     let macos = bundle(environment, target, "macos");
@@ -302,7 +306,7 @@ fn linux_unsigned_from_the_host_collects_the_payload_only() {
 #[test]
 fn linux_signed_publishes_the_appimage_and_the_gateway_archive() {
     let mut test_environment = environment();
-    test_environment.environment.signing_key_set = true;
+    set_signing_key(&mut test_environment.environment);
     let environment = &test_environment.environment;
     let target = "aarch64-unknown-linux-gnu";
     let appimage = bundle(environment, target, "appimage")
@@ -343,7 +347,7 @@ fn linux_signed_publishes_the_appimage_and_the_gateway_archive() {
 #[test]
 fn a_signer_that_writes_no_signature_fails_the_build() {
     let mut test_environment = environment();
-    test_environment.environment.signing_key_set = true;
+    set_signing_key(&mut test_environment.environment);
     let environment = &test_environment.environment;
     let target = "x86_64-unknown-linux-gnu";
     let appimage = bundle(environment, target, "appimage")
@@ -369,31 +373,36 @@ fn a_signer_that_writes_no_signature_fails_the_build() {
 fn preflight_failures_run_no_command() {
     let mut test_environment = environment();
     let target = "x86_64-unknown-linux-gnu";
+    let key_file = test_environment.environment.workspace_root.join("key");
+    write_file(&key_file, b"untrusted comment: key");
     let mut runner = FakeRunner::default();
+    let mut refusal = |environment: &BuildEnvironment, case: &str| {
+        build_installer(&request(target, true), environment, &mut runner)
+            .expect_err(case)
+            .primary
+    };
 
-    let error = build_installer(
-        &request(target, true),
-        &test_environment.environment,
-        &mut runner,
-    )
-    .expect_err("no signing key");
+    let error = refusal(&test_environment.environment, "no signing key");
+    assert!(error.contains("TAURI_SIGNING_PRIVATE_KEY set"), "{error}");
+
+    set_signing_key(&mut test_environment.environment);
+    test_environment.environment.signing_key = Some(key_file.clone().into_os_string());
+    let error = refusal(&test_environment.environment, "a key path");
+    assert!(error.contains("not a path"), "{error}");
+    assert!(error.contains(&key_file.display().to_string()), "{error}");
+
+    set_signing_key(&mut test_environment.environment);
+    test_environment.environment.signing_password_set = false;
+    let error = refusal(&test_environment.environment, "no key password");
     assert!(
-        error.primary.contains("TAURI_SIGNING_PRIVATE_KEY"),
+        error.contains("TAURI_SIGNING_PRIVATE_KEY_PASSWORD set"),
         "{error}"
     );
 
+    set_signing_key(&mut test_environment.environment);
     std::fs::remove_file(&test_environment.environment.tauri_cli).expect("remove CLI");
-    test_environment.environment.signing_key_set = true;
-    let error = build_installer(
-        &request(target, true),
-        &test_environment.environment,
-        &mut runner,
-    )
-    .expect_err("no CLI");
-    assert!(
-        error.primary.contains("npm ci --prefix crates/workshop"),
-        "{error}"
-    );
+    let error = refusal(&test_environment.environment, "no CLI");
+    assert!(error.contains("npm ci --prefix crates/workshop"), "{error}");
     assert!(runner.commands.is_empty());
 }
 
@@ -411,69 +420,6 @@ fn an_unsupported_target_fails_before_building() {
 
     assert!(error.primary.contains("x86_64-unknown-freebsd"), "{error}");
     assert!(runner.commands.is_empty());
-}
-
-#[test]
-fn a_version_mismatch_stops_before_staging() {
-    let test_environment = environment();
-    let environment = &test_environment.environment;
-    let target = "x86_64-unknown-linux-gnu";
-    let mut runner = FakeRunner::with_responses(vec![
-        gateway_built(gateway(environment, target)),
-        success("promptforge-gateway 0.0.1\n"),
-    ]);
-
-    let error = build_installer(&request(target, false), environment, &mut runner)
-        .expect_err("version mismatch");
-
-    assert!(
-        error
-            .primary
-            .contains("printed `promptforge-gateway 0.0.1`"),
-        "{error}"
-    );
-    assert!(
-        error
-            .primary
-            .contains(&format!("expected `promptforge-gateway {VERSION}`")),
-        "{error}"
-    );
-    assert_eq!(runner.commands.len(), 2);
-    assert!(!test_environment.sidecar(target).exists());
-}
-
-#[test]
-fn a_failed_unstartable_or_interrupted_bundle_removes_the_sidecar_and_collects_nothing() {
-    for (response, expected) in [
-        (
-            failure("bundle broke"),
-            "Workshop bundle failed: bundle broke",
-        ),
-        (
-            FakeResponse::SpawnFailed(io::ErrorKind::NotFound, "node not found"),
-            "Workshop bundle could not start: node not found",
-        ),
-        (
-            FakeResponse::InterruptedAfterStart,
-            "Workshop bundle interrupted",
-        ),
-    ] {
-        let test_environment = environment();
-        let environment = &test_environment.environment;
-        let target = "x86_64-pc-windows-msvc";
-        let mut runner = FakeRunner::with_responses(vec![
-            gateway_built(gateway(environment, target)),
-            version_printed(),
-            bundled(test_environment.sidecar(target), Vec::new(), response),
-        ]);
-
-        let error = build_installer(&request(target, false), environment, &mut runner)
-            .expect_err("bundle failure");
-
-        assert!(error.primary.contains(expected), "{error}");
-        assert!(!test_environment.sidecar(target).exists());
-        assert!(!output(environment, target).exists());
-    }
 }
 
 fn collect_signature(path: &Path) -> PathBuf {

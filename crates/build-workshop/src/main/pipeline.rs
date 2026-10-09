@@ -125,7 +125,7 @@ fn build_around_sidecar<R: CommandRunner>(
 
 fn interrupted_after_completion() -> StepError {
     StepError {
-        message: "Workshop build interrupted after child completion".to_owned(),
+        message: "build interrupted after its last step completed".to_owned(),
         interrupted: true,
     }
 }
@@ -140,6 +140,7 @@ fn discover_host_target(
             program: environment.cargo.clone(),
             args: vec![OsString::from("-vV")],
             current_dir: environment.workspace_root.clone(),
+            envs: Vec::new(),
             output_mode: OutputMode::Capture,
         },
         "Cargo host discovery",
@@ -177,6 +178,7 @@ fn cargo_build_command(
         program: environment.cargo.clone(),
         args,
         current_dir: environment.workspace_root.clone(),
+        envs: environment.cargo_envs(),
         output_mode: OutputMode::Inherit,
     }
 }

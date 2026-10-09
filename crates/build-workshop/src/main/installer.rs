@@ -146,10 +146,34 @@ fn preflight(request: &InstallerRequest, environment: &BuildEnvironment) -> Resu
             environment.tauri_cli.display()
         )));
     }
-    if request.sign && !environment.signing_key_set {
+    if request.sign {
+        preflight_signing(environment)?;
+    }
+    Ok(())
+}
+
+/// `tauri signer sign` accepts less than `tauri build`: it reads the key
+/// variable only as the key's contents, and prompts for a password when its
+/// variable is unset, so both are checked before the release build.
+fn preflight_signing(environment: &BuildEnvironment) -> Result<(), BuildError> {
+    let Some(key) = &environment.signing_key else {
         return Err(failure(
-            "`--sign` needs TAURI_SIGNING_PRIVATE_KEY set to the release minisign key; it is \
-             unset or empty"
+            "`--sign` needs TAURI_SIGNING_PRIVATE_KEY set to the release minisign key's \
+             contents; it is unset or empty"
+                .to_owned(),
+        ));
+    };
+    if Path::new(key).is_file() {
+        return Err(failure(format!(
+            "`--sign` needs TAURI_SIGNING_PRIVATE_KEY set to the key's contents, not a path; it \
+             names the file {}",
+            Path::new(key).display()
+        )));
+    }
+    if !environment.signing_password_set {
+        return Err(failure(
+            "`--sign` needs TAURI_SIGNING_PRIVATE_KEY_PASSWORD set, empty for a key without a \
+             password; it is unset"
                 .to_owned(),
         ));
     }
@@ -167,6 +191,7 @@ fn check_gateway_version(
             program: gateway.to_path_buf(),
             args: vec![OsString::from("--version")],
             current_dir: environment.workspace_root.clone(),
+            envs: Vec::new(),
             output_mode: OutputMode::Capture,
         },
         "Gateway version check",
@@ -198,6 +223,7 @@ fn cargo_command(environment: &BuildEnvironment, target: &str) -> CommandSpec {
         .map(OsString::from)
         .to_vec(),
         current_dir: environment.workspace_root.clone(),
+        envs: environment.cargo_envs(),
         output_mode: OutputMode::Inherit,
     }
 }
@@ -231,6 +257,7 @@ fn tauri_build_command(
             .join("crates")
             .join("workshop")
             .join("desktop"),
+        envs: environment.cargo_envs(),
         output_mode: OutputMode::Inherit,
     }
 }
@@ -246,6 +273,7 @@ fn sign_command(environment: &BuildEnvironment, archive: &Path) -> CommandSpec {
         program: environment.node.clone(),
         args,
         current_dir: environment.workspace_root.clone(),
+        envs: Vec::new(),
         output_mode: OutputMode::Inherit,
     }
 }

@@ -59,6 +59,7 @@ struct CommandSpec {
     program: PathBuf,
     args: Vec<OsString>,
     current_dir: PathBuf,
+    envs: Vec<(OsString, OsString)>,
     output_mode: OutputMode,
 }
 
@@ -100,7 +101,8 @@ struct BuildEnvironment {
     cargo: PathBuf,
     node: PathBuf,
     tauri_cli: PathBuf,
-    signing_key_set: bool,
+    signing_key: Option<OsString>,
+    signing_password_set: bool,
 }
 
 impl BuildEnvironment {
@@ -147,16 +149,29 @@ impl BuildEnvironment {
             .join("@tauri-apps")
             .join("cli")
             .join("tauri.js");
-        let signing_key_set =
-            std::env::var_os("TAURI_SIGNING_PRIVATE_KEY").is_some_and(|key| !key.is_empty());
+        let signing_key =
+            std::env::var_os("TAURI_SIGNING_PRIVATE_KEY").filter(|key| !key.is_empty());
+        let signing_password_set = std::env::var_os("TAURI_SIGNING_PRIVATE_KEY_PASSWORD").is_some();
         Ok(Self {
             workspace_root,
             target_root,
             cargo,
             node: PathBuf::from("node"),
             tauri_cli,
-            signing_key_set,
+            signing_key,
+            signing_password_set,
         })
+    }
+
+    /// Cargo resolves a relative `CARGO_TARGET_DIR` against its own working
+    /// directory, which differs between children (the Tauri CLI runs from
+    /// `crates/workshop/desktop`), so every child that runs Cargo gets the
+    /// absolute root this process reads its outputs from.
+    fn cargo_envs(&self) -> Vec<(OsString, OsString)> {
+        vec![(
+            OsString::from("CARGO_TARGET_DIR"),
+            self.target_root.clone().into_os_string(),
+        )]
     }
 }
 
@@ -202,7 +217,10 @@ impl fmt::Display for BuildError {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if matches!(args.as_slice(), [argument] if argument == "-h" || argument == "--help") {
+    if args
+        .iter()
+        .any(|argument| argument == "-h" || argument == "--help")
+    {
         print!("{}", args::USAGE);
         return ExitCode::SUCCESS;
     }

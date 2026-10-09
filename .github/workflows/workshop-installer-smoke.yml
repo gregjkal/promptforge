@@ -31,6 +31,7 @@ jobs:
       # The workshop install brings the pinned Tauri CLI; the release
       # Gateway's default `config-ui` feature needs the config UI's.
       - name: Install UI dependencies
+        shell: bash
         run: |
           npm ci --prefix crates/workshop
           npm ci --prefix crates/gateway/config-ui/ui

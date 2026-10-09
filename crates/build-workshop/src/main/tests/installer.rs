@@ -251,6 +251,50 @@ fn macos_signed_collects_the_payload_and_signs_the_gateway_archive() {
 }
 
 #[test]
+fn macos_unsigned_collects_the_payload_only() {
+    let test_environment = environment();
+    let environment = &test_environment.environment;
+    let target = "x86_64-apple-darwin";
+    let app = bundle(environment, target, "macos").join("PromptForge.app");
+    let mut runner = FakeRunner::with_responses(vec![
+        gateway_built(gateway(environment, target)),
+        version_printed(),
+        bundled(
+            test_environment.sidecar(target),
+            vec![
+                app.join("Contents")
+                    .join("MacOS")
+                    .join("promptforge-workshop"),
+            ],
+            success(""),
+        ),
+    ]);
+
+    build_installer(&request(target, false), environment, &mut runner).expect("installer");
+
+    assert_eq!(
+        runner.commands,
+        expected_commands(environment, target, "app", false)
+    );
+    let payload = output(environment, target).join("payload");
+    assert!(
+        payload
+            .join("PromptForge.app")
+            .join("Contents")
+            .join("MacOS")
+            .join("promptforge-workshop")
+            .is_file()
+    );
+    assert!(payload.join("promptforge-gateway").is_file());
+    assert_eq!(
+        std::fs::read_dir(output(environment, target).join("publish"))
+            .expect("publish")
+            .count(),
+        0
+    );
+}
+
+#[test]
 fn linux_unsigned_from_the_host_collects_the_payload_only() {
     let test_environment = environment();
     let environment = &test_environment.environment;

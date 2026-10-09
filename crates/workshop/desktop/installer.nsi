@@ -887,12 +887,14 @@ SectionEnd
 
 Section "-GatewayInit"
  ; Install-time initialization: write the default config when none exists
- ; and, when Speech to Text is newly selected (a first install, or one
- ; whose previous install declined it), download its runtime and models,
- ; so speech works offline from the first launch. A reinstall that had
- ; speech already runs init --no-stt: since then the user may have
- ; selected a profile without speech in Settings, which init with speech
- ; would refuse, and the boot provisions anything missing. It runs after
+ ; and, when Speech to Text is newly selected (no config yet, or a
+ ; previous install that declined it), download its runtime and models,
+ ; so speech works offline from the first launch; over a config without
+ ; speech, init refuses and says how to add a model. A reinstall over an
+ ; existing config whose previous install had speech runs init --no-stt:
+ ; since then the user may have selected a profile without speech in
+ ; Settings, which init with speech would refuse, and the boot provisions
+ ; anything missing. It runs after
  ; the STT section because a section's id is defined only at its Section
  ; line, and after -Finalize so the uninstaller and the Add/Remove entry
  ; exist if the installer is killed during the download, which nothing
@@ -909,9 +911,14 @@ Section "-GatewayInit"
  SectionGetFlags ${SecSTT} $0
  IntOp $0 $0 & ${SF_SELECTED}
  ${If} $0 = ${SF_SELECTED}
- ${AndIf} $SttBefore != 1
+ Call GatewayConfigExists
+ ${If} $SttBefore == 1
+ ${AndIf} $0 == 1
+ StrCpy $GatewayInitArgs "init --no-stt"
+ ${Else}
  StrCpy $GatewayInitArgs "init"
  DetailPrint "Provisioning speech to text (downloads what is missing)"
+ ${EndIf}
  ${Else}
  StrCpy $GatewayInitArgs "init --no-stt"
  ${EndIf}
@@ -1183,6 +1190,21 @@ Function RestoreComponentSelections
  ${Else}
  SectionSetFlags ${SecSTT} 0
  ${EndIf}
+ ${EndIf}
+FunctionEnd
+
+; Sets $0 to 1 when init would find a gateway config, searching where it
+; does: PROMPTFORGE_GATEWAY_CONFIG when set, else beside the executable
+; and in the working directory (both $INSTDIR here), then the profile.
+Function GatewayConfigExists
+ StrCpy $0 ""
+ ReadEnvStr $1 PROMPTFORGE_GATEWAY_CONFIG
+ ${If} $1 != ""
+ ${IfThen} ${FileExists} "$1" ${|} StrCpy $0 1 ${|}
+ ${ElseIf} ${FileExists} "$INSTDIR\gateway.toml"
+ StrCpy $0 1
+ ${ElseIf} ${FileExists} "$PROFILE\.promptforge\gateway.toml"
+ StrCpy $0 1
  ${EndIf}
 FunctionEnd
 

@@ -10,7 +10,7 @@ todos:
     status: completed
   - id: nsis-components
     content: "NSIS: Gateway section runs `init`, STT requires Gateway, `/COMPONENTS=` silent selection for tests; drop the InstallSTT writes"
-    status: pending
+    status: completed
   - id: build-installer
     content: "build-workshop: own sidecar staging (retire tools/stage-gateway-sidecar.mjs), an `installer` mode that produces each platform's installer and the signed gateway updater archive, within the crate's 500-line file ceiling and the flat-directory rule"
     status: pending
@@ -352,15 +352,20 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
 
 <step-3>
 
-### Step 3: NSIS components run `init` [completed; the pull request's NSIS compile check is pending]
+### Step 3: NSIS components run `init` [completed]
 
 - Component: `crates/workshop/desktop/installer.nsi`
 
 - Covers todo `nsis-components`. No local test support; the pull request's `workshop-installer-smoke.yml` run compiles the template.
 - As built: `init` runs in a hidden `-GatewayInit` section placed after the STT section rather than inside the Gateway section, because NSIS defines `${SecSTT}` only at the STT `Section` line. It runs only when Gateway is selected. List membership for `/COMPONENTS=` uses the already-declared `${StrCase}` and `${StrLoc}` (`StrFunc.nsh`) on the comma-wrapped list instead of `${WordFind}`. The components page has no descriptions (`MUI_COMPONENTSPAGE_NODESC`), so the STT section's title states the download: about 0.6 GB, 1.1 GB with an NVIDIA GPU.
-- Gateway section: after the file copy, outside `/UPDATE`, run `"$INSTDIR\promptforge-gateway.exe" init` (plus `--no-stt` when STT is unchecked) through `nsExec::ExecToLog`, keep the exit code in a new `Var GatewayInitExit`, and `DetailPrint` a failure naming the code. When the code is nonzero, `FinishPageShow` replaces the finish text with a notice: Gateway stays installed, and rerunning `promptforge-gateway init` retries.
+- Gateway section (as built, the `-GatewayInit` section): after the file copy, outside `/UPDATE`, run `"$INSTDIR\promptforge-gateway.exe" init` (plus `--no-stt` when STT is unchecked) through `nsExec::ExecToLog`, keep the exit code in a new `Var GatewayInitExit`, and `DetailPrint` a failure naming the code. When the code is nonzero, `FinishPageShow` replaces the finish text with a notice: Gateway stays installed, and rerunning `promptforge-gateway init` retries.
 - `.onSelChange`: when STT is selected and Gateway is not, clear STT.
-- `.onInit`: after `RestoreComponentSelections`, `${GetOptions} $CMDLINE "/COMPONENTS="` takes a comma list of `workshop`, `gateway`, `stt` and sets exactly those sections, then applies the same STT rule. Membership uses `WordFunc.nsh`'s `${WordFind}` on the comma-wrapped list.
+- `.onInit`: after `RestoreComponentSelections`, `${GetOptions} $CMDLINE "/COMPONENTS="` takes a comma list of `workshop`, `gateway`, `stt` and sets exactly those sections, then applies the same STT rule. Membership uses `WordFunc.nsh`'s `${WordFind}` on the comma-wrapped list (as built, `${StrLoc}`; see above).
+- Fork review:
+  - `.onInit` applies the persisted selection on every install, so the components page of a GUI reinstall starts from the previous choice instead of all checked; otherwise a reinstall that once declined speech would offer it checked, and `init` would fail on the existing speechless config. The STT rule then applies to the restored selection as well.
+  - `-GatewayInit` runs after `-Finalize`, so the uninstaller and the Add/Remove entry exist if the installer is killed during the download, which nothing else can stop; the gateway relaunch, the post-install hook, and the passive auto-close move to a `-Relaunch` section after it, so a relaunched gateway does not race the download.
+  - On failure, the details view opens and the installer exits with code 3, since silent and passive installs have no finish page. The finish notice (in the 60-unit `MUI_FINISHPAGE_TEXT_LARGE` text area) names the exact command that failed, `init` or `init --no-stt`, and its nsExec result, and sends the user to the remedy the details name before rerunning it.
+  - A `/COMPONENTS=` list that is empty or names anything else shows the names it accepts and quits with exit code 2.
 - STT section comment: no payload; the Gateway section's `init` installs it. Finalize drops the `InstallSTT` writes (lines 869 to 878); the uninstaller's delete of the value stays to clear what older installers wrote.
 - Verify: the pull request's `Workshop installer smoke` check compiles the installer; a search for `InstallSTT` finds only the uninstaller delete and no Rust.
 - Commit: subject `Install speech through the gateway init command in the Windows installer`.

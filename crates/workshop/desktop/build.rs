@@ -3,14 +3,16 @@
 //! tauri-build so `tauri::generate_context!` sees the config-derived
 //! environment it requires.
 //!
-//! Why the refresh exists: `tauri.conf.json` declares the gateway as an
-//! `externalBin`, so tauri-build copies `binaries/promptforge-gateway-
-//! <target-triple>` over `target/<profile>/promptforge-gateway` on every
-//! workshop build. That is the same path cargo writes the gateway crate's
-//! own binary to, so without this step a `cargo build -p gateway` followed
-//! by `cargo build -p workshop` ends with the stale sidecar copy in place
-//! of the gateway just built. Copying the built gateway forward into
-//! `binaries/` first makes that build order correct.
+//! Why the refresh exists: on Windows, `tauri.windows.conf.json` declares
+//! the gateway as an `externalBin`, so tauri-build copies
+//! `binaries/promptforge-gateway-<target-triple>.exe` over
+//! `target/<profile>/promptforge-gateway.exe` on every workshop build.
+//! That is the same path cargo writes the gateway crate's own binary to,
+//! so without this step a `cargo build -p gateway` followed by
+//! `cargo build -p workshop` ends with the stale sidecar copy in place of
+//! the gateway just built. Copying the built gateway forward into
+//! `binaries/` first makes that build order correct. Other targets bundle
+//! no gateway, so they skip the refresh.
 
 use std::env;
 use std::error::Error;
@@ -26,25 +28,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Copies `target/<profile>/promptforge-gateway` into the sidecar slot
-/// when it is newer than the copy there, so tauri-build ships the gateway
-/// most recently built rather than whatever was placed by hand.
+/// On Windows, copies `target/<profile>/promptforge-gateway.exe` into the
+/// sidecar slot when it is newer than the copy there, so tauri-build ships
+/// the gateway most recently built rather than whatever was placed by hand.
 fn refresh_gateway_sidecar() -> Result<(), Box<dyn Error>> {
+    if env::var("CARGO_CFG_TARGET_OS")? != "windows" {
+        return Ok(());
+    }
     let target = env::var("TARGET")?;
-    let exe_suffix = if env::var("CARGO_CFG_TARGET_OS")? == "windows" {
-        ".exe"
-    } else {
-        ""
-    };
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let sidecar = manifest_dir
         .join("binaries")
-        .join(format!("promptforge-gateway-{target}{exe_suffix}"));
+        .join(format!("promptforge-gateway-{target}.exe"));
 
     let Some(profile_dir) = profile_dir_from_out_dir(&PathBuf::from(env::var("OUT_DIR")?)) else {
         return Ok(());
     };
-    let built = profile_dir.join(format!("promptforge-gateway{exe_suffix}"));
+    let built = profile_dir.join("promptforge-gateway.exe");
     // A rebuilt gateway must re-run this script; a missing one is not an
     // error here because tauri-build reports the absent sidecar itself.
     println!("cargo:rerun-if-changed={}", built.display());

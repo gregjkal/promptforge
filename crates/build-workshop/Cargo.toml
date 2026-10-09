@@ -14,10 +14,12 @@ path = "src/main.rs"
 anyhow.workspace = true
 ctrlc.workspace = true
 flate2.workspace = true
+gateway-api-discovery.workspace = true
 tar.workspace = true
 workspace-hack.workspace = true
 
 [dev-dependencies]
+serde_json.workspace = true
 tempfile.workspace = true
 
 [build-dependencies]

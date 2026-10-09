@@ -653,6 +653,8 @@ dependencies = [
  "build-ceiling",
  "ctrlc",
  "flate2",
+ "gateway-api-discovery",
+ "serde_json",
  "tar",
  "tempfile",
  "workspace-hack",

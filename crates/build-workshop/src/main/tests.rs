@@ -8,6 +8,8 @@ use tempfile::TempDir;
 use super::*;
 use args::InstallerRequest;
 
+#[path = "tests/bundle.rs"]
+mod bundle_tests;
 #[path = "tests/collect.rs"]
 mod collect_tests;
 #[path = "tests/failures.rs"]
@@ -134,6 +136,22 @@ fn workshop_built_with_sidecar(sidecar: PathBuf, response: FakeResponse) -> Fake
     )
 }
 
+/// A Workshop build that asserts no sidecar is staged while it runs.
+fn workshop_built_without_sidecar(sidecar: PathBuf, response: FakeResponse) -> FakeResponse {
+    act(
+        move || assert!(!sidecar.exists(), "sidecar staged for a target without one"),
+        response,
+    )
+}
+
+fn repository_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("repository root")
+        .to_path_buf()
+}
+
 fn write_file(path: &Path, contents: &[u8]) {
     std::fs::create_dir_all(path.parent().expect("parent")).expect("parent directory");
     std::fs::write(path, contents).expect("write file");
@@ -157,6 +175,14 @@ fn environment() -> TestEnvironment {
     let tauri_cli = temp.path().join("tauri-cli").join("tauri.js");
     std::fs::create_dir_all(&workspace_root).expect("workspace root");
     write_file(&tauri_cli, b"");
+    let sources = installer::bundle::BundleSources::in_workspace(&repository_root());
+    let copies = installer::bundle::BundleSources::in_workspace(&workspace_root);
+    for (source, copy) in [
+        (sources.info_plist, copies.info_plist),
+        (sources.icon, copies.icon),
+    ] {
+        write_file(&copy, &std::fs::read(source).expect("bundle source"));
+    }
     TestEnvironment {
         _temp: temp,
         environment: BuildEnvironment {
@@ -269,14 +295,14 @@ fn parses_the_installer_and_sidecar_modes() {
             "sidecar",
             "stage",
             "--source",
-            "target/debug/promptforge-gateway",
+            "target/debug/promptforge-gateway.exe",
             "--target",
-            "x86_64-unknown-linux-gnu",
+            "aarch64-pc-windows-msvc",
         ]))
         .expect("stage"),
         Request::Sidecar(SidecarRequest::Stage {
-            target: "x86_64-unknown-linux-gnu".to_owned(),
-            source: PathBuf::from("target/debug/promptforge-gateway"),
+            target: "aarch64-pc-windows-msvc".to_owned(),
+            source: PathBuf::from("target/debug/promptforge-gateway.exe"),
         })
     );
     assert_eq!(
@@ -335,7 +361,7 @@ fn rejects_duplicate_incomplete_or_malformed_options() {
         arguments(&["installer", "--target", "--sign"]),
         arguments(&["sidecar"]),
         arguments(&["sidecar", "copy"]),
-        arguments(&["sidecar", "stage", "--target", "x86_64-unknown-linux-gnu"]),
+        arguments(&["sidecar", "stage", "--target", "x86_64-pc-windows-msvc"]),
         arguments(&["sidecar", "stage", "--source", "gateway"]),
         arguments(&["sidecar", "remove"]),
     ] {
@@ -380,7 +406,7 @@ fn default_build_derives_host_and_stages_around_the_workshop_build() {
 }
 
 #[test]
-fn explicit_release_target_uses_target_output_without_a_host_probe() {
+fn explicit_linux_release_target_builds_without_a_host_probe_or_sidecar() {
     let test_environment = environment();
     let environment = &test_environment.environment;
     let triple = "aarch64-unknown-linux-gnu";
@@ -391,7 +417,7 @@ fn explicit_release_target_uses_target_output_without_a_host_probe() {
         .join("promptforge-gateway");
     let mut runner = FakeRunner::with_responses(vec![
         gateway_built(source),
-        workshop_built_with_sidecar(test_environment.sidecar(triple), success("")),
+        workshop_built_without_sidecar(test_environment.sidecar(triple), success("")),
     ]);
 
     build_workshop(

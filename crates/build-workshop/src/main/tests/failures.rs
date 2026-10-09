@@ -53,7 +53,7 @@ fn gateway_failure_runs_no_workshop_build_and_removes_a_stale_sidecar() {
 fn workshop_failure_is_primary_when_cleanup_also_fails() {
     let test_environment = environment();
     let environment = &test_environment.environment;
-    let triple = "x86_64-unknown-linux-gnu";
+    let triple = "x86_64-pc-windows-msvc";
     let mut runner = FakeRunner::with_responses(vec![
         gateway_built(debug_gateway(environment, triple)),
         act(
@@ -79,7 +79,7 @@ fn workshop_failure_is_primary_when_cleanup_also_fails() {
 fn stage_failure_names_the_missing_source_skips_the_workshop_build_and_cleans_up() {
     let test_environment = environment();
     let environment = &test_environment.environment;
-    let triple = "x86_64-unknown-linux-gnu";
+    let triple = "aarch64-pc-windows-msvc";
     write_file(&test_environment.sidecar(triple), b"stale");
     let mut runner = FakeRunner::with_responses(vec![success("")]);
 
@@ -169,10 +169,35 @@ fn interruption_raced_with_completion_removes_the_sidecar() {
 }
 
 #[test]
-fn interruption_preserves_cleanup_failure_diagnostics() {
+fn interruption_raced_with_completion_fails_a_build_without_a_sidecar() {
     let test_environment = environment();
     let environment = &test_environment.environment;
     let triple = "x86_64-unknown-linux-gnu";
+    let mut runner = FakeRunner::with_responses(vec![
+        gateway_built(debug_gateway(environment, triple)),
+        workshop_built_without_sidecar(
+            test_environment.sidecar(triple),
+            FakeResponse::CompletedAndInterrupted,
+        ),
+    ]);
+
+    let error = build_workshop(&debug_request(triple), environment, &mut runner)
+        .expect_err("Workshop completion race");
+
+    assert!(
+        error
+            .primary
+            .contains("Workshop build interrupted after child completion"),
+        "{error}"
+    );
+    assert_eq!(error.cleanup, None);
+}
+
+#[test]
+fn interruption_preserves_cleanup_failure_diagnostics() {
+    let test_environment = environment();
+    let environment = &test_environment.environment;
+    let triple = "x86_64-pc-windows-msvc";
     let mut runner = FakeRunner::with_responses(vec![
         gateway_built(debug_gateway(environment, triple)),
         act(
@@ -199,7 +224,7 @@ fn interruption_preserves_cleanup_failure_diagnostics() {
 fn cleanup_failure_after_success_fails_the_command_clearly() {
     let test_environment = environment();
     let environment = &test_environment.environment;
-    let triple = "x86_64-unknown-linux-gnu";
+    let triple = "x86_64-pc-windows-msvc";
     let mut runner = FakeRunner::with_responses(vec![
         gateway_built(debug_gateway(environment, triple)),
         act(
@@ -242,7 +267,7 @@ fn malformed_host_output_fails_before_building() {
 fn a_version_mismatch_stops_before_staging_and_removes_a_stale_sidecar() {
     let test_environment = environment();
     let environment = &test_environment.environment;
-    let target = "x86_64-unknown-linux-gnu";
+    let target = "x86_64-pc-windows-msvc";
     write_file(&test_environment.sidecar(target), b"stale");
     let mut runner = FakeRunner::with_responses(vec![
         node_found(),
@@ -273,7 +298,7 @@ fn a_version_mismatch_stops_before_staging_and_removes_a_stale_sidecar() {
 fn a_failed_version_check_stops_before_staging_and_removes_a_stale_sidecar() {
     let test_environment = environment();
     let environment = &test_environment.environment;
-    let target = "aarch64-apple-darwin";
+    let target = "aarch64-pc-windows-msvc";
     write_file(&test_environment.sidecar(target), b"stale");
     let mut runner = FakeRunner::with_responses(vec![
         node_found(),
@@ -295,37 +320,46 @@ fn a_failed_version_check_stops_before_staging_and_removes_a_stale_sidecar() {
 }
 
 #[test]
-fn a_failed_unstartable_or_interrupted_bundle_removes_the_sidecar_and_collects_nothing() {
-    for (response, expected) in [
-        (
-            failure("bundle broke"),
-            "Workshop bundle failed: bundle broke",
-        ),
-        (
-            FakeResponse::SpawnFailed(io::ErrorKind::NotFound, "node not found"),
-            "Workshop bundle could not start: node not found",
-        ),
-        (
-            FakeResponse::InterruptedAfterStart,
-            "Workshop bundle interrupted",
-        ),
-    ] {
-        let test_environment = environment();
-        let environment = &test_environment.environment;
-        let target = "x86_64-pc-windows-msvc";
-        let mut runner = FakeRunner::with_responses(vec![
-            node_found(),
-            gateway_built(gateway(environment, target)),
-            version_printed(),
-            bundled(test_environment.sidecar(target), Vec::new(), response),
-        ]);
+fn a_failed_unstartable_or_interrupted_bundle_leaves_no_sidecar_and_collects_nothing() {
+    let cases = || {
+        [
+            (
+                failure("bundle broke"),
+                "Workshop bundle failed: bundle broke",
+            ),
+            (
+                FakeResponse::SpawnFailed(io::ErrorKind::NotFound, "node not found"),
+                "Workshop bundle could not start: node not found",
+            ),
+            (
+                FakeResponse::InterruptedAfterStart,
+                "Workshop bundle interrupted",
+            ),
+        ]
+    };
+    for target in ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"] {
+        for (response, expected) in cases() {
+            let test_environment = environment();
+            let environment = &test_environment.environment;
+            let mut runner = FakeRunner::with_responses(vec![
+                node_found(),
+                gateway_built(gateway(environment, target)),
+                version_printed(),
+                bundled(
+                    test_environment.sidecar(target),
+                    target,
+                    Vec::new(),
+                    response,
+                ),
+            ]);
 
-        let error = build_installer(&request(target, false), environment, &mut runner)
-            .expect_err("bundle failure");
+            let error = build_installer(&request(target, false), environment, &mut runner)
+                .expect_err("bundle failure");
 
-        assert!(error.primary.contains(expected), "{error}");
-        assert!(!test_environment.sidecar(target).exists());
-        assert!(!output(environment, target).exists());
+            assert!(error.primary.contains(expected), "{target}: {error}");
+            assert!(!test_environment.sidecar(target).exists(), "{target}");
+            assert!(!output(environment, target).exists(), "{target}");
+        }
     }
 }
 
@@ -343,6 +377,7 @@ fn a_signer_that_writes_no_signature_fails_the_build() {
         version_printed(),
         bundled(
             test_environment.sidecar(target),
+            target,
             vec![collect_signature(&appimage), appimage],
             success(""),
         ),

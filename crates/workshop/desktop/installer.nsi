@@ -1140,8 +1140,9 @@ FunctionEnd
 ; Forces the persisted component selection onto the sections, the
 ; selection passive and update installs install and the components page
 ; starts from. Values absent from the registry (a first install, one
-; after an uninstall that deleted app data, or one predating persistence)
-; keep the default: everything selected.
+; after an uninstall that deleted app data or ran an earlier release's
+; uninstaller, or one predating persistence) keep the default:
+; everything selected.
 Function RestoreComponentSelections
  ClearErrors
  ReadRegDWORD $0 HKCU "${MANUPRODUCTKEY}\Components" "Gateway"

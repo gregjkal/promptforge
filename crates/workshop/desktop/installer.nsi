@@ -888,22 +888,22 @@ SectionEnd
 Section "-GatewayInit"
  ; Install-time initialization: write the default config when none exists
  ; and, when Speech to Text is newly selected (no config yet, or a
- ; previous install that declined it), download its runtime and models,
- ; so speech works offline from the first launch; over a config without
- ; speech, init refuses and says how to add a model. A reinstall over an
- ; existing config whose previous install had speech runs init --no-stt:
- ; since then the user may have selected a profile without speech in
- ; Settings, which init with speech would refuse, and the boot provisions
- ; anything missing. It runs after
- ; the STT section because a section's id is defined only at its Section
- ; line, and after -Finalize so the uninstaller and the Add/Remove entry
- ; exist if the installer is killed during the download, which nothing
- ; else can stop. Update installs skip it: a passive auto-update must
- ; never start a large download, and the boot provisions anything the
- ; original install did not. nsExec waits, returns the exit code, opens no
- ; console window, and streams init's progress lines into the details
- ; pane. The install is currentUser, so init runs as the installing user,
- ; whose profile holds the config and the artifact store.
+ ; previous install that persisted none or declined it), download its
+ ; runtime and models, so speech works offline from the first launch; over
+ ; a config without speech, init refuses and says how to add a model. A
+ ; reinstall over an existing config whose previous install had speech
+ ; runs init --no-stt: since then the user may have selected a profile
+ ; without speech in Settings, which init with speech would refuse, and
+ ; the boot provisions anything missing. It runs after the STT section
+ ; because a section's id is defined only at its Section line, and after
+ ; -Finalize so the uninstaller and the Add/Remove entry exist if the
+ ; installer is killed during the download, which nothing else can stop.
+ ; Update installs skip it: a passive auto-update must never start a large
+ ; download, and the boot provisions anything the original install did
+ ; not. nsExec waits, returns the exit code, opens no console window, and
+ ; streams init's progress lines into the details pane. The install is
+ ; currentUser, so init runs as the installing user, whose profile holds
+ ; the config and the artifact store.
  SectionGetFlags ${SecGateway} $0
  IntOp $0 $0 & ${SF_SELECTED}
  ${If} $0 = ${SF_SELECTED}
@@ -1194,18 +1194,25 @@ Function RestoreComponentSelections
 FunctionEnd
 
 ; Sets $0 to 1 when init would find a gateway config, searching where it
-; does: PROMPTFORGE_GATEWAY_CONFIG when set, else beside the executable
-; and in the working directory (both $INSTDIR here), then the profile.
+; does: PROMPTFORGE_GATEWAY_CONFIG when it names a file, else beside the
+; executable and in the working directory (both $INSTDIR here), then the
+; profile. Like init, it counts files only, not directories. Clobbers $1.
+!macro IfConfigFile PATH
+ ${If} $0 == ""
+ ${AndIf} ${FileExists} "${PATH}"
+ ${AndIfNot} ${FileExists} "${PATH}\*.*"
+ StrCpy $0 1
+ ${EndIf}
+!macroend
+
 Function GatewayConfigExists
  StrCpy $0 ""
  ReadEnvStr $1 PROMPTFORGE_GATEWAY_CONFIG
  ${If} $1 != ""
- ${IfThen} ${FileExists} "$1" ${|} StrCpy $0 1 ${|}
- ${ElseIf} ${FileExists} "$INSTDIR\gateway.toml"
- StrCpy $0 1
- ${ElseIf} ${FileExists} "$PROFILE\.promptforge\gateway.toml"
- StrCpy $0 1
+ !insertmacro IfConfigFile "$1"
  ${EndIf}
+ !insertmacro IfConfigFile "$INSTDIR\gateway.toml"
+ !insertmacro IfConfigFile "$PROFILE\.promptforge\gateway.toml"
 FunctionEnd
 
 ; STT installs through the gateway's init, so it requires Gateway: with

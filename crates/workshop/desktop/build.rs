@@ -29,8 +29,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 /// On Windows, copies `target/<profile>/promptforge-gateway.exe` into the
-/// sidecar slot when it is newer than the copy there, so tauri-build ships the gateway
-/// most recently built rather than whatever was placed by hand.
+/// sidecar slot when it is newer than the copy there, so tauri-build ships
+/// the gateway most recently built rather than whatever was placed by hand.
 fn refresh_gateway_sidecar() -> Result<(), Box<dyn Error>> {
     if env::var("CARGO_CFG_TARGET_OS")? != "windows" {
         return Ok(());

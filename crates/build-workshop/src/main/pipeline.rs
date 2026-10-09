@@ -58,9 +58,10 @@ pub(super) fn resolve_target(
     }
 }
 
-/// Runs `build_gateway`, stages the Gateway binary it returns as the Tauri
-/// sidecar, runs `build_workshop` (named `workshop_label` in diagnostics),
-/// and removes the sidecar whatever happened, unless an interrupt arrived
+/// Runs `build_gateway`, then `build_workshop` (named `workshop_label` in
+/// diagnostics). For a target whose Workshop bundle carries the Gateway, it
+/// stages the binary `build_gateway` returns as the Tauri sidecar in
+/// between and removes it whatever happened, unless an interrupt arrived
 /// before anything was staged.
 pub(super) fn with_staged_sidecar<R: CommandRunner>(
     environment: &BuildEnvironment,
@@ -70,6 +71,14 @@ pub(super) fn with_staged_sidecar<R: CommandRunner>(
     build_gateway: impl FnOnce(&mut R) -> Result<PathBuf, StepError>,
     build_workshop: impl FnOnce(&mut R) -> Result<(), StepError>,
 ) -> Result<(), BuildError> {
+    if !sidecar::bundles_sidecar(target) {
+        build_gateway(runner)?;
+        build_workshop(runner)?;
+        if runner.interruption_observed() {
+            return Err(interrupted_after_completion(workshop_label).into());
+        }
+        return Ok(());
+    }
     let mut staged = false;
     let primary = build_around_sidecar(
         environment,

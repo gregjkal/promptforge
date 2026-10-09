@@ -90,6 +90,9 @@ Var GatewayWasRunning
 ; empty when it did not run; the finish page reports a failure.
 Var GatewayInitArgs
 Var GatewayInitExit
+; The STT selection the previous install persisted: 1, 0, or empty when
+; none was found; -GatewayInit downloads speech only on a new opt-in.
+Var SttBefore
 
 ; Persists one component's checkbox state as a DWORD (1 = installed,
 ; 0 = declined) under the product key, so every later install starts from
@@ -884,18 +887,21 @@ SectionEnd
 
 Section "-GatewayInit"
  ; Install-time initialization: write the default config when none exists
- ; and, with Speech to Text selected, download its runtime and models, so
- ; speech works offline from the first launch. It runs after the STT
- ; section because a section's id is defined only at its Section line,
- ; and after -Finalize so the uninstaller and the Add/Remove entry exist
- ; if the installer is killed during the download, which nothing else can
- ; stop. Update installs skip it: a passive auto-update must never start
- ; a large download, and the boot provisions anything the original
- ; install did not. nsExec
- ; waits, returns the exit code, opens no console window, and streams
- ; init's progress lines into the details pane. The install is
- ; currentUser, so init runs as the installing user, whose profile holds
- ; the config and the artifact store.
+ ; and, when Speech to Text is newly selected (a first install, or one
+ ; whose previous install declined it), download its runtime and models,
+ ; so speech works offline from the first launch. A reinstall that had
+ ; speech already runs init --no-stt: since then the user may have
+ ; selected a profile without speech in Settings, which init with speech
+ ; would refuse, and the boot provisions anything missing. It runs after
+ ; the STT section because a section's id is defined only at its Section
+ ; line, and after -Finalize so the uninstaller and the Add/Remove entry
+ ; exist if the installer is killed during the download, which nothing
+ ; else can stop. Update installs skip it: a passive auto-update must
+ ; never start a large download, and the boot provisions anything the
+ ; original install did not. nsExec waits, returns the exit code, opens no
+ ; console window, and streams init's progress lines into the details
+ ; pane. The install is currentUser, so init runs as the installing user,
+ ; whose profile holds the config and the artifact store.
  SectionGetFlags ${SecGateway} $0
  IntOp $0 $0 & ${SF_SELECTED}
  ${If} $0 = ${SF_SELECTED}
@@ -903,6 +909,7 @@ Section "-GatewayInit"
  SectionGetFlags ${SecSTT} $0
  IntOp $0 $0 & ${SF_SELECTED}
  ${If} $0 = ${SF_SELECTED}
+ ${AndIf} $SttBefore != 1
  StrCpy $GatewayInitArgs "init"
  DetailPrint "Provisioning speech to text (downloads what is missing)"
  ${Else}
@@ -1170,6 +1177,7 @@ Function RestoreComponentSelections
  ClearErrors
  ReadRegDWORD $0 HKCU "${MANUPRODUCTKEY}\Components" "STT"
  ${IfNot} ${Errors}
+ StrCpy $SttBefore $0
  ${If} $0 = 1
  SectionSetFlags ${SecSTT} ${SF_SELECTED}
  ${Else}

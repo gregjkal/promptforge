@@ -92,8 +92,8 @@ Var GatewayInitArgs
 Var GatewayInitExit
 
 ; Persists one component's checkbox state as a DWORD (1 = installed,
-; 0 = declined) under the product key, so update and passive installs can
-; re-apply the original selection (see RestoreComponentSelections).
+; 0 = declined) under the product key, so every later install starts from
+; it (see RestoreComponentSelections).
 !macro PersistComponent SECTION_ID VALUE_NAME
  SectionGetFlags ${SECTION_ID} $0
  IntOp $0 $0 & ${SF_SELECTED}
@@ -490,7 +490,7 @@ Function FinishPageShow
  ${EndIf}
  ${If} $GatewayInitExit != ""
  ${AndIf} $GatewayInitExit != 0
- SendMessage $mui.FinishPage.Text ${WM_SETTEXT} 0 "STR:PromptForge Gateway is installed, but its setup, promptforge-gateway.exe $GatewayInitArgs, failed (result: $GatewayInitExit). The installation details named the cause and its remedy. Once that is fixed, rerun the same command from $INSTDIR."
+ SendMessage $mui.FinishPage.Text ${WM_SETTEXT} 0 "STR:PromptForge Gateway is installed, but its setup, promptforge-gateway.exe $GatewayInitArgs, failed (result: $GatewayInitExit). The installation details show the cause. Once that is fixed, rerun the same command from $INSTDIR."
  ${EndIf}
 FunctionEnd
 
@@ -800,10 +800,10 @@ Section "PromptForge Gateway" SecGateway
  ; process name through nsis_tauri_utils - parsing
  ; %USERPROFILE%\.promptforge\run\gateway.json for the pid in NSIS buys
  ; nothing when the image name is unique - stop it through the same
- ; CheckIfAppIsRunning, and relaunch it in the -Relaunch section. Living inside the Gateway section, the stop runs
- ; only when the component is selected: a declined section leaves the
- ; payload untouched, and a daemon the install does not overwrite is
- ; not the installer's to kill.
+ ; CheckIfAppIsRunning, and relaunch it in the -Relaunch section. Living
+ ; inside the Gateway section, the stop runs only when the component is
+ ; selected: a declined section leaves the payload untouched, and a
+ ; daemon the install does not overwrite is not the installer's to kill.
  !if "${INSTALLMODE}" == "currentUser"
  nsis_tauri_utils::FindProcessCurrentUser "promptforge-gateway.exe"
  !else
@@ -869,8 +869,8 @@ Section "-Finalize"
  WriteRegStr SHCTX "${UNINSTKEY}" "HelpLink" "${HOMEPAGE}"
  !endif
 
- ; Persist the component selection so update and passive installs can
- ; re-apply it (see RestoreComponentSelections).
+ ; Persist the component selection so every later install starts from it
+ ; (see RestoreComponentSelections).
  !insertmacro PersistComponent ${SecGateway} Gateway
  !insertmacro PersistComponent ${SecWorkshop} Workshop
  !insertmacro PersistComponent ${SecSTT} STT
@@ -1074,11 +1074,10 @@ Section Uninstall
  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "PromptForgeGateway"
  ${EndIf}
 
- ; Remove the persisted component selection and the STT first-run gate
- ; when not updating (updates preserve both).
+ ; Remove the STT first-run gate older installers wrote, when not
+ ; updating.
  ${If} $UpdateMode <> 1
  DeleteRegValue HKCU "${MANUPRODUCTKEY}" "InstallSTT"
- DeleteRegKey HKCU "${MANUPRODUCTKEY}\Components"
  ${EndIf}
 
  ; Delete app data if the checkbox is selected
@@ -1091,6 +1090,10 @@ Section Uninstall
 
  ; Clear the install language from registry
  DeleteRegValue HKCU "${MANUPRODUCTKEY}" "Installer Language"
+ ; The persisted component selection lives as long as the config it
+ ; shaped: a reinstall over a kept speechless config that offered Speech
+ ; to Text checked would fail init.
+ DeleteRegKey HKCU "${MANUPRODUCTKEY}\Components"
  DeleteRegKey /ifempty HKCU "${MANUPRODUCTKEY}"
  DeleteRegKey /ifempty HKCU "${MANUKEY}"
 
@@ -1136,9 +1139,9 @@ FunctionEnd
 
 ; Forces the persisted component selection onto the sections, the
 ; selection passive and update installs install and the components page
-; starts from. Values absent from the registry (first installs and
-; installs that predate persistence) keep the default: everything
-; selected.
+; starts from. Values absent from the registry (a first install, one
+; after an uninstall that deleted app data, or one predating persistence)
+; keep the default: everything selected.
 Function RestoreComponentSelections
  ClearErrors
  ReadRegDWORD $0 HKCU "${MANUPRODUCTKEY}\Components" "Gateway"
@@ -1186,8 +1189,9 @@ FunctionEnd
 
 ; Selects exactly the sections a /COMPONENTS= list names, for silent
 ; installs in CI: /COMPONENTS=gateway,stt. Names are workshop, gateway,
-; and stt, comma separated, in any case. An empty list or any other name
-; quits with exit code 2 rather than install a selection nobody asked for.
+; and stt, comma separated, in any case. An empty list, any other name,
+; or stt without gateway quits with exit code 2 rather than install a
+; selection nobody asked for.
 !macro SelectComponentIfListed LIST NAME SECTION_ID
  ${StrLoc} $1 "${LIST}" ",${NAME}," ">"
  ${If} $1 == ""
@@ -1195,6 +1199,15 @@ FunctionEnd
  ${Else}
  SectionSetFlags ${SECTION_ID} ${SF_SELECTED}
  ${EndIf}
+!macroend
+
+; Passive mode never prompts, so it reports through the exit code alone.
+!macro RejectComponentsList MESSAGE
+ ${If} $PassiveMode <> 1
+ MessageBox MB_OK|MB_ICONSTOP "${MESSAGE}" /SD IDOK
+ ${EndIf}
+ SetErrorLevel 2
+ Quit
 !macroend
 
 Function SelectComponentsFromCommandLine
@@ -1215,9 +1228,13 @@ Function SelectComponentsFromCommandLine
  ${WordReplace} $1 ",stt," "," "+" $1
  ${LoopUntil} $1 == $2
  ${If} $1 != ","
- MessageBox MB_OK|MB_ICONSTOP "/COMPONENTS= lists unknown or empty names (left after removing the known ones: $1); the names are workshop, gateway, and stt, comma separated, without spaces." /SD IDOK
- SetErrorLevel 2
- Quit
+ !insertmacro RejectComponentsList "/COMPONENTS= lists unknown or empty names (left after removing the known ones: $1); the names are workshop, gateway, and stt, comma separated, without spaces."
+ ${EndIf}
+ ${StrLoc} $1 $0 ",stt," ">"
+ ${StrLoc} $2 $0 ",gateway," ">"
+ ${If} $1 != ""
+ ${AndIf} $2 == ""
+ !insertmacro RejectComponentsList "/COMPONENTS= lists stt without gateway; speech to text installs through the gateway, so list gateway too."
  ${EndIf}
  !insertmacro SelectComponentIfListed $0 workshop ${SecWorkshop}
  !insertmacro SelectComponentIfListed $0 gateway ${SecGateway}

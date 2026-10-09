@@ -46,8 +46,10 @@ jobs:
   native-whisper:
     # A self-hosted runner must never execute untrusted code: run this job
     # on pushes, dispatches, and same-repository PRs only. Fork PRs still
-    # get the Miri jobs, which run on GitHub-hosted runners.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # get the Miri jobs, which run on GitHub-hosted runners. The CUDA runner
+    # belongs to cppalliance/promptforge; in a fork the job would queue
+    # until GitHub cancels it.
+    if: github.repository == 'cppalliance/promptforge' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, windows, cuda]
     timeout-minutes: 90
     steps:

@@ -1193,11 +1193,9 @@ Function RestoreComponentSelections
  ${EndIf}
 FunctionEnd
 
-; Sets $0 to 1 when init would find a gateway config, searching where it
-; does: PROMPTFORGE_GATEWAY_CONFIG when it names a file, else beside the
-; executable and in the working directory (both $INSTDIR here), then the
-; profile. Like init, it counts files only, not directories. Clobbers $1.
-!macro IfConfigFile PATH
+; Sets $0 to 1 when $0 is still empty and PATH is a file; a directory
+; does not count, since PATH\*.* finds its entries.
+!macro SetIfConfigFile PATH
  ${If} $0 == ""
  ${AndIf} ${FileExists} "${PATH}"
  ${AndIfNot} ${FileExists} "${PATH}\*.*"
@@ -1205,14 +1203,18 @@ FunctionEnd
  ${EndIf}
 !macroend
 
+; Sets $0 to 1 when init would find a gateway config, searching where it
+; does: PROMPTFORGE_GATEWAY_CONFIG when it names a file, else beside the
+; executable and in the working directory (both $INSTDIR here), then the
+; profile. Like init, it counts files only, not directories. Clobbers $1.
 Function GatewayConfigExists
  StrCpy $0 ""
  ReadEnvStr $1 PROMPTFORGE_GATEWAY_CONFIG
  ${If} $1 != ""
- !insertmacro IfConfigFile "$1"
+ !insertmacro SetIfConfigFile "$1"
  ${EndIf}
- !insertmacro IfConfigFile "$INSTDIR\gateway.toml"
- !insertmacro IfConfigFile "$PROFILE\.promptforge\gateway.toml"
+ !insertmacro SetIfConfigFile "$INSTDIR\gateway.toml"
+ !insertmacro SetIfConfigFile "$PROFILE\.promptforge\gateway.toml"
 FunctionEnd
 
 ; STT installs through the gateway's init, so it requires Gateway: with

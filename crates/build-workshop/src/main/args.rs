@@ -2,17 +2,19 @@
 
 use std::path::PathBuf;
 
+use super::sidecar::bundles_sidecar;
 use super::{BuildRequest, Profile};
 
 pub(super) const USAGE: &str = "\
 Build PromptForge Gateway and Workshop together, build a platform installer,
-or stage the Gateway sidecar on its own.
+or stage the Gateway sidecar on its own. Workshop bundles the Gateway as a
+sidecar only for Windows targets.
 
 USAGE:
     cargo workshop [--release] [--target <triple>]
     cargo workshop installer [--target <triple>] [--sign]
-    cargo workshop sidecar stage --target <triple> --source <path>
-    cargo workshop sidecar remove --target <triple>
+    cargo workshop sidecar stage --target <windows-triple> --source <path>
+    cargo workshop sidecar remove --target <windows-triple>
 
 OPTIONS:
     --release           Build both products with Cargo's release profile
@@ -153,9 +155,7 @@ fn parse_sidecar(args: &[String]) -> Result<Request, anyhow::Error> {
     match args.first().map(String::as_str) {
         Some("stage") => {
             let options = Options::parse(&args[1..], &[Flag::Target, Flag::Source])?;
-            let target = options
-                .target
-                .ok_or_else(|| usage_error("`sidecar stage` needs `--target <triple>`"))?;
+            let target = sidecar_target(options.target, "stage")?;
             let source = options
                 .source
                 .ok_or_else(|| usage_error("`sidecar stage` needs `--source <path>`"))?;
@@ -166,15 +166,26 @@ fn parse_sidecar(args: &[String]) -> Result<Request, anyhow::Error> {
         }
         Some("remove") => {
             let options = Options::parse(&args[1..], &[Flag::Target])?;
-            let target = options
-                .target
-                .ok_or_else(|| usage_error("`sidecar remove` needs `--target <triple>`"))?;
+            let target = sidecar_target(options.target, "remove")?;
             Ok(Request::Sidecar(SidecarRequest::Remove { target }))
         }
         Some(action) => Err(usage_error(&format!(
             "`sidecar` needs `stage` or `remove`, got `{action}`"
         ))),
         None => Err(usage_error("`sidecar` needs `stage` or `remove`")),
+    }
+}
+
+fn sidecar_target(target: Option<String>, action: &str) -> Result<String, anyhow::Error> {
+    let target = target
+        .ok_or_else(|| usage_error(&format!("`sidecar {action}` needs `--target <triple>`")))?;
+    if bundles_sidecar(&target) {
+        Ok(target)
+    } else {
+        Err(usage_error(&format!(
+            "`sidecar {action}` needs a Windows target, got `{target}`: Workshop bundles the \
+             Gateway sidecar only for Windows targets"
+        )))
     }
 }
 

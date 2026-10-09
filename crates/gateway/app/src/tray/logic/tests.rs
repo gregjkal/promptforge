@@ -267,6 +267,25 @@ mod macos {
     }
 
     #[test]
+    fn the_shipped_bundle_plist_makes_the_gateway_principal_and_hides_the_dock_icon() {
+        let template = Path::new(env!("CARGO_MANIFEST_DIR")).join("packaging/Info.plist");
+        let plist = std::fs::read_to_string(template).expect("packaging Info.plist");
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let bundle = temp.path().join("PromptForge Gateway.app");
+        std::fs::create_dir_all(bundle.join("Contents")).expect("mkdir");
+        std::fs::write(bundle.join("Contents/Info.plist"), &plist).expect("write plist");
+
+        assert!(gateway_is_bundle_principal(
+            &bundle,
+            &bundle.join("Contents/MacOS/promptforge-gateway")
+        ));
+        assert!(
+            plist.contains("<key>LSUIElement</key>\n    <true/>"),
+            "the tray-only gateway stays out of the Dock"
+        );
+    }
+
+    #[test]
     fn registration_reads_enabled_and_requires_approval_as_present() {
         assert!(login_registered(LoginServiceStatus::Enabled));
         assert!(

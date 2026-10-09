@@ -2,12 +2,12 @@
 //! thread while serving stays on the gateway thread spawned by
 //! [`crate::spawn`].
 //!
-//! Process shape: the gateway ships as a bare executable inside the
-//! workshop's .app bundle (`Contents/MacOS/`), so it has no bundle
-//! Info.plist of its own and `LSUIElement` is unavailable - the early
-//! `setActivationPolicy(.accessory)` call in [`run`] is the mechanism that
-//! keeps the daemon out of the Dock, and it runs before any other AppKit
-//! initialization. The tray itself is built on the first pass of the run
+//! Process shape: the gateway ships as the principal executable of its own
+//! `PromptForge Gateway.app`, whose Info.plist (`packaging/Info.plist`)
+//! sets `LSUIElement`. A development build runs as a bare executable with
+//! no Info.plist, so the early `setActivationPolicy(.accessory)` call in
+//! [`run`] still keeps the daemon out of the Dock there, and it runs before
+//! any other AppKit initialization. The tray itself is built on the first pass of the run
 //! loop (a zero-delay one-shot timer), because status-item construction
 //! before the loop runs is the classic source of invisible trays.
 //!
@@ -25,13 +25,14 @@
 //! re-probing the Workshop and login states.
 //!
 //! Launch at Login goes through `SMAppService.mainApp`, which registers
-//! the containing bundle's principal executable. Inside the workshop's
-//! bundle that principal is the workshop itself, so registration would
-//! open the workshop window at every login - the exact annoyance the
-//! `--login` design exists to avoid. The store therefore exists only when
-//! the gateway is its own bundle's principal executable (a standalone,
-//! signed gateway .app); otherwise the menu item is disabled, and an
-//! unsigned build's registration failure is reported and rolled back.
+//! the containing bundle's principal executable. Inside another bundle,
+//! such as a gateway copied into the workshop's, that principal is not the
+//! gateway, so registration could open the workshop window at every login -
+//! the exact annoyance the `--login` design exists to avoid. The store
+//! therefore exists only when the gateway is its own bundle's principal
+//! executable, as in the shipped gateway .app; otherwise the menu item is
+//! disabled. Registration also needs a signed bundle, so an unsigned
+//! build's registration failure is reported and rolled back.
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -382,10 +383,10 @@ impl LoginService {
     /// The store exists only when SMAppService can name this process:
     /// macOS 13 or later (the class arrived in 13, and messaging an
     /// absent class panics inside the objc2 class lookup), and the
-    /// gateway running as its bundle's principal executable. Inside the
-    /// workshop's .app - the shipped shape - the principal is the
-    /// workshop, so registration would open the workshop window at every
-    /// login, and the item stays disabled instead. Registration is
+    /// gateway running as its bundle's principal executable, as it does in
+    /// the shipped `PromptForge Gateway.app`. Inside another bundle the
+    /// principal is that bundle's app, so registration would launch it at
+    /// every login, and the item stays disabled instead. Registration is
     /// additionally meaningful only for signed builds: an unsigned bundle
     /// fails at register time with kSMErrorInvalidSignature, which the
     /// toggle reports and rolls back.

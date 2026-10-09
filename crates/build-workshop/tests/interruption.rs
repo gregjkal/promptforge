@@ -10,20 +10,11 @@ use tempfile::TempDir;
 
 const WAIT_BOUND: Duration = Duration::from_secs(15);
 
-#[cfg(windows)]
+// Only Windows targets stage the sidecar. The fake Cargo builds nothing, so
+// the Windows target serves on every host.
 const TARGET: &str = "x86_64-pc-windows-msvc";
-#[cfg(not(windows))]
-const TARGET: &str = "x86_64-unknown-linux-gnu";
-
-#[cfg(windows)]
 const GATEWAY_NAME: &str = "promptforge-gateway.exe";
-#[cfg(not(windows))]
-const GATEWAY_NAME: &str = "promptforge-gateway";
-
-#[cfg(windows)]
 const SIDECAR_NAME: &str = "promptforge-gateway-x86_64-pc-windows-msvc.exe";
-#[cfg(not(windows))]
-const SIDECAR_NAME: &str = "promptforge-gateway-x86_64-unknown-linux-gnu";
 
 struct StagingGuard {
     path: PathBuf,

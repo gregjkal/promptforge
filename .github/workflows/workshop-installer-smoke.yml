@@ -47,6 +47,15 @@ jobs:
           [ "${#setups[@]}" -eq 1 ] || { echo "expected one setup, found ${#setups[@]}"; ls -R target/installer; exit 1; }
           echo "built ${setups[0]}"
 
+      # The Gateway reaches the setup only through tauri.windows.conf.json's
+      # externalBin; 7-Zip lists an NSIS setup's files.
+      - name: The setup carries the Gateway
+        shell: bash
+        run: |
+          setup=$(ls target/installer/x86_64-pc-windows-msvc/publish/PromptForge_*_x64-setup.exe)
+          listing=$(7z l "$setup")
+          grep -F promptforge-gateway.exe <<< "$listing" || { echo "$listing"; echo "promptforge-gateway.exe is not in $setup"; exit 1; }
+
       - name: Clean tree
         shell: bash
         run: |

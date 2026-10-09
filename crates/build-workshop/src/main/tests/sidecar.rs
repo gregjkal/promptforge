@@ -124,3 +124,27 @@ fn refuses_a_missing_source_a_directory_and_a_wrong_name() {
     }
     assert!(!sidecar::sidecar_path(&root, target).exists());
 }
+
+#[test]
+fn only_windows_targets_bundle_the_sidecar_and_the_mode_refuses_the_rest() {
+    assert!(sidecar::bundles_sidecar("x86_64-pc-windows-msvc"));
+    assert!(sidecar::bundles_sidecar("aarch64-pc-windows-msvc"));
+    for target in [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+    ] {
+        assert!(!sidecar::bundles_sidecar(target), "{target}");
+        for args in [
+            arguments(&["sidecar", "stage", "--target", target, "--source", "g"]),
+            arguments(&["sidecar", "remove", "--target", target]),
+        ] {
+            let error = parse_arguments(&args).expect_err(target).to_string();
+            assert!(
+                error.contains(&format!("needs a Windows target, got `{target}`")),
+                "{error}"
+            );
+        }
+    }
+}

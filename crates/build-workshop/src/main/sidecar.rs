@@ -1,5 +1,7 @@
-//! The Gateway sidecar that Tauri's `externalBin` bundles: its path for a
-//! target triple, staging a built Gateway binary there, and removing it.
+//! The Gateway sidecar that Tauri's `externalBin` bundles for Windows
+//! targets (`tauri.windows.conf.json`): its path for a target triple,
+//! staging a built Gateway binary there, and removing it. macOS and Linux
+//! ship the Gateway beside Workshop instead of inside it.
 
 use std::fs;
 use std::io;
@@ -11,6 +13,11 @@ pub(super) fn gateway_binary_name(target: &str) -> &'static str {
     } else {
         "promptforge-gateway"
     }
+}
+
+/// Whether Workshop's bundle for `target` carries the Gateway sidecar.
+pub(super) fn bundles_sidecar(target: &str) -> bool {
+    is_windows(target)
 }
 
 /// Tauri resolves `externalBin` entries with the target triple appended to

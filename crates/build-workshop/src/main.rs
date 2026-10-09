@@ -106,6 +106,9 @@ struct BuildEnvironment {
     tauri_cli: PathBuf,
     signing_key: Option<OsString>,
     signing_password_set: bool,
+    /// The first key path variable set, which `tauri signer sign` reads
+    /// beside TAURI_SIGNING_PRIVATE_KEY and `tauri build` ignores.
+    signing_key_path_variable: Option<&'static str>,
 }
 
 impl BuildEnvironment {
@@ -121,8 +124,9 @@ impl BuildEnvironment {
                 )
             })?
             .to_path_buf();
-        let target_root_from_env = std::env::var_os("CARGO_TARGET_DIR").is_some();
-        let target_root = match std::env::var_os("CARGO_TARGET_DIR") {
+        let configured_target = std::env::var_os("CARGO_TARGET_DIR");
+        let target_root_from_env = configured_target.is_some();
+        let target_root = match configured_target {
             Some(value) if value.is_empty() => {
                 return Err(anyhow::anyhow!("CARGO_TARGET_DIR must not be empty"));
             }
@@ -156,6 +160,10 @@ impl BuildEnvironment {
         let signing_key =
             std::env::var_os("TAURI_SIGNING_PRIVATE_KEY").filter(|key| !key.is_empty());
         let signing_password_set = std::env::var_os("TAURI_SIGNING_PRIVATE_KEY_PASSWORD").is_some();
+        let signing_key_path_variable =
+            ["TAURI_SIGNING_PRIVATE_KEY_PATH", "TAURI_PRIVATE_KEY_PATH"]
+                .into_iter()
+                .find(|name| std::env::var_os(name).is_some());
         Ok(Self {
             workspace_root,
             target_root,
@@ -165,6 +173,7 @@ impl BuildEnvironment {
             tauri_cli,
             signing_key,
             signing_password_set,
+            signing_key_path_variable,
         })
     }
 

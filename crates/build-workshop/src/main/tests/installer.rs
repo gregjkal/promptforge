@@ -155,10 +155,12 @@ fn windows_unsigned_builds_the_setup_on_the_unsigned_config() {
 fn windows_signed_publishes_the_setup_signature_without_a_gateway_archive() {
     let mut test_environment = environment();
     set_signing_key(&mut test_environment.environment);
-    // `tauri build`, the only signer on Windows, reads a key path's file.
+    // `tauri build`, the only signer on Windows, reads a key path's file
+    // and ignores the key path variables.
     let key_file = test_environment.environment.workspace_root.join("key");
     write_file(&key_file, b"dW50cnVzdGVkIGNvbW1lbnQ6");
     test_environment.environment.signing_key = Some(key_file.into_os_string());
+    test_environment.environment.signing_key_path_variable = Some("TAURI_SIGNING_PRIVATE_KEY_PATH");
     let environment = &test_environment.environment;
     let target = "x86_64-pc-windows-msvc";
     let setup =
@@ -403,6 +405,15 @@ fn preflight_failures_run_no_command() {
     let error = refusal(&test_environment.environment, "a key path");
     assert!(error.contains("not a path"), "{error}");
     assert!(error.contains(&key_file.display().to_string()), "{error}");
+
+    set_signing_key(&mut test_environment.environment);
+    test_environment.environment.signing_key_path_variable = Some("TAURI_PRIVATE_KEY_PATH");
+    let error = refusal(&test_environment.environment, "a key path variable");
+    assert!(
+        error.contains("needs TAURI_PRIVATE_KEY_PATH unset"),
+        "{error}"
+    );
+    test_environment.environment.signing_key_path_variable = None;
 
     set_signing_key(&mut test_environment.environment);
     std::fs::remove_file(&test_environment.environment.tauri_cli).expect("remove CLI");

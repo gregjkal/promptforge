@@ -160,11 +160,20 @@ fn preflight(request: &InstallerRequest, environment: &BuildEnvironment) -> Resu
     Ok(())
 }
 
-/// `tauri build` reads a key variable that names a file from the file;
 /// `tauri signer sign`, which signs the macOS and Linux Gateway archive,
-/// reads it only as the key's contents, so a path would fail only after the
-/// release build.
+/// accepts less than `tauri build`, which signs Workshop: it reads the key
+/// variable only as the key's contents, and it also reads the key path
+/// variables, refusing the current one beside the key and preferring the
+/// deprecated one over it. Either would fail or sign with another key only
+/// after the release build.
 fn preflight_archive_signing(environment: &BuildEnvironment) -> Result<(), BuildError> {
+    if let Some(name) = environment.signing_key_path_variable {
+        return Err(failure(format!(
+            "`--sign` on macOS and Linux needs {name} unset: `tauri signer sign`, which signs \
+             the Gateway archive, would read it instead of TAURI_SIGNING_PRIVATE_KEY, the key \
+             `tauri build` signs Workshop with"
+        )));
+    }
     match &environment.signing_key {
         Some(key) if Path::new(key).is_file() => Err(failure(format!(
             "`--sign` on macOS and Linux needs TAURI_SIGNING_PRIVATE_KEY set to the key's \

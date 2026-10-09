@@ -168,6 +168,7 @@ fn environment() -> TestEnvironment {
             tauri_cli,
             signing_key: None,
             signing_password_set: false,
+            signing_key_path_variable: None,
         },
     }
 }

@@ -181,6 +181,15 @@ fn check_templates(stage: &Path, target: &str, target_dir: &str, stt: &str) {
         gateway_script.contains(&format!("\"/{gateway_executable}\"")),
         "{target}: {gateway_script}"
     );
+    // The Workshop script reads its executable only on Linux.
+    if !target.ends_with("apple-darwin") {
+        let workshop_script =
+            read(&packages.join("com.promptforge.workshop/meta/installscript.qs"));
+        assert!(
+            workshop_script.contains("\"/PromptForge.AppImage\""),
+            "{target}: {workshop_script}"
+        );
+    }
 }
 
 /// The payload copies are byte-identical and executable, Linux packages

@@ -37,10 +37,16 @@ pub(crate) struct Ifw {
 /// Finds IFW from `QTIFWDIR` (`qtifw_dir`) when it is set and non-empty,
 /// with no fallback, so a stale value cannot silently pick another IFW;
 /// otherwise from the first `binarycreator` on `PATH` (`path`), with
-/// `installerbase` beside it.
-pub(crate) fn locate(qtifw_dir: Option<&OsStr>, path: Option<&OsStr>) -> Result<Ifw, String> {
+/// `installerbase` beside it. Relative values resolve against `cwd`, and
+/// the paths returned are absolute, since the children that run them each
+/// start in their own working directory.
+pub(crate) fn locate(
+    qtifw_dir: Option<&OsStr>,
+    path: Option<&OsStr>,
+    cwd: &Path,
+) -> Result<Ifw, String> {
     if let Some(dir) = qtifw_dir.filter(|dir| !dir.is_empty()) {
-        let bin = Path::new(dir).join("bin");
+        let bin = cwd.join(dir).join("bin");
         let binarycreator = bin.join("binarycreator");
         if !is_regular_file(&binarycreator) {
             return Err(format!(
@@ -56,7 +62,7 @@ pub(crate) fn locate(qtifw_dir: Option<&OsStr>, path: Option<&OsStr>) -> Result<
     let found = path
         .into_iter()
         .flat_map(std::env::split_paths)
-        .map(|entry| entry.join("binarycreator"))
+        .map(|entry| cwd.join(entry).join("binarycreator"))
         .find(|candidate| is_regular_file(candidate));
     match found {
         Some(binarycreator) => {
@@ -66,7 +72,8 @@ pub(crate) fn locate(qtifw_dir: Option<&OsStr>, path: Option<&OsStr>) -> Result<
             beside(binarycreator, &bin)
         }
         None => Err(format!(
-            "Qt IFW {IFW_VERSION} not found: QTIFWDIR is unset and no binarycreator is on PATH; \
+            "Qt IFW {IFW_VERSION} not found: QTIFWDIR is unset or empty and no binarycreator \
+             is on PATH; \
              set QTIFWDIR to the IFW {IFW_VERSION} directory that holds bin/"
         )),
     }
@@ -175,7 +182,8 @@ impl Sources {
 
 /// Writes the definition, filled for `platform`, with the icons, the
 /// license, and the `payload` items in their packages' `data/`, into
-/// `stage`, which must not exist yet.
+/// `stage`, which `collect` has already cleared with the rest of the
+/// output directory.
 pub(crate) fn stage(
     sources: &Sources,
     payload: &Path,
@@ -325,9 +333,9 @@ pub(crate) fn dmg_path(platform: Platform, publish: &Path) -> PathBuf {
 }
 
 /// binarycreator can write a DMG itself, but it ignores `hdiutil`'s exit
-/// status and then deletes the app either way
-/// (`src/libs/ifwtools/binarycreator.cpp`, lines 464 to 492 at 4.11.0), so
-/// a failed wrap would leave neither file; the build wraps it instead.
+/// status and then deletes the app either way, so a failed wrap would
+/// leave neither file; the build wraps it instead.
+/// <https://github.com/qtproject/installer-framework/blob/4.11.0/src/libs/ifwtools/binarycreator.cpp#L464-L492>
 pub(crate) fn binarycreator_command(ifw: &Ifw, stage: &Path, output: &Path) -> CommandSpec {
     let mut args = vec![OsString::from("--offline-only"), OsString::from("-c")];
     args.push(stage.join("config").join("config.xml").into_os_string());
@@ -343,11 +351,13 @@ pub(crate) fn binarycreator_command(ifw: &Ifw, stage: &Path, output: &Path) -> C
     }
 }
 
-/// binarycreator appends the installer's resources to `installerbase`
-/// without signing it again, which leaves the ad hoc signature invalid,
-/// and macOS kills an arm64 program whose signature is invalid. Its own
-/// `--sign` refuses `-`, the ad hoc identity (`tools/binarycreator/main.cpp`,
-/// line 219 at 4.11.0), so the build signs the app ad hoc itself.
+/// The app binarycreator assembles on macOS (`installerbase` copied
+/// unchanged, a new `Info.plist`, the resources in
+/// `Contents/Resources/installer.dat`) fails signature validation, and
+/// macOS kills it at launch. binarycreator's own `--sign` refuses `-`,
+/// the ad hoc identity, so the build signs the app ad hoc itself.
+/// <https://github.com/qtproject/installer-framework/blob/4.11.0/src/libs/ifwtools/binarycreator.cpp#L355-L388>
+/// <https://github.com/qtproject/installer-framework/blob/4.11.0/tools/binarycreator/main.cpp#L217-L221>
 pub(crate) fn adhoc_sign_command(app: &Path) -> CommandSpec {
     let mut args = ["--force", "--sign", "-"].map(OsString::from).to_vec();
     args.push(app.as_os_str().to_owned());

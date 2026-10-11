@@ -175,9 +175,12 @@ fn check_ifw(
     environment: &BuildEnvironment,
     runner: &mut impl CommandRunner,
 ) -> Result<ifw::Ifw, BuildError> {
+    let cwd = std::env::current_dir()
+        .map_err(|error| failure(format!("cannot read the current directory: {error}")))?;
     let ifw = ifw::locate(
         environment.qtifw_dir.as_deref(),
         environment.path.as_deref(),
+        &cwd,
     )
     .map_err(failure)?;
     let printed = run_checked(

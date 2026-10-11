@@ -152,7 +152,8 @@ fn qtifw_dir_wins_over_path() {
     let on_path = fake_ifw(&temp.path().join("on-path"));
     let path = std::env::join_paths([on_path.join("bin")]).expect("PATH");
 
-    let found = ifw::locate(Some(configured.as_os_str()), Some(&path)).expect("locate");
+    let found =
+        ifw::locate(Some(configured.as_os_str()), Some(&path), temp.path()).expect("locate");
 
     assert_eq!(
         found.binarycreator,
@@ -172,7 +173,8 @@ fn a_qtifw_dir_without_binarycreator_fails_naming_it_even_with_one_on_path() {
     let on_path = fake_ifw(&temp.path().join("on-path"));
     let path = std::env::join_paths([on_path.join("bin")]).expect("PATH");
 
-    let error = ifw::locate(Some(stale.as_os_str()), Some(&path)).expect_err("stale QTIFWDIR");
+    let error =
+        ifw::locate(Some(stale.as_os_str()), Some(&path), temp.path()).expect_err("stale QTIFWDIR");
 
     assert!(error.contains("QTIFWDIR is"), "{error}");
     assert!(
@@ -199,7 +201,7 @@ fn the_first_path_entry_with_binarycreator_wins_and_a_directory_is_no_match() {
     let path = std::env::join_paths([empty, directory, first.join("bin"), second.join("bin")])
         .expect("PATH");
 
-    let found = ifw::locate(None, Some(&path)).expect("locate");
+    let found = ifw::locate(None, Some(&path), temp.path()).expect("locate");
 
     assert_eq!(found.binarycreator, first.join("bin").join("binarycreator"));
     assert_eq!(found.installerbase, first.join("bin").join("installerbase"));
@@ -209,7 +211,7 @@ fn the_first_path_entry_with_binarycreator_wins_and_a_directory_is_no_match() {
 fn no_ifw_fails_naming_qtifw_dir_and_path_and_a_lone_binarycreator_names_installerbase() {
     let temp = tempfile::tempdir().expect("temporary root");
     for qtifw_dir in [None, Some(OsString::new())] {
-        let error = ifw::locate(qtifw_dir.as_deref(), None).expect_err("no IFW");
+        let error = ifw::locate(qtifw_dir.as_deref(), None, temp.path()).expect_err("no IFW");
         assert!(error.contains("QTIFWDIR is unset"), "{error}");
         assert!(error.contains("PATH"), "{error}");
         assert!(error.contains(IFW_VERSION), "{error}");
@@ -217,11 +219,30 @@ fn no_ifw_fails_naming_qtifw_dir_and_path_and_a_lone_binarycreator_names_install
 
     let lone = temp.path().join("lone");
     write_file(&lone.join("bin").join("binarycreator"), b"ifw");
-    let error = ifw::locate(Some(lone.as_os_str()), None).expect_err("no installerbase");
+    let error =
+        ifw::locate(Some(lone.as_os_str()), None, temp.path()).expect_err("no installerbase");
     assert!(
         error.contains(&lone.join("bin").join("installerbase").display().to_string()),
         "{error}"
     );
+}
+
+/// Each child runs in its own working directory, so a relative value must
+/// come back absolute.
+#[test]
+fn relative_qtifw_dir_and_path_entries_resolve_against_the_working_directory() {
+    let temp = tempfile::tempdir().expect("temporary root");
+    let ifw = fake_ifw(&temp.path().join("tools"));
+    let relative = Path::new("tools").join("qtifw");
+
+    let found = ifw::locate(Some(relative.as_os_str()), None, temp.path()).expect("QTIFWDIR");
+    assert_eq!(found.binarycreator, ifw.join("bin").join("binarycreator"));
+    assert!(found.installerbase.is_absolute());
+
+    let path = std::env::join_paths([relative.join("bin")]).expect("PATH");
+    let found = ifw::locate(None, Some(&path), temp.path()).expect("PATH");
+    assert_eq!(found.binarycreator, ifw.join("bin").join("binarycreator"));
+    assert_eq!(found.installerbase, ifw.join("bin").join("installerbase"));
 }
 
 #[test]

@@ -303,7 +303,7 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
 
 ## Execution Instructions
 
-- Status: steps 1 to 5 (`peer-lookup`, `gateway-init`, `nsis-components`, `build-installer`, `platform-bundles`) completed and merged into the fork's `master`, Step 4 through fork pull request [#5](https://github.com/gregjkal/promptforge/pull/5) and Step 5 through [#6](https://github.com/gregjkal/promptforge/pull/6). Next is Step 6, `ifw-definition`, decomposed below on branch `installer/ifw-definition` from the fork's `master`; it is implemented once the maintainer has reviewed the decomposition.
+- Status: steps 1 to 5 (`peer-lookup`, `gateway-init`, `nsis-components`, `build-installer`, `platform-bundles`) completed and merged into the fork's `master`, Step 4 through fork pull request [#5](https://github.com/gregjkal/promptforge/pull/5) and Step 5 through [#6](https://github.com/gregjkal/promptforge/pull/6). Next is Step 6, `ifw-definition`, decomposed below on branch `installer/ifw-definition` from the fork's `master` and approved by the maintainer as written on 2026-10-11; its implementation is next, following the step's Handoff notes.
 - Expected order: `peer-lookup`, `gateway-init`, `nsis-components`, `build-installer`, `platform-bundles`, `ifw-definition`, `gateway-update`, `installers-workflow`, `docs`, `verify`. The first four change no published output. `platform-bundles` changes what `release-workshop.yml` and `nightly.yml` produce (their macOS `.app` and Linux AppImage no longer carry the gateway, Tauri builds no DMG, and Linux builds no `.deb`), and it is merged into the fork's `master` ahead of `installers-workflow` (Decision Record). So until `installers-workflow` deletes those two workflows:
   - The fork's `master` goes upstream only together with `installers-workflow`.
   - Every push to the fork's `master` triggers `nightly.yml`, whose publish job deletes and recreates the fork's `nightly` prerelease. Cancel that run right after each merge (`gh run list --repo gregjkal/promptforge --workflow nightly.yml --limit 1`, then `gh run cancel <id> --repo gregjkal/promptforge`), so the prerelease keeps a build that carries the gateway.
@@ -633,6 +633,23 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
   - `node --test test/docs-claims.mjs` from `crates/workshop/ui`, for the `icons/AGENTS.md` edit.
   - No new dependency, so no `cargo deny` or `cargo hakari` run.
 - Commit: subject `Build the macOS and Linux installers with Qt IFW`.
+- Reviewed by the maintainer before implementation and approved as written (2026-10-11).
+- Handoff notes, for the agent that implements this step:
+  - Source of the IFW facts above: the IFW source at tag `4.11.0` (commit `aac2cf9c`, https://github.com/qtproject/installer-framework/tree/4.11.0). File and line references in this step are from that tag.
+  - Downloads: the archive paths above are relative to `https://download.qt.io/online/qtsdkrepository/`. Each archive's `.sha1` sidecar matches the file, but the `<SHA1>` in `Updates.xml` does not. `bin/` holds `binarycreator`, `installerbase`, `archivegen`, `repogen`, and `devtool`. Install it under a directory the job owns, never system-wide, and point `QTIFWDIR` at the directory that holds `bin/`.
+  - binarycreator parses `config.xml` strictly: an unknown element, an attribute, or a duplicate fails the build.
+  - binarycreator renames the images config names (`installer-logo.png` becomes `installer-logo_png.png`). It copies the `@2x` sibling only when config names the plain file, so config names the 1x files.
+  - `Execute` consumes any argument that contains `workingdirectory=` or `errormessage=`, so the error text must contain neither.
+  - What `installerbase --version` prints is unverified. Run it once before writing the version check.
+  - Unattended exit codes: 0 for success, 1 for failure (including a directory that already holds an installation), 3 for a cancel (a failed `init` under `--default-answer`).
+  - On Linux the IFW binaries need the X11 and xcb libraries listed above even to run `binarycreator`, so the Docker image installs them.
+  - Delivery:
+    - Work on `installer/ifw-definition`, which starts from this decomposition commit.
+    - Open a draft pull request on the fork with `GH_REPO=gregjkal/promptforge gh pr create --draft`. Nothing goes to `cppalliance/promptforge`.
+    - Review rounds commit locally until a round finds only nits. Then push the branch and let CI run once on the final head. The `native-whisper` check skips on the fork.
+    - Add As built notes for anything that differs from this step.
+    - The maintainer merges. After a merge, cancel the `nightly.yml` run it triggers, as above.
+    - No em dashes in prose, commits, or pull request text.
 
 </step-6>
 

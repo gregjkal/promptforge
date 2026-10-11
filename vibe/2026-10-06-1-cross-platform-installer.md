@@ -19,7 +19,7 @@ todos:
     status: completed
   - id: ifw-definition
     content: "Qt IFW definition: config, three packages, license page, graphics, desktop entries, the init operation; `cargo workshop installer` runs `binarycreator` over Step 4's payload and wraps the macOS output in a DMG"
-    status: in_progress
+    status: completed
   - id: gateway-update
     content: "Gateway self-update from latest.json (minisign check, swap, lease handoff to a successor; NSIS on Windows when no Workshop is installed); a walled update route Workshop calls; discovery's `Restarting` resolution with an explicit arm at every matcher; tests"
     status: pending
@@ -303,7 +303,7 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
 
 ## Execution Instructions
 
-- Status: steps 1 to 5 (`peer-lookup`, `gateway-init`, `nsis-components`, `build-installer`, `platform-bundles`) completed and merged into the fork's `master`, Step 4 through fork pull request [#5](https://github.com/gregjkal/promptforge/pull/5) and Step 5 through [#6](https://github.com/gregjkal/promptforge/pull/6). Next is Step 6, `ifw-definition`, decomposed below on branch `installer/ifw-definition` from the fork's `master` and approved by the maintainer as written on 2026-10-11, and implemented on that branch as draft fork pull request [#7](https://github.com/gregjkal/promptforge/pull/7), in review (see the step's As built notes and Review handoff).
+- Status: steps 1 to 5 (`peer-lookup`, `gateway-init`, `nsis-components`, `build-installer`, `platform-bundles`) completed and merged into the fork's `master`, Step 4 through fork pull request [#5](https://github.com/gregjkal/promptforge/pull/5) and Step 5 through [#6](https://github.com/gregjkal/promptforge/pull/6). Step 6, `ifw-definition`, is completed on branch `installer/ifw-definition` as draft fork pull request [#7](https://github.com/gregjkal/promptforge/pull/7): the review loop converged after round 2, and CI is green on `de94ce9a`. It waits for the maintainer's merge. Next is `gateway-update`, not yet decomposed.
 - Expected order: `peer-lookup`, `gateway-init`, `nsis-components`, `build-installer`, `platform-bundles`, `ifw-definition`, `gateway-update`, `installers-workflow`, `docs`, `verify`. The first four change no published output. `platform-bundles` changes what `release-workshop.yml` and `nightly.yml` produce (their macOS `.app` and Linux AppImage no longer carry the gateway, Tauri builds no DMG, and Linux builds no `.deb`), and it is merged into the fork's `master` ahead of `installers-workflow` (Decision Record). So until `installers-workflow` deletes those two workflows:
   - The fork's `master` goes upstream only together with `installers-workflow`.
   - Every push to the fork's `master` triggers `nightly.yml`, whose publish job deletes and recreates the fork's `nightly` prerelease. Cancel that run right after each merge (`gh run list --repo gregjkal/promptforge --workflow nightly.yml --limit 1`, then `gh run cancel <id> --repo gregjkal/promptforge`), so the prerelease keeps a build that carries the gateway.
@@ -516,7 +516,7 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
 
 <step-6>
 
-### Step 6: The Qt IFW definition and the macOS and Linux installers
+### Step 6: The Qt IFW definition and the macOS and Linux installers [completed]
 
 - Component: `build-workshop` (new `ifw/` definition, `src/main/installer/ifw.rs`, `src/main/installer.rs`, `src/main.rs`, `src/main/args.rs`, tests), `crates/workshop/desktop/icons/` (`AGENTS.md`, `dmg-background.png` deleted)
 
@@ -671,11 +671,11 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
     - A second `install` into the same root exited 1 with `TargetDirectoryInUse`; `maintenancetool purge --confirm-command` removed the install directory and kept the profile.
     - Not done: looking at the GUI (license page, logo and watermark sizes). This session cannot capture the screen; the maintainer checks it by opening the DMG.
   - Linux, in a Debian trixie `aarch64` container (`rust:1-trixie` with the Tauri packages, Node 22, the xcb libraries, and `desktop-file-utils`), since bookworm's glibc 2.36 cannot run the arm64 IFW: `cargo workshop installer --target aarch64-unknown-linux-gnu` wrote `PromptForge_0.3.0_aarch64-setup.run` (168 MB). As a non-root user with a temporary `HOME`, the three selections installed exactly their files and ran `init` as on macOS (the aarch64 CPU whisper runtime and both models for all three). Each desktop entry exists only with its component, passes `desktop-file-validate`, and its `Exec` path and `Icon` file exist. The rerun exited 1, and `purge` removed the install directory and both desktop entries and kept the profile. Not run: launching the AppImage to watch it find the installed gateway (no display in the container); Step 1's table tests cover the lookup, and `installers-workflow` runs the AppImage under `xvfb-run`.
-- Review handoff, for the session that continues the review loop:
+- Review record:
   - Round 1 (committed locally after `b1f24e18`, the pushed head) fixed: a relative `QTIFWDIR` or `PATH` entry that passed the checks and then failed binarycreator after the release build (medium); the signing comment's mechanism; upstream permalinks on both binarycreator workaround comments; the `stage` doc; "unset or empty" in the not-found message; and a missing assertion for the filled Workshop launcher path. Open by choice: none. Pre-existing: none.
   - Round 2 (committed locally) found no medium or higher item, which ends the loop. It fixed one low, the desktop entries' `Exec` escaping (As built above), and two nits: the upstream permalink on `showStandardError` and a note that the macOS Workshop executable value only fills the template. Pre-existing, outside this step: the Gateway's autostart entry (`exec_command`, `crates/gateway/app/src/tray/logic/linux.rs`) has the same single-layer escaping, so an install path holding `$`, `"`, a backtick, or `\` breaks its `Exec` line.
-  - Next: push once and wait for green CI (`native-whisper` never runs on the fork). CI runs build-workshop's tests and clippy only on Linux and compiles the binary on Windows only in `workshop-installer-smoke.yml`; local Linux runs use a Debian trixie arm64 container, since bookworm cannot run the arm64 IFW.
-  - Then mark Step 6 and the `ifw-definition` todo completed.
+  - Pushed once after round 2; every counting check passed on `de94ce9a` (`native-whisper` never runs on the fork). CI runs build-workshop's tests and clippy only on Linux and compiles the binary on Windows only in `workshop-installer-smoke.yml`; local Linux runs use a Debian trixie arm64 container, since bookworm cannot run the arm64 IFW.
+  - Not covered by a committed test: the `desktopExec` escaping in both `installscript.qs` files, which have no test support. The container check in As built verified it once.
   - Waiting on the maintainer: the Linux ARM64 glibc 2.38 decision above, and a look at the GUI by opening the DMG.
 
 </step-6>

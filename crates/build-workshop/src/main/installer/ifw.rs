@@ -137,6 +137,7 @@ fn placeholders(platform: Platform, release_date: &str) -> [(&'static str, Strin
         System::MacOs => (
             "@ApplicationsDir@/PromptForge",
             format!("{GATEWAY_BUNDLE_NAME}/Contents/MacOS/{GATEWAY}"),
+            // Fills the template only: the Workshop script reads it on Linux.
             format!("{WORKSHOP_BUNDLE_NAME}/Contents/MacOS/promptforge-workshop"),
         ),
         System::Linux | System::Windows => (

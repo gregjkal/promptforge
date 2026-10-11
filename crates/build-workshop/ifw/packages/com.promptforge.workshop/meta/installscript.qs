@@ -4,11 +4,12 @@
 
 function Component() {}
 
-// A quoted desktop-entry Exec argument: the spec's reserved characters
-// backslash-escaped and `%` doubled, since it starts a field code anywhere
-// on the line.
+// A quoted desktop-entry Exec argument, escaped as the Gateway script's
+// `desktopExec` explains: Exec quoting, then the string escape, and `%`
+// doubled.
 function desktopExec(path) {
-    return "\"" + path.replace(/["`$\\]/g, "\\$&").replace(/%/g, "%%") + "\"";
+    var quoted = "\"" + path.replace(/["`$\\]/g, "\\$&") + "\"";
+    return quoted.replace(/\\/g, "\\\\").replace(/%/g, "%%");
 }
 
 Component.prototype.createOperations = function () {

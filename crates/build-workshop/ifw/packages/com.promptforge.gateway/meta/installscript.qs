@@ -6,12 +6,14 @@
 
 function Component() {}
 
-// A quoted desktop-entry Exec argument: the spec's reserved characters
-// backslash-escaped, as the Gateway's own autostart entry writes them
-// (`exec_command`, crates/gateway/app/src/tray/logic/linux.rs), and `%`
-// doubled, since it starts a field code anywhere on the line.
+// A quoted desktop-entry Exec argument, in the spec's two layers: the
+// reserved characters backslash-escaped inside the quotes, then every
+// backslash doubled for the string escape, which readers undo first and
+// which rejects `\$` and `\"`. IFW writes the line verbatim. `%` is doubled,
+// since it starts a field code anywhere on the line.
 function desktopExec(path) {
-    return "\"" + path.replace(/["`$\\]/g, "\\$&").replace(/%/g, "%%") + "\"";
+    var quoted = "\"" + path.replace(/["`$\\]/g, "\\$&") + "\"";
+    return quoted.replace(/\\/g, "\\\\").replace(/%/g, "%%");
 }
 
 Component.prototype.createOperations = function () {
@@ -24,7 +26,8 @@ Component.prototype.createOperations = function () {
     // Execute reads `{0}` as the allowed exit codes, removes the
     // `workingdirectory=` and `errormessage=` arguments, and reads a last
     // `showStandardError` as merging stderr into the output Show Details
-    // streams, so `init`'s progress lines and its error chain both show.
+    // streams, so `init`'s progress lines and its error chain both show. The
+    // last one is undocumented: https://github.com/qtproject/installer-framework/blob/4.11.0/src/libs/installer/elevatedexecuteoperation.cpp#L93-L113
     var execute = ["{0}", gateway, "init"];
     if (!speech) {
         execute.push("--no-stt");

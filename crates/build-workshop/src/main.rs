@@ -1,7 +1,8 @@
 //! Builds the PromptForge Gateway, then Workshop or each platform's
 //! installer. For Windows targets it stages the Gateway as Tauri's sidecar
 //! around the Workshop build and removes it after; macOS and Linux payloads
-//! carry the Gateway beside Workshop.
+//! carry the Gateway beside Workshop, and Qt IFW packages them into one
+//! installer.
 //! The `sidecar` mode stages or removes it on its own, for CI jobs that build
 //! the Gateway themselves.
 
@@ -12,6 +13,7 @@ use std::path::PathBuf;
 use std::process::{Child, ExitCode};
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[path = "main/args.rs"]
 mod args;
@@ -111,6 +113,12 @@ struct BuildEnvironment {
     /// The first key path variable set, which `tauri signer sign` reads
     /// beside TAURI_SIGNING_PRIVATE_KEY and `tauri build` ignores.
     signing_key_path_variable: Option<&'static str>,
+    /// `QTIFWDIR` and `PATH`, where the macOS and Linux installers find
+    /// Qt IFW.
+    qtifw_dir: Option<OsString>,
+    path: Option<OsString>,
+    /// Today's UTC date, `YYYY-MM-DD`, for the IFW packages' `ReleaseDate`.
+    release_date: String,
 }
 
 impl BuildEnvironment {
@@ -166,6 +174,9 @@ impl BuildEnvironment {
             ["TAURI_SIGNING_PRIVATE_KEY_PATH", "TAURI_PRIVATE_KEY_PATH"]
                 .into_iter()
                 .find(|name| std::env::var_os(name).is_some());
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| anyhow::anyhow!("the system clock is before 1970: {error}"))?;
         Ok(Self {
             workspace_root,
             target_root,
@@ -176,6 +187,9 @@ impl BuildEnvironment {
             signing_key,
             signing_password_set,
             signing_key_path_variable,
+            qtifw_dir: std::env::var_os("QTIFWDIR"),
+            path: std::env::var_os("PATH"),
+            release_date: installer::ifw::utc_date(now.as_secs()),
         })
     }
 

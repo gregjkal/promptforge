@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Installer>
+    <Name>PromptForge</Name>
+    <Version>{{VERSION}}</Version>
+    <Title>PromptForge {{VERSION}}</Title>
+    <Publisher>The C++ Alliance, Inc.</Publisher>
+    <ProductUrl>https://github.com/cppalliance/promptforge</ProductUrl>
+    <TargetDir>{{TARGET_DIR}}</TargetDir>
+    <WizardStyle>Modern</WizardStyle>
+    <WizardShowPageList>false</WizardShowPageList>
+    <Logo>installer-logo.png</Logo>
+    <Watermark>installer-watermark.png</Watermark>
+    <InstallerApplicationIcon>icon</InstallerApplicationIcon>
+    <InstallerWindowIcon>icon.png</InstallerWindowIcon>
+    <DisableAuthorizationFallback>true</DisableAuthorizationFallback>
+</Installer>

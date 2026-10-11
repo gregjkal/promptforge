@@ -44,10 +44,7 @@ pub(crate) fn collect(
     match platform.system {
         System::Windows => {
             let setup = single_file(&bundle, "-setup.exe")?;
-            let published = publish.join(format!(
-                "{PRODUCT}_{VERSION}_{}-setup.exe",
-                windows_arch(platform.arch)
-            ));
+            let published = windows_setup(&publish, platform.arch);
             if sign {
                 move_path(&signature_path(&setup), &signature_path(&published))?;
             }
@@ -98,6 +95,14 @@ pub(crate) fn collect(
             archive_gateway(&gateway, platform, sign, &publish)
         }
     }
+}
+
+/// The published Windows setup, that platform's installer.
+pub(crate) fn windows_setup(publish: &Path, arch: Arch) -> PathBuf {
+    publish.join(format!(
+        "{PRODUCT}_{VERSION}_{}-setup.exe",
+        windows_arch(arch)
+    ))
 }
 
 pub(crate) fn signature_path(path: &Path) -> PathBuf {
@@ -215,7 +220,7 @@ pub(crate) fn create_directory(path: &Path) -> Result<(), String> {
     fs::create_dir_all(path).map_err(|error| format!("cannot create {}: {error}", path.display()))
 }
 
-fn arch_name(arch: Arch) -> &'static str {
+pub(crate) fn arch_name(arch: Arch) -> &'static str {
     match arch {
         Arch::X86_64 => "x86_64",
         Arch::Aarch64 => "aarch64",
@@ -230,7 +235,7 @@ fn windows_arch(arch: Arch) -> &'static str {
     }
 }
 
-fn linux_arch(arch: Arch) -> &'static str {
+pub(crate) fn linux_arch(arch: Arch) -> &'static str {
     match arch {
         Arch::X86_64 => "amd64",
         Arch::Aarch64 => "aarch64",

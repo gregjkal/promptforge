@@ -9,12 +9,21 @@
 //! to connect to, which is the plain [`ResolveError`].
 
 use std::path::Path;
+use std::time::Duration;
 
 use gateway_api_discovery::{Resolution, SidecarError, StaleReason, ValidatedConnection};
 
 use workshop_protocol::Activity;
 use workshop_registry::Push;
 use workshop_support::GatewayConfig;
+
+/// Delay between probes while the gateway discovery file marks a handoff,
+/// and after a resolved gateway fails its second proof.
+const HANDOFF_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Consecutive failed second proofs of a resolved gateway before startup
+/// falls back, so a gateway that answers only some probes cannot hold it.
+const SECOND_PROOF_ATTEMPTS: u32 = 3;
 
 /// The gateway endpoint state construction connects to, and how it was
 /// found.
@@ -201,35 +210,79 @@ fn resolve_with(
     config: &GatewayConfig,
     probe: fn(&Path) -> Result<Resolution, SidecarError>,
 ) -> Result<ResolvedGateway, ResolveError> {
+    resolve_through_handoff(run_dir, config, probe, std::thread::sleep)
+}
+
+/// [`resolve_with`] with the pause between probes injected, so a test
+/// walks a handoff without taking real time.
+fn resolve_through_handoff(
+    run_dir: Option<&Path>,
+    config: &GatewayConfig,
+    mut probe: impl FnMut(&Path) -> Result<Resolution, SidecarError>,
+    mut pause: impl FnMut(Duration),
+) -> Result<ResolvedGateway, ResolveError> {
     let mut stale = None;
     if let Some(run_dir) = run_dir {
-        match probe(run_dir) {
-            Ok(Resolution::Attach(file)) => match validate_resolved(file) {
-                Ok(identity) => {
-                    return Ok(ResolvedGateway {
-                        base_url: format!("http://127.0.0.1:{}", identity.port()),
-                        api_key: identity.api_key().to_owned(),
-                        identity: Some(identity),
-                        source: GatewaySource::GatewayDiscoveryFile,
-                        stale: None,
-                    });
+        // A handoff resolves to the successor's file: wait for it rather
+        // than falling back to the configured endpoint meanwhile. No
+        // timeout of its own: the mark lasts only while the marking
+        // gateway lives, and that gateway bounds its waits.
+        let mut announced = false;
+        let mut failed_proofs = 0;
+        loop {
+            match probe(run_dir) {
+                Ok(Resolution::Restarting) => {
+                    if !std::mem::replace(&mut announced, true) {
+                        tracing::info!(
+                            "the local gateway is handing off to a successor; waiting for it"
+                        );
+                    }
+                    failed_proofs = 0;
+                    pause(HANDOFF_POLL_INTERVAL);
                 }
-                Err(reason) => stale = Some(reason),
-            },
-            Ok(Resolution::Stale(reason)) => {
-                tracing::warn!(
-                    reason = stale_clause(reason),
-                    "removed a stale gateway discovery file"
-                );
-                stale = Some(reason);
+                // The probe's proof and this one are separate. When this
+                // one fails, the gateway changed between them, as when a
+                // handoff begins: probe again to see what it became.
+                Ok(Resolution::Attach(file)) => match validate_resolved(file) {
+                    Ok(identity) => {
+                        return Ok(ResolvedGateway {
+                            base_url: format!("http://127.0.0.1:{}", identity.port()),
+                            api_key: identity.api_key().to_owned(),
+                            identity: Some(identity),
+                            source: GatewaySource::GatewayDiscoveryFile,
+                            stale: None,
+                        });
+                    }
+                    Err(reason) => {
+                        failed_proofs += 1;
+                        if failed_proofs == SECOND_PROOF_ATTEMPTS {
+                            stale = Some(reason);
+                            break;
+                        }
+                        tracing::info!(
+                            reason = stale_clause(reason),
+                            "the resolved gateway changed before attaching; resolving again"
+                        );
+                        pause(HANDOFF_POLL_INTERVAL);
+                    }
+                },
+                Ok(Resolution::Stale(reason)) => {
+                    tracing::warn!(
+                        reason = stale_clause(reason),
+                        "removed a stale gateway discovery file"
+                    );
+                    stale = Some(reason);
+                    break;
+                }
+                // A read or cleanup I/O failure degrades discovery to the
+                // config fallback; it never fails startup on its own.
+                Err(error) => {
+                    tracing::warn!("could not resolve the gateway discovery file: {error}");
+                    break;
+                }
+                // Absent, or any other resolution: nothing to attach to.
+                Ok(_) => break,
             }
-            // A read or cleanup I/O failure degrades discovery to the
-            // config fallback; it never fails startup on its own.
-            Err(error) => {
-                tracing::warn!("could not resolve the gateway discovery file: {error}");
-            }
-            // Absent, or any other resolution: nothing to attach to.
-            _ => {}
         }
     }
     if is_explicit(config) {
@@ -297,6 +350,7 @@ fn stale_clause(reason: StaleReason) -> &'static str {
         StaleReason::ImageMismatch => "the recorded pid belongs to another program",
         StaleReason::HealthFailed => "the recorded gateway does not answer",
         StaleReason::KeyRejected => "the file's key was rejected",
+        StaleReason::Restarting => "the recorded gateway is handing off to a successor",
         _ => "the file is stale",
     }
 }

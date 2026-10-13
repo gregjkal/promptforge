@@ -14,13 +14,17 @@
 //! 1. The writer ([`GatewayDiscoveryFile::write_to`]) lands the file atomically
 //!    with owner-only permissions (mode `0600` on Unix; on Windows the file
 //!    relies on the user profile's ACL, which already restricts it to the
-//!    owner) and removes it on clean shutdown with [`remove_if_mine`].
+//!    owner) and removes it on clean shutdown with [`remove_if_mine`],
+//!    which leaves a file carrying the handoff mark for the successor.
 //! 2. A reader ([`resolve`]) attaches only when the file is live: the pid
 //!    is alive, one OS process boot with a `runvil-gateway` image
 //!    brackets a same-socket health and bearer proof, and the file
-//!    includes a boot identity. Anything else is stale and the file is
-//!    deleted. [`ValidatedConnection`] holds that point-in-time proof without
-//!    exposing a forgeable constructor.
+//!    includes a boot identity. A file the running gateway marked with
+//!    [`mark_restarting`] while it hands its place to a successor resolves
+//!    to [`Resolution::Restarting`] and stays on disk while that gateway
+//!    lives; readers wait for the successor's file. Anything else is stale
+//!    and the file is deleted. [`ValidatedConnection`] holds that
+//!    point-in-time proof without exposing a forgeable constructor.
 //! 3. Launch races take [`launch_or_attach`]: the `gateway.json.lock`
 //!    advisory lock elects one parent launcher; losers attach to the winner.
 //! 4. Every Gateway process holds [`GatewayInstanceLease`] from before
@@ -53,7 +57,7 @@ mod validated;
 
 pub use crate::cancellation::CancellationToken;
 pub use crate::error::SidecarError;
-pub use crate::file::{GatewayDiscoveryFile, remove_if_mine};
+pub use crate::file::{GatewayDiscoveryFile, mark_restarting, remove_if_mine};
 pub use crate::health::{HealthError, ProbeError, wait_for_health, wait_for_health_cancellable};
 pub use crate::lock::{
     GatewayInstanceLease, LaunchDecision, LaunchLock, launch_or_attach,

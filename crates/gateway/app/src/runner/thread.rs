@@ -387,6 +387,7 @@ fn gateway_discovery_file_guard(
         started_at: now
             .format(&time::format_description::well_known::Rfc3339)
             .unwrap_or_else(|_| String::from("unknown")),
+        restarting: false,
     };
     let pid = file.pid;
     if let Err(error) = file.write_to(&run_dir) {

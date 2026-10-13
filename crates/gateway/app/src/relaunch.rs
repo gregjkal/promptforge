@@ -57,7 +57,12 @@ pub enum GatewayStartupError {
 }
 
 /// Maps a gateway discovery file resolution to the relaunch decision. Only a
-/// fully live file hands off; `Absent` and every stale reason boot.
+/// fully live file hands off; `Absent`, every stale reason, and a marked
+/// handoff boot.
+#[expect(
+    clippy::match_same_arms,
+    reason = "the Restarting arm states a decision the wildcard, which covers future variants of the non-exhaustive enum, would otherwise hide"
+)]
 fn decide(resolution: &gateway_api_discovery::Resolution) -> Relaunch {
     match resolution {
         gateway_api_discovery::Resolution::Attach(file) => {
@@ -68,6 +73,10 @@ fn decide(resolution: &gateway_api_discovery::Resolution) -> Relaunch {
                 &file.api_key,
             ))
         }
+        // Only the lease holder decides, and holding the lease proves no
+        // other gateway serves: the marking gateway has already let it go,
+        // so this process is its successor and replaces the marked file.
+        gateway_api_discovery::Resolution::Restarting => Relaunch::Boot,
         _ => Relaunch::Boot,
     }
 }
@@ -161,6 +170,7 @@ mod tests {
             epoch: 1_757_000_000,
             version: "0.2.0".to_owned(),
             started_at: "2026-09-03T12:00:00Z".to_owned(),
+            restarting: false,
         }
     }
 
@@ -207,6 +217,15 @@ mod tests {
                 "stale ({reason:?}) boots rather than handing off"
             );
         }
+    }
+
+    #[test]
+    fn a_lease_holder_boots_over_a_marked_handoff() {
+        assert_eq!(
+            decide(&gateway_api_discovery::Resolution::Restarting),
+            Relaunch::Boot,
+            "the lease holder is the successor of a gateway handing off"
+        );
     }
 
     #[test]

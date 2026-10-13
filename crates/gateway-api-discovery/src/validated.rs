@@ -248,6 +248,9 @@ fn validate_before_with(
     if connection.validation_error().is_some() {
         return Err(StaleReason::Invalid);
     }
+    if connection.restarting {
+        return Err(StaleReason::Restarting);
+    }
     let Some(before) = observe_process(connection.pid) else {
         return Err(StaleReason::ProcessDead);
     };
@@ -293,6 +296,9 @@ fn validate_cancellable_with(
     if connection.validation_error().is_some() {
         return Err(StaleReason::Invalid.into());
     }
+    if connection.restarting {
+        return Err(StaleReason::Restarting.into());
+    }
     let Some(before_observation) = cancellation.run_if_active(|| observe_process(connection.pid))
     else {
         return Err(ValidationError::Cancelled);
@@ -337,6 +343,27 @@ fn validate_cancellable_with(
         connection,
         process_identity: before,
     })
+}
+
+/// Whether the process a marked file names is still the gateway that
+/// marked it: alive, with the gateway's image, so a reused pid running
+/// another program reads as gone. No network check: the marking process
+/// may already have stopped serving.
+///
+/// # Errors
+/// Returns [`StaleReason::ProcessDead`] or [`StaleReason::ImageMismatch`]
+/// when the marking gateway is gone.
+pub(crate) fn marking_process_lives(
+    file: &GatewayDiscoveryFile,
+    image_name: &str,
+) -> Result<(), StaleReason> {
+    let Some(identity) = process_identity(file.pid) else {
+        return Err(StaleReason::ProcessDead);
+    };
+    if !image_name_matches(&identity.image, image_name) {
+        return Err(StaleReason::ImageMismatch);
+    }
+    Ok(())
 }
 
 fn image_name_matches(image: &Path, expected: &str) -> bool {

@@ -11,7 +11,9 @@ use gateway_api_discovery::{
 use workshop_server_api::Config;
 
 use super::identity::GatewayAttachment;
-use super::supervisor::{RecoveryCandidate, RecoveryOwnership, launch_and_attach_cancellable};
+use super::supervisor::{
+    RECOVERY_POLL_INTERVAL, RecoveryCandidate, RecoveryOwnership, launch_and_attach_cancellable,
+};
 
 #[cfg(windows)]
 const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
@@ -30,6 +32,9 @@ const WINDOWS_BREAKAWAY_CREATION_FLAGS: u32 =
 pub(super) enum GatewayPlan {
     /// A live gateway discovery file exists.
     Attach(GatewayDiscoveryFile),
+    /// The running gateway is handing off to a successor: plan again once
+    /// the handoff ends, instead of launching a rival.
+    AwaitRestart,
     /// No live file exists and a sibling Gateway can be launched.
     Launch(PathBuf),
     /// Explicit configuration is the only available endpoint.
@@ -65,14 +70,80 @@ pub(crate) fn ensure_gateway(config: &Config) -> anyhow::Result<GatewayAttachmen
             Err(no_gateway_error(&install))
         };
     };
-    match plan_gateway(&run_dir, &install, explicit, gateway_api_discovery::resolve) {
-        GatewayPlan::Attach(file) => validated_attachment(file),
-        GatewayPlan::ConfigOnly => Ok(GatewayAttachment::Config),
-        GatewayPlan::Fail => Err(no_gateway_error(&install)),
-        GatewayPlan::Launch(exe) => {
+    attach_or_launch(
+        &run_dir,
+        &install,
+        explicit,
+        gateway_api_discovery::resolve,
+        validated_attachment,
+        |exe| {
             launch_and_attach_cancellable(&run_dir, &exe, &CancellationToken::new())
-                .and_then(validated_recovery_attachment)
                 .context("launch the sidecar gateway")
+        },
+        || std::thread::sleep(RECOVERY_POLL_INTERVAL),
+    )
+}
+
+/// Consecutive failed second proofs of a resolved gateway before boot gives
+/// up, so a gateway that answers only some probes fails boot instead of
+/// holding it.
+const SECOND_PROOF_ATTEMPTS: u32 = 3;
+
+/// Plans until the plan settles, with resolution, the attachment proof, the
+/// launch, and the pause between plans injected for tests.
+///
+/// A handoff pauses and plans again, with no timeout of its own: the mark
+/// lasts only while the marking gateway lives, and that gateway bounds its
+/// waits. A gateway that resolution proved, or that the launch race found
+/// already running, is proved a second time; when that proof fails, the
+/// gateway changed between the two, as when a handoff begins, so boot
+/// pauses and plans again, up to [`SECOND_PROOF_ATTEMPTS`] times in a row.
+/// A gateway this boot launched keeps failing on a failed proof, since a
+/// new plan would lose its ownership.
+pub(super) fn attach_or_launch(
+    run_dir: &Path,
+    install: &WorkshopInstall,
+    explicit: bool,
+    mut resolve: impl FnMut(&Path) -> Result<Resolution, SidecarError>,
+    mut attach: impl FnMut(GatewayDiscoveryFile) -> anyhow::Result<GatewayAttachment>,
+    mut launch: impl FnMut(PathBuf) -> anyhow::Result<RecoveryLaunch>,
+    mut pause: impl FnMut(),
+) -> anyhow::Result<GatewayAttachment> {
+    let mut announced = false;
+    let mut failed_proofs = 0;
+    loop {
+        let file = match plan_gateway(run_dir, install, explicit, &mut resolve) {
+            GatewayPlan::AwaitRestart => {
+                if !std::mem::replace(&mut announced, true) {
+                    eprintln!(
+                        "the local gateway is handing off to a successor; waiting for it \
+                         before attaching"
+                    );
+                }
+                failed_proofs = 0;
+                pause();
+                continue;
+            }
+            GatewayPlan::Attach(file) => file,
+            GatewayPlan::ConfigOnly => return Ok(GatewayAttachment::Config),
+            GatewayPlan::Fail => return Err(no_gateway_error(install)),
+            GatewayPlan::Launch(exe) => match launch(exe)? {
+                RecoveryLaunch::Attached(file) => file,
+                RecoveryLaunch::Launched { child_pid, file } => {
+                    return launched_attachment(child_pid, file);
+                }
+            },
+        };
+        match attach(file) {
+            Ok(attachment) => return Ok(attachment),
+            Err(error) => {
+                failed_proofs += 1;
+                if failed_proofs == SECOND_PROOF_ATTEMPTS {
+                    return Err(error);
+                }
+                eprintln!("the resolved gateway changed before attaching: {error:#}");
+                pause();
+            }
         }
     }
 }
@@ -84,31 +155,32 @@ fn validated_attachment(file: GatewayDiscoveryFile) -> anyhow::Result<GatewayAtt
         .context("validate the selected gateway process identity")
 }
 
-fn validated_recovery_attachment(recovery: RecoveryLaunch) -> anyhow::Result<GatewayAttachment> {
-    match recovery {
-        RecoveryLaunch::Attached(file) => validated_attachment(file),
-        RecoveryLaunch::Launched { child_pid, file } => {
-            let validated = ValidatedConnection::validate(file)
-                .context("validate the launched gateway process identity")?;
-            Ok(
-                match RecoveryCandidate::authenticate(child_pid, validated) {
-                    RecoveryOwnership::Owned(candidate) => GatewayAttachment::Launched(candidate),
-                    RecoveryOwnership::Unowned(unowned) => GatewayAttachment::Sidecar(unowned),
-                },
-            )
-        }
-    }
+/// Proves the gateway this boot launched and keeps its ownership.
+fn launched_attachment(
+    child_pid: u32,
+    file: GatewayDiscoveryFile,
+) -> anyhow::Result<GatewayAttachment> {
+    let validated = ValidatedConnection::validate(file)
+        .context("validate the launched gateway process identity")?;
+    Ok(
+        match RecoveryCandidate::authenticate(child_pid, validated) {
+            RecoveryOwnership::Owned(candidate) => GatewayAttachment::Launched(candidate),
+            RecoveryOwnership::Unowned(unowned) => GatewayAttachment::Sidecar(unowned),
+        },
+    )
 }
 
-/// Chooses attach, launch, configured fallback, or failure.
+/// Chooses attach, a wait through a handoff, launch, configured fallback,
+/// or failure.
 pub(super) fn plan_gateway(
     run_dir: &Path,
     install: &WorkshopInstall,
     explicit_config: bool,
-    resolve: fn(&Path) -> Result<Resolution, SidecarError>,
+    resolve: impl FnOnce(&Path) -> Result<Resolution, SidecarError>,
 ) -> GatewayPlan {
     match resolve(run_dir) {
         Ok(Resolution::Attach(file)) => return GatewayPlan::Attach(file),
+        Ok(Resolution::Restarting) => return GatewayPlan::AwaitRestart,
         Ok(_) => {}
         Err(error) => {
             eprintln!("could not resolve the gateway discovery file: {error}");

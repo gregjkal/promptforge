@@ -167,7 +167,14 @@ where
         if let Ok(Some(file)) = GatewayDiscoveryFile::read(run_dir) {
             let remaining = deadline.saturating_duration_since(clock.now());
             let url = format!("http://127.0.0.1:{}", file.port);
-            match health(&url, remaining.min(HEALTH_PROBE_WINDOW), cancellation) {
+            // A marked file names a gateway that may have stopped serving:
+            // resolution judges the mark without a health probe.
+            let probed = if file.restarting {
+                Ok(())
+            } else {
+                health(&url, remaining.min(HEALTH_PROBE_WINDOW), cancellation)
+            };
+            match probed {
                 Ok(()) => {
                     if cancellation.is_cancelled() {
                         anyhow::bail!("the launched gateway wait was cancelled");
@@ -193,6 +200,13 @@ where
                                 anyhow::Error::new(error)
                                     .context("resolve the launched gateway discovery file"),
                             );
+                        }
+                        // A handoff keeps the wait going: the successor's
+                        // file replaces the marked one.
+                        Ok(Resolution::Restarting) => {
+                            last_probe_error = Some(anyhow::anyhow!(
+                                "the gateway discovery file still marks a handoff to a successor"
+                            ));
                         }
                         Ok(_) => {}
                     }

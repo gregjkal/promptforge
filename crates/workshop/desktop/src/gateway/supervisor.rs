@@ -1,5 +1,6 @@
 //! Continuous local Gateway supervision and recovery.
 
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::Context as _;
@@ -15,8 +16,8 @@ mod signals;
 
 #[cfg(test)]
 pub(super) use launch::{
-    RECOVERY_POLL_INTERVAL, SystemClock, WaitClock, launch_and_attach_cancellable_with,
-    run_effect_if_active, wait_for_launched_file_cancellable_with,
+    SystemClock, WaitClock, launch_and_attach_cancellable_with, run_effect_if_active,
+    wait_for_launched_file_cancellable_with,
 };
 #[cfg(test)]
 pub(super) use lifecycle::SUPERVISOR_SHUTDOWN_BUDGET;
@@ -24,13 +25,13 @@ pub(crate) use lifecycle::{GatewaySupervisor, SupervisorShutdown};
 use recovery::RecoveryIdentity;
 pub(in crate::gateway) use recovery::{RecoveryCandidate, RecoveryOwnership};
 
-pub(super) use launch::launch_and_attach_cancellable;
+pub(super) use launch::{RECOVERY_POLL_INTERVAL, launch_and_attach_cancellable};
 
 /// Healthy-sidecar supervision cadence.
 const SUPERVISION_INTERVAL: Duration = Duration::from_secs(5);
 
 /// First delay after a failed re-resolution or relaunch.
-const SUPERVISION_BASE_DELAY: Duration = Duration::from_millis(250);
+pub(super) const SUPERVISION_BASE_DELAY: Duration = Duration::from_millis(250);
 
 /// Ceiling on repeated sidecar recovery attempts.
 pub(super) const SUPERVISION_MAX_DELAY: Duration = Duration::from_secs(30);
@@ -41,6 +42,9 @@ pub(super) enum SupervisionProbe<Identity> {
     Replacement(Identity),
     /// No live local Gateway is currently discoverable.
     Missing,
+    /// The local Gateway is handing off to a successor: wait for the
+    /// successor's file, launching nothing.
+    Restarting,
 }
 
 /// A validated identity retained across supervision classifications.
@@ -81,26 +85,12 @@ pub(crate) fn supervise(
     GatewaySupervisor::spawn_with_publication(supervisor_publication, move |cancellation| {
         run_supervision(
             RecoveryIdentity::Stable(initial),
-            |_, cancellation| match gateway_api_discovery::resolve_cancellable(
-                &run_dir,
-                cancellation,
-            ) {
-                Ok(Resolution::Attach(file)) => {
-                    match ValidatedConnection::validate_cancellable(file, cancellation) {
-                        Ok(identity) => {
-                            SupervisionProbe::Replacement(RecoveryIdentity::Stable(identity))
-                        }
-                        Err(error) => {
-                            eprintln!("could not retain the replacement gateway identity: {error}");
-                            SupervisionProbe::Missing
-                        }
-                    }
-                }
-                Ok(_) | Err(SidecarError::Cancelled) => SupervisionProbe::Missing,
-                Err(error) => {
-                    eprintln!("could not re-resolve the local gateway: {error}");
-                    SupervisionProbe::Missing
-                }
+            |_, cancellation| {
+                probe_local_gateway(
+                    &run_dir,
+                    cancellation,
+                    gateway_api_discovery::resolve_cancellable,
+                )
             },
             |cancellation| {
                 let exe = sibling
@@ -130,6 +120,31 @@ pub(crate) fn supervise(
         );
     })
     .map(Some)
+}
+
+/// Observes the local Gateway once through `resolve`, the supervision probe.
+pub(super) fn probe_local_gateway(
+    run_dir: &Path,
+    cancellation: &CancellationToken,
+    resolve: impl FnOnce(&Path, &CancellationToken) -> Result<Resolution, SidecarError>,
+) -> SupervisionProbe<RecoveryIdentity> {
+    match resolve(run_dir, cancellation) {
+        Ok(Resolution::Attach(file)) => {
+            match ValidatedConnection::validate_cancellable(file, cancellation) {
+                Ok(identity) => SupervisionProbe::Replacement(RecoveryIdentity::Stable(identity)),
+                Err(error) => {
+                    eprintln!("could not retain the replacement gateway identity: {error}");
+                    SupervisionProbe::Missing
+                }
+            }
+        }
+        Ok(Resolution::Restarting) => SupervisionProbe::Restarting,
+        Ok(_) | Err(SidecarError::Cancelled) => SupervisionProbe::Missing,
+        Err(error) => {
+            eprintln!("could not re-resolve the local gateway: {error}");
+            SupervisionProbe::Missing
+        }
+    }
 }
 
 /// Validates a recovery result and authenticates child ownership by exact pid.
@@ -169,6 +184,7 @@ pub(super) fn run_supervision<Identity, Probe, Recover, Publish, Wait, Error>(
     Error: std::fmt::Display,
 {
     let mut retry_delay = SUPERVISION_BASE_DELAY;
+    let mut in_handoff = false;
     loop {
         if cancellation.is_cancelled() {
             return;
@@ -177,6 +193,11 @@ pub(super) fn run_supervision<Identity, Probe, Recover, Publish, Wait, Error>(
         if cancellation.is_cancelled() {
             return;
         }
+        let handoff = matches!(observation, SupervisionProbe::Restarting);
+        if handoff && !in_handoff {
+            eprintln!("the local gateway is handing off to a successor; waiting for it");
+        }
+        in_handoff = handoff;
         match observation {
             SupervisionProbe::Replacement(identity) if identity.same_boot(&current) => {
                 retry_delay = SUPERVISION_BASE_DELAY;
@@ -199,6 +220,16 @@ pub(super) fn run_supervision<Identity, Probe, Recover, Publish, Wait, Error>(
                     eprintln!("could not publish a replacement local gateway: {error}");
                 }
             },
+            SupervisionProbe::Restarting => {
+                // No recovery while the mark holds, however long: it lasts
+                // only while the marking gateway lives, which bounds its
+                // own waits, and a launch now would race the successor.
+                retry_delay = SUPERVISION_BASE_DELAY;
+                if wait(SUPERVISION_BASE_DELAY, cancellation) {
+                    return;
+                }
+                continue;
+            }
             SupervisionProbe::Missing => match recover(cancellation) {
                 Ok(_) if cancellation.is_cancelled() => return,
                 Ok(mut identity) => match publish(&identity, cancellation) {

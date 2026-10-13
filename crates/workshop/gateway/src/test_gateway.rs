@@ -171,6 +171,7 @@ impl ValidatedGateway {
             epoch,
             version: "test".to_owned(),
             started_at: started_at.to_owned(),
+            restarting: false,
         }
     }
 

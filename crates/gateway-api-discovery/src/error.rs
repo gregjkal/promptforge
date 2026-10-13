@@ -97,6 +97,20 @@ pub enum SidecarError {
         source: std::io::Error,
     },
 
+    /// The caller tried to mark a gateway discovery file it does not own.
+    #[error(
+        "mark {path} as restarting: the file must name the calling process {caller}, but {}",
+        owner.map_or_else(|| "no file exists".to_owned(), |owner| format!("it names process {owner}"))
+    )]
+    NotOwner {
+        /// The gateway discovery file.
+        path: PathBuf,
+        /// The calling process.
+        caller: u32,
+        /// The process the file names, or `None` when no file exists.
+        owner: Option<u32>,
+    },
+
     /// The launch race produced no attachable gateway within the budget.
     #[error("no launch winner became attachable within {timeout:?}")]
     LaunchTimeout {

@@ -202,6 +202,7 @@ mod tests {
             epoch: 1_757_000_000,
             version: "0.2.0".to_owned(),
             started_at: "2026-09-05T12:00:00Z".to_owned(),
+            restarting: false,
         }
         .write_to(&run_dir)
         .expect("write the gateway discovery file");

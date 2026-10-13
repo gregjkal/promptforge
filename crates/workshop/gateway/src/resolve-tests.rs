@@ -33,6 +33,7 @@ fn live_file(port: u16, api_key: &str) -> GatewayDiscoveryFile {
         epoch: 1_757_000_000,
         version: "0.2.0".to_owned(),
         started_at: "2026-09-03T12:00:00Z".to_owned(),
+        restarting: false,
     }
 }
 
@@ -109,6 +110,131 @@ fn a_live_gateway_discovery_file_wins_over_explicit_config() {
         "the winning sidecar retains its validated identity for the initial snapshot"
     );
     assert_eq!(resolved.stale(), None);
+}
+
+#[test]
+fn a_handoff_waits_for_the_successor_instead_of_the_config_endpoint() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let gateway = crate::test_gateway::ValidatedGateway::spawn("file-key");
+    gateway
+        .gateway_discovery_file("file-key", 1_757_000_000, "2026-09-03T12:00:00Z")
+        .write_to(dir.path())
+        .expect("write");
+    let mut probes = 0;
+    let mut pauses = Vec::new();
+
+    let resolved = resolve_through_handoff(
+        Some(dir.path()),
+        &explicit_config(),
+        |run_dir| {
+            probes += 1;
+            if probes <= 2 {
+                Ok(Resolution::Restarting)
+            } else {
+                probe(run_dir)
+            }
+        },
+        |delay| pauses.push(delay),
+    )
+    .expect("the successor resolves");
+
+    assert_eq!(pauses, [HANDOFF_POLL_INTERVAL, HANDOFF_POLL_INTERVAL]);
+    assert_eq!(resolved.source(), GatewaySource::GatewayDiscoveryFile);
+    assert_eq!(
+        resolved.base_url(),
+        format!("http://127.0.0.1:{}", gateway.port())
+    );
+}
+
+#[test]
+fn a_gateway_that_changes_between_the_two_proofs_is_resolved_again() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let gateway = crate::test_gateway::ValidatedGateway::spawn("file-key");
+    let successor =
+        gateway.gateway_discovery_file("file-key", 1_757_000_000, "2026-09-03T12:00:00Z");
+    // Names the test process, which the second proof refuses as no gateway.
+    let changed = live_file(gateway.port(), "file-key");
+    let mut probes = 0;
+    let mut pauses = 0;
+
+    let resolved = resolve_through_handoff(
+        Some(dir.path()),
+        &explicit_config(),
+        |_| {
+            probes += 1;
+            Ok(match probes {
+                1 => Resolution::Attach(changed.clone()),
+                2 => Resolution::Restarting,
+                _ => Resolution::Attach(successor.clone()),
+            })
+        },
+        |_| pauses += 1,
+    )
+    .expect("the successor resolves");
+
+    assert_eq!(probes, 3, "the failed second proof probed again");
+    assert_eq!(pauses, 2, "the failed proof and the handoff each paused");
+    assert_eq!(resolved.source(), GatewaySource::GatewayDiscoveryFile);
+    assert_eq!(resolved.stale(), None, "no file was removed");
+}
+
+#[test]
+fn a_gateway_that_keeps_failing_its_second_proof_falls_back_to_config() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    // Names the test process, which the second proof refuses as no gateway.
+    let changed = live_file(1, "k");
+    let mut probes = 0_u32;
+
+    let resolved = resolve_through_handoff(
+        Some(dir.path()),
+        &explicit_config(),
+        |_| {
+            probes += 1;
+            Ok(Resolution::Attach(changed.clone()))
+        },
+        |_| {},
+    )
+    .expect("explicit config is the fallback");
+
+    assert_eq!(probes, SECOND_PROOF_ATTEMPTS);
+    assert_eq!(resolved.source(), GatewaySource::Config);
+    assert_eq!(resolved.stale(), Some(StaleReason::ImageMismatch));
+}
+
+#[test]
+fn a_real_marked_file_resolves_to_a_handoff() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    GatewayDiscoveryFile {
+        restarting: true,
+        ..live_file(1, "k")
+    }
+    .write_to(dir.path())
+    .expect("write");
+    let pauses = std::cell::Cell::new(0);
+
+    let resolved = resolve_through_handoff(
+        Some(dir.path()),
+        &explicit_config(),
+        |run_dir| {
+            if pauses.get() < 3 {
+                probe_own_image(run_dir)
+            } else {
+                Ok(Resolution::Absent)
+            }
+        },
+        |_| pauses.set(pauses.get() + 1),
+    );
+    assert_eq!(
+        pauses.get(),
+        3,
+        "the marked file held resolution until it went"
+    );
+    assert_eq!(
+        resolved
+            .expect("explicit config after the handoff")
+            .source(),
+        GatewaySource::Config
+    );
 }
 
 #[test]

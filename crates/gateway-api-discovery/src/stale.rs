@@ -1,13 +1,14 @@
 //! Stale detection: decide whether a gateway discovery file names a live
-//! gateway, and remove it when it does not.
+//! gateway, names one handing off to a successor, or is stale and removed.
 //!
 //! A file is live when one OS process boot with a `promptforge-gateway`
 //! image is unchanged across a same-socket health and bearer proof, and
 //! the file includes a boot identity. A file carrying the handoff mark is
-//! neither: while its marking gateway lives, readers wait for the
-//! successor's file. Anything else is stale - the Jupyter phantom-server
-//! bug class - and the file is deleted so the next reader relaunches
-//! instead of retrying a corpse.
+//! not live; while its marking gateway lives it is not stale either, and
+//! readers wait for the successor's file. Anything else, a marked file
+//! whose gateway died included, is stale - the Jupyter phantom-server bug
+//! class - and the file is deleted so the next reader relaunches instead
+//! of retrying a corpse.
 
 use std::fs;
 use std::io;
@@ -108,35 +109,14 @@ pub fn resolve_for_test(run_dir: &Path, image_name: &str) -> Result<Resolution, 
 /// full liveness gauntlet from a test binary, which is never named
 /// `promptforge-gateway`.
 pub(crate) fn resolve_named(run_dir: &Path, image_name: &str) -> Result<Resolution, SidecarError> {
-    loop {
-        let (judged, reason) = match GatewayDiscoveryFile::read(run_dir) {
-            Ok(Some(file)) => {
-                let reason = if file.restarting {
-                    match marking_process_lives(&file, image_name) {
-                        Ok(()) => return Ok(Resolution::Restarting),
-                        Err(reason) => reason,
-                    }
-                } else {
-                    match ValidatedConnection::validate_named(file.clone(), image_name) {
-                        Ok(validated) => {
-                            return Ok(Resolution::Attach(validated.into_gateway_discovery_file()));
-                        }
-                        Err(reason) => reason,
-                    }
-                };
-                (Judged::Record(file), reason)
-            }
-            Ok(None) => return Ok(Resolution::Absent),
-            Err(SidecarError::Parse { .. } | SidecarError::Invalid { .. }) => {
-                (Judged::Unusable, StaleReason::Invalid)
-            }
-            Err(error) => return Err(error),
-        };
-        if judged.still_on_disk(run_dir) {
-            remove_stale(run_dir)?;
-            return Ok(Resolution::Stale(reason));
-        }
-    }
+    resolve_named_cancellable_with(
+        run_dir,
+        image_name,
+        &CancellationToken::new(),
+        |file, image_name, _| {
+            ValidatedConnection::validate_named(file, image_name).map_err(ValidationError::Stale)
+        },
+    )
 }
 
 /// The file a resolution judged stale, so removal can spare a file
@@ -144,7 +124,9 @@ pub(crate) fn resolve_named(run_dir: &Path, image_name: &str) -> Result<Resoluti
 /// successor publishing, can rewrite the file while a validation that ends
 /// in "stale" is in flight; deleting the new file would erase the mark or
 /// leave the successor undiscoverable. When the file changed, resolution
-/// judges the new one instead.
+/// judges the new one instead. The comparison narrows the race to the gap
+/// between the re-read and the delete without closing it: a rewrite that
+/// lands in that gap is still deleted.
 enum Judged {
     /// The file did not parse or failed validation.
     Unusable,
@@ -153,7 +135,7 @@ enum Judged {
 }
 
 impl Judged {
-    /// Whether the file on disk is still the one judged. A read failure
+    /// Whether the file on disk is still the one judged. An I/O failure
     /// counts as changed, so the next pass reports it.
     fn still_on_disk(&self, run_dir: &Path) -> bool {
         match (self, GatewayDiscoveryFile::read(run_dir)) {
@@ -320,7 +302,7 @@ fn remove_stale(run_dir: &Path) -> Result<(), SidecarError> {
 
 #[cfg(test)]
 #[path = "stale-tests.rs"]
-mod tests;
+pub(crate) mod tests;
 
 #[cfg(test)]
 #[path = "stale-tests-restarting.rs"]

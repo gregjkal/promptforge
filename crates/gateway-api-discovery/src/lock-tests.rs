@@ -6,6 +6,8 @@ use std::io::{Read, Write as _};
 use std::net::TcpListener;
 use std::sync::mpsc;
 
+use crate::stale::tests::dead_pid;
+
 /// The test process's own image name, so the pid and image checks
 /// pass and the loser reaches the probe path.
 fn own_image_name() -> String {
@@ -228,21 +230,6 @@ fn cancellation_joins_a_blocked_launch_race_without_launching() {
         "the cancelled loser never publishes or launches"
     );
     drop(winner);
-}
-
-/// A pid guaranteed dead: a short-lived child, reaped and dropped so no
-/// handle keeps the process object alive.
-fn dead_pid() -> u32 {
-    let mut child = std::process::Command::new(std::env::current_exe().expect("current exe"))
-        .arg("--list")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .expect("spawn a short-lived child");
-    let pid = child.id();
-    child.wait().expect("the child exits");
-    drop(child);
-    pid
 }
 
 /// A handoff mark naming the test process, whose gateway stopped serving.

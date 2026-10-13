@@ -147,6 +147,38 @@ fn a_handoff_waits_for_the_successor_instead_of_the_config_endpoint() {
 }
 
 #[test]
+fn a_gateway_that_changes_between_the_two_proofs_is_resolved_again() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let gateway = crate::test_gateway::ValidatedGateway::spawn("file-key");
+    let successor =
+        gateway.gateway_discovery_file("file-key", 1_757_000_000, "2026-09-03T12:00:00Z");
+    // Names the test process, which the second proof refuses as no gateway.
+    let changed = live_file(gateway.port(), "file-key");
+    let mut probes = 0;
+    let mut pauses = 0;
+
+    let resolved = resolve_through_handoff(
+        Some(dir.path()),
+        &explicit_config(),
+        |_| {
+            probes += 1;
+            Ok(match probes {
+                1 => Resolution::Attach(changed.clone()),
+                2 => Resolution::Restarting,
+                _ => Resolution::Attach(successor.clone()),
+            })
+        },
+        |_| pauses += 1,
+    )
+    .expect("the successor resolves");
+
+    assert_eq!(probes, 3, "the failed second proof probed again");
+    assert_eq!(pauses, 1, "only the handoff paused");
+    assert_eq!(resolved.source(), GatewaySource::GatewayDiscoveryFile);
+    assert_eq!(resolved.stale(), None, "no file was removed");
+}
+
+#[test]
 fn a_real_marked_file_resolves_to_a_handoff() {
     let dir = tempfile::TempDir::new().expect("tempdir");
     GatewayDiscoveryFile {

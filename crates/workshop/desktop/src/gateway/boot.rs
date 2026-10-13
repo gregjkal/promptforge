@@ -70,11 +70,41 @@ pub(crate) fn ensure_gateway(config: &Config) -> anyhow::Result<GatewayAttachmen
             Err(no_gateway_error(&install))
         };
     };
+    attach_or_launch(
+        &run_dir,
+        &install,
+        explicit,
+        gateway_api_discovery::resolve,
+        validated_attachment,
+        |exe| {
+            launch_and_attach_cancellable(&run_dir, &exe, &CancellationToken::new())
+                .and_then(validated_recovery_attachment)
+                .context("launch the sidecar gateway")
+        },
+        || std::thread::sleep(RECOVERY_POLL_INTERVAL),
+    )
+}
+
+/// Plans until the plan settles, with resolution, the attachment proof, the
+/// launch, and the pause between plans injected for tests.
+///
+/// A handoff pauses and plans again, with no timeout of its own: the mark
+/// lasts only while the marking gateway lives, and that gateway bounds its
+/// waits. A resolved file whose second proof fails also plans again: the
+/// gateway changed between the two proofs, as when a handoff begins, and
+/// the next plan sees what it became.
+pub(super) fn attach_or_launch(
+    run_dir: &Path,
+    install: &WorkshopInstall,
+    explicit: bool,
+    mut resolve: impl FnMut(&Path) -> Result<Resolution, SidecarError>,
+    mut attach: impl FnMut(GatewayDiscoveryFile) -> anyhow::Result<GatewayAttachment>,
+    launch: impl FnOnce(PathBuf) -> anyhow::Result<GatewayAttachment>,
+    mut pause: impl FnMut(),
+) -> anyhow::Result<GatewayAttachment> {
     let mut announced = false;
     loop {
-        match plan_gateway(&run_dir, &install, explicit, gateway_api_discovery::resolve) {
-            // No timeout of its own: the mark lasts only while the marking
-            // gateway lives, and that gateway bounds its waits.
+        match plan_gateway(run_dir, install, explicit, &mut resolve) {
             GatewayPlan::AwaitRestart => {
                 if !std::mem::replace(&mut announced, true) {
                     eprintln!(
@@ -82,16 +112,17 @@ pub(crate) fn ensure_gateway(config: &Config) -> anyhow::Result<GatewayAttachmen
                          before attaching"
                     );
                 }
-                std::thread::sleep(RECOVERY_POLL_INTERVAL);
+                pause();
             }
-            GatewayPlan::Attach(file) => return validated_attachment(file),
+            GatewayPlan::Attach(file) => match attach(file) {
+                Ok(attachment) => return Ok(attachment),
+                Err(error) => {
+                    eprintln!("the resolved gateway changed before attaching: {error:#}");
+                }
+            },
             GatewayPlan::ConfigOnly => return Ok(GatewayAttachment::Config),
-            GatewayPlan::Fail => return Err(no_gateway_error(&install)),
-            GatewayPlan::Launch(exe) => {
-                return launch_and_attach_cancellable(&run_dir, &exe, &CancellationToken::new())
-                    .and_then(validated_recovery_attachment)
-                    .context("launch the sidecar gateway");
-            }
+            GatewayPlan::Fail => return Err(no_gateway_error(install)),
+            GatewayPlan::Launch(exe) => return launch(exe),
         }
     }
 }
@@ -125,7 +156,7 @@ pub(super) fn plan_gateway(
     run_dir: &Path,
     install: &WorkshopInstall,
     explicit_config: bool,
-    resolve: fn(&Path) -> Result<Resolution, SidecarError>,
+    resolve: impl FnOnce(&Path) -> Result<Resolution, SidecarError>,
 ) -> GatewayPlan {
     match resolve(run_dir) {
         Ok(Resolution::Attach(file)) => return GatewayPlan::Attach(file),

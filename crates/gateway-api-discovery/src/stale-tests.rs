@@ -34,7 +34,7 @@ pub(super) fn live_file(port: u16, api_key: &str) -> GatewayDiscoveryFile {
 
 /// A pid guaranteed dead: a short-lived child, reaped and dropped so
 /// no handle keeps the process object alive.
-pub(super) fn dead_pid() -> u32 {
+pub(crate) fn dead_pid() -> u32 {
     let mut child = std::process::Command::new(std::env::current_exe().expect("current exe"))
         .arg("--list")
         .stdout(std::process::Stdio::null())

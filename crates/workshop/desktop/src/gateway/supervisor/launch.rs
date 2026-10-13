@@ -167,7 +167,14 @@ where
         if let Ok(Some(file)) = GatewayDiscoveryFile::read(run_dir) {
             let remaining = deadline.saturating_duration_since(clock.now());
             let url = format!("http://127.0.0.1:{}", file.port);
-            match health(&url, remaining.min(HEALTH_PROBE_WINDOW), cancellation) {
+            // A marked file names a gateway that may have stopped serving:
+            // resolution judges the mark without a health probe.
+            let probed = if file.restarting {
+                Ok(())
+            } else {
+                health(&url, remaining.min(HEALTH_PROBE_WINDOW), cancellation)
+            };
+            match probed {
                 Ok(()) => {
                     if cancellation.is_cancelled() {
                         anyhow::bail!("the launched gateway wait was cancelled");

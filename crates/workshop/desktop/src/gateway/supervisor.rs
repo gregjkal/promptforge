@@ -31,7 +31,7 @@ pub(super) use launch::{RECOVERY_POLL_INTERVAL, launch_and_attach_cancellable};
 const SUPERVISION_INTERVAL: Duration = Duration::from_secs(5);
 
 /// First delay after a failed re-resolution or relaunch.
-const SUPERVISION_BASE_DELAY: Duration = Duration::from_millis(250);
+pub(super) const SUPERVISION_BASE_DELAY: Duration = Duration::from_millis(250);
 
 /// Ceiling on repeated sidecar recovery attempts.
 pub(super) const SUPERVISION_MAX_DELAY: Duration = Duration::from_secs(30);

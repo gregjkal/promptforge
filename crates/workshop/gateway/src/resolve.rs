@@ -233,22 +233,28 @@ fn resolve_through_handoff(
                     }
                     pause(HANDOFF_POLL_INTERVAL);
                 }
+                // The probe's proof and this one are separate. When this
+                // one fails, the gateway changed between them, as when a
+                // handoff begins: probe again to see what it became.
+                Ok(Resolution::Attach(file)) => match validate_resolved(file) {
+                    Ok(identity) => {
+                        return Ok(ResolvedGateway {
+                            base_url: format!("http://127.0.0.1:{}", identity.port()),
+                            api_key: identity.api_key().to_owned(),
+                            identity: Some(identity),
+                            source: GatewaySource::GatewayDiscoveryFile,
+                            stale: None,
+                        });
+                    }
+                    Err(reason) => tracing::info!(
+                        reason = stale_clause(reason),
+                        "the resolved gateway changed before attaching; resolving again"
+                    ),
+                },
                 resolution => break resolution,
             }
         };
         match resolution {
-            Ok(Resolution::Attach(file)) => match validate_resolved(file) {
-                Ok(identity) => {
-                    return Ok(ResolvedGateway {
-                        base_url: format!("http://127.0.0.1:{}", identity.port()),
-                        api_key: identity.api_key().to_owned(),
-                        identity: Some(identity),
-                        source: GatewaySource::GatewayDiscoveryFile,
-                        stale: None,
-                    });
-                }
-                Err(reason) => stale = Some(reason),
-            },
             Ok(Resolution::Stale(reason)) => {
                 tracing::warn!(
                     reason = stale_clause(reason),

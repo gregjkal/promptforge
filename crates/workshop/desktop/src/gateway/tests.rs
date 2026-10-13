@@ -17,6 +17,7 @@ mod boot;
 mod cancellation;
 mod identity;
 mod recovery;
+mod restarting;
 mod shutdown;
 
 /// A supervised identity whose boot token the test chooses.
@@ -89,6 +90,7 @@ fn live_file(port: u16, api_key: &str) -> GatewayDiscoveryFile {
         epoch: 1_757_000_000,
         version: "0.2.0".to_owned(),
         started_at: "2026-09-03T12:00:00Z".to_owned(),
+        restarting: false,
     }
 }
 

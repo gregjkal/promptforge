@@ -8,7 +8,9 @@ use super::{BuildRequest, Profile};
 pub(super) const USAGE: &str = "\
 Build PromptForge Gateway and Workshop together, build a platform installer,
 or stage the Gateway sidecar on its own. Workshop bundles the Gateway as a
-sidecar only for Windows targets.
+sidecar only for Windows targets. On macOS and Linux, `installer` needs
+Qt IFW 4.11.0, found through QTIFWDIR (the directory holding bin/) or else
+binarycreator on PATH.
 
 USAGE:
     cargo workshop [--release] [--target <triple>]

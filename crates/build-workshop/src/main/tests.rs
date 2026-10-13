@@ -14,10 +14,14 @@ mod bundle_tests;
 mod collect_tests;
 #[path = "tests/failures.rs"]
 mod failures;
+#[path = "tests/ifw.rs"]
+mod ifw_tests;
 #[path = "tests/installer.rs"]
 mod installer_tests;
 #[path = "tests/sidecar.rs"]
 mod sidecar_tests;
+#[path = "tests/stage.rs"]
+mod stage_tests;
 
 enum FakeResponse {
     Completed(CommandResult),
@@ -183,6 +187,8 @@ fn environment() -> TestEnvironment {
     ] {
         write_file(&copy, &std::fs::read(source).expect("bundle source"));
     }
+    ifw_tests::copy_sources(&repository_root(), &workspace_root);
+    let qtifw_dir = Some(ifw_tests::fake_ifw(temp.path()).into_os_string());
     TestEnvironment {
         _temp: temp,
         environment: BuildEnvironment {
@@ -195,6 +201,9 @@ fn environment() -> TestEnvironment {
             signing_key: None,
             signing_password_set: false,
             signing_key_path_variable: None,
+            qtifw_dir,
+            path: None,
+            release_date: "2026-10-11".to_owned(),
         },
     }
 }

@@ -3,6 +3,7 @@
 
 use serde_json::Value;
 
+use super::ifw_tests::{ifw_built, ifw_commands, ifw_found, installer_path};
 use super::installer_tests::{
     bundle, bundled, collect_signature, expected_commands, gateway, node_found, output, request,
     signer_command, version_printed,
@@ -146,7 +147,7 @@ fn a_template_without_the_placeholder_or_a_missing_icon_fails_naming_the_file() 
     assert!(error.contains(&missing.display().to_string()), "{error}");
 }
 
-fn collect_files(root: &Path, directory: &Path, files: &mut Vec<String>) {
+pub(super) fn collect_files(root: &Path, directory: &Path, files: &mut Vec<String>) {
     for entry in std::fs::read_dir(directory).expect("read directory") {
         let path = entry.expect("entry").path();
         if path.is_dir() {
@@ -171,7 +172,8 @@ fn macos_signed_collects_the_payload_and_signs_the_gateway_archive() {
         "promptforge-gateway_{VERSION}_darwin-aarch64.tar.gz"
     ));
     let signed_archive = archive.clone();
-    let mut runner = FakeRunner::with_responses(vec![
+    let mut responses = vec![
+        ifw_found(),
         node_found(),
         gateway_built(gateway(environment, target)),
         version_printed(),
@@ -196,13 +198,17 @@ fn macos_signed_collects_the_payload_and_signs_the_gateway_archive() {
             },
             success(""),
         ),
-    ]);
+    ];
+    responses.extend(ifw_built(environment, target));
+    let mut runner = FakeRunner::with_responses(responses);
 
     build_installer(&request(target, true), environment, &mut runner).expect("installer");
 
     let mut expected = expected_commands(environment, target, "app", true);
     expected.push(signer_command(environment, &archive));
+    expected.extend(ifw_commands(environment, target));
     assert_eq!(runner.commands, expected);
+    assert!(installer_path(environment, target).is_file());
     let payload = output_root.join("payload");
     assert!(
         payload
@@ -232,12 +238,13 @@ fn macos_signed_collects_the_payload_and_signs_the_gateway_archive() {
 }
 
 #[test]
-fn macos_unsigned_collects_the_payload_only() {
+fn macos_unsigned_publishes_only_the_dmg() {
     let test_environment = environment();
     let environment = &test_environment.environment;
     let target = "x86_64-apple-darwin";
     let app = bundle(environment, target, "macos").join("PromptForge.app");
-    let mut runner = FakeRunner::with_responses(vec![
+    let mut responses = vec![
+        ifw_found(),
         node_found(),
         gateway_built(gateway(environment, target)),
         version_printed(),
@@ -251,14 +258,15 @@ fn macos_unsigned_collects_the_payload_only() {
             ],
             success(""),
         ),
-    ]);
+    ];
+    responses.extend(ifw_built(environment, target));
+    let mut runner = FakeRunner::with_responses(responses);
 
     build_installer(&request(target, false), environment, &mut runner).expect("installer");
 
-    assert_eq!(
-        runner.commands,
-        expected_commands(environment, target, "app", false)
-    );
+    let mut expected = expected_commands(environment, target, "app", false);
+    expected.extend(ifw_commands(environment, target));
+    assert_eq!(runner.commands, expected);
     let payload = output(environment, target).join("payload");
     assert!(
         payload
@@ -276,10 +284,16 @@ fn macos_unsigned_collects_the_payload_only() {
             .is_file()
     );
     assert!(!payload.join("promptforge-gateway").exists());
+    let installer = installer_path(environment, target);
+    assert_eq!(
+        installer.file_name().expect("name"),
+        format!("PromptForge_{VERSION}_x86_64-setup.dmg").as_str()
+    );
+    assert!(installer.is_file());
     assert_eq!(
         std::fs::read_dir(output(environment, target).join("publish"))
             .expect("publish")
             .count(),
-        0
+        1
     );
 }

@@ -1,6 +1,7 @@
 //! Unit tests for the installer command sequence, its preflight, and its
 //! failure paths.
 
+use super::ifw_tests::{ifw_built, ifw_commands, ifw_found, ifw_version_command, installer_path};
 use super::*;
 
 pub(super) const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -71,42 +72,46 @@ pub(super) fn expected_commands(
     if !sign {
         tauri.extend(["--config", "tauri.nightly.conf.json"]);
     }
-    vec![
-        command(
-            environment,
-            "selected-node",
-            &["--version"],
-            OutputMode::Capture,
-        ),
-        cargo_build(
-            environment,
-            &[
-                "build",
-                "--locked",
-                "--release",
-                "-p",
-                "gateway",
-                "--target",
-                target,
-            ],
-        ),
-        CommandSpec {
-            program: gateway(environment, target),
-            args: strings(&["--version"]),
-            current_dir: environment.workspace_root.clone(),
-            envs: Vec::new(),
-            output_mode: OutputMode::Capture,
-        },
-        CommandSpec {
-            current_dir: environment
-                .workspace_root
-                .join("crates")
-                .join("workshop")
-                .join("desktop"),
-            envs: target_root_env(environment),
-            ..command(environment, "selected-node", &tauri, OutputMode::Inherit)
-        },
-    ]
+    // macOS and Linux check Qt IFW once the target is known.
+    let ifw = (!target.ends_with("windows-msvc")).then(|| ifw_version_command(environment));
+    ifw.into_iter()
+        .chain([
+            command(
+                environment,
+                "selected-node",
+                &["--version"],
+                OutputMode::Capture,
+            ),
+            cargo_build(
+                environment,
+                &[
+                    "build",
+                    "--locked",
+                    "--release",
+                    "-p",
+                    "gateway",
+                    "--target",
+                    target,
+                ],
+            ),
+            CommandSpec {
+                program: gateway(environment, target),
+                args: strings(&["--version"]),
+                current_dir: environment.workspace_root.clone(),
+                envs: Vec::new(),
+                output_mode: OutputMode::Capture,
+            },
+            CommandSpec {
+                current_dir: environment
+                    .workspace_root
+                    .join("crates")
+                    .join("workshop")
+                    .join("desktop"),
+                envs: target_root_env(environment),
+                ..command(environment, "selected-node", &tauri, OutputMode::Inherit)
+            },
+        ])
+        .collect()
 }
 
 pub(super) fn signer_command(environment: &BuildEnvironment, archive: &Path) -> CommandSpec {
@@ -134,7 +139,9 @@ pub(super) fn request(target: &str, sign: bool) -> InstallerRequest {
 
 #[test]
 fn windows_unsigned_builds_the_setup_on_the_unsigned_config() {
-    let test_environment = environment();
+    let mut test_environment = environment();
+    // Windows never looks for Qt IFW.
+    test_environment.environment.qtifw_dir = None;
     let environment = &test_environment.environment;
     let target = "x86_64-pc-windows-msvc";
     let setup =
@@ -213,13 +220,14 @@ fn windows_signed_publishes_the_setup_signature_without_a_gateway_archive() {
 }
 
 #[test]
-fn linux_unsigned_from_the_host_collects_the_payload_only() {
+fn linux_unsigned_from_the_host_publishes_only_the_installer() {
     let test_environment = environment();
     let environment = &test_environment.environment;
     let target = "x86_64-unknown-linux-gnu";
     let appimage = bundle(environment, target, "appimage");
-    let mut runner = FakeRunner::with_responses(vec![
+    let mut responses = vec![
         success(&format!("cargo 1.89.0\nhost: {target}\n")),
+        ifw_found(),
         node_found(),
         gateway_built(gateway(environment, target)),
         version_printed(),
@@ -232,7 +240,9 @@ fn linux_unsigned_from_the_host_collects_the_payload_only() {
             ],
             success(""),
         ),
-    ]);
+    ];
+    responses.extend(ifw_built(environment, target));
+    let mut runner = FakeRunner::with_responses(responses);
 
     build_installer(
         &InstallerRequest {
@@ -251,6 +261,7 @@ fn linux_unsigned_from_the_host_collects_the_payload_only() {
         OutputMode::Capture,
     )];
     expected.extend(expected_commands(environment, target, "appimage", false));
+    expected.extend(ifw_commands(environment, target));
     assert_eq!(runner.commands, expected);
     let output_root = output(environment, target);
     assert!(
@@ -265,11 +276,17 @@ fn linux_unsigned_from_the_host_collects_the_payload_only() {
             .join("promptforge-gateway")
             .is_file()
     );
+    let installer = installer_path(environment, target);
+    assert_eq!(
+        installer.file_name().expect("name"),
+        format!("PromptForge_{VERSION}_amd64-setup.run").as_str()
+    );
+    assert!(installer.is_file());
     assert_eq!(
         std::fs::read_dir(output_root.join("publish"))
             .expect("publish")
             .count(),
-        0
+        1
     );
 }
 
@@ -286,7 +303,8 @@ fn linux_signed_publishes_the_appimage_and_the_gateway_archive() {
         "promptforge-gateway_{VERSION}_linux-aarch64.tar.gz"
     ));
     let signed_archive = archive.clone();
-    let mut runner = FakeRunner::with_responses(vec![
+    let mut responses = vec![
+        ifw_found(),
         node_found(),
         gateway_built(gateway(environment, target)),
         version_printed(),
@@ -300,18 +318,25 @@ fn linux_signed_publishes_the_appimage_and_the_gateway_archive() {
             move || write_file(&collect_signature(&signed_archive), b"signature"),
             success(""),
         ),
-    ]);
+    ];
+    responses.extend(ifw_built(environment, target));
+    let mut runner = FakeRunner::with_responses(responses);
 
     build_installer(&request(target, true), environment, &mut runner).expect("installer");
 
-    assert_eq!(
-        runner.commands.last().expect("signer").envs,
-        vec![(
+    // An unset password signs as empty, as `tauri build --ci` does.
+    let signer = CommandSpec {
+        envs: vec![(
             OsString::from("TAURI_SIGNING_PRIVATE_KEY_PASSWORD"),
             OsString::new(),
         )],
-        "an unset password signs as empty, as `tauri build --ci` does"
-    );
+        ..signer_command(environment, &archive)
+    };
+    let mut expected = expected_commands(environment, target, "appimage", true);
+    expected.push(signer);
+    expected.extend(ifw_commands(environment, target));
+    assert_eq!(runner.commands, expected);
+    assert!(installer_path(environment, target).is_file());
     let publish = output(environment, target).join("publish");
     let published = publish.join(format!("PromptForge_{VERSION}_aarch64.AppImage"));
     assert!(published.is_file());

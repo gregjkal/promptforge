@@ -1,6 +1,7 @@
 //! Unit tests for failure, interruption, and sidecar cleanup paths of both
 //! modes.
 
+use super::ifw_tests::ifw_found;
 use super::installer_tests::{
     VERSION, bundle, bundled, collect_signature, gateway, node_found, output, request,
     version_printed,
@@ -341,17 +342,22 @@ fn a_failed_unstartable_or_interrupted_bundle_leaves_no_sidecar_and_collects_not
         for (response, expected) in cases() {
             let test_environment = environment();
             let environment = &test_environment.environment;
-            let mut runner = FakeRunner::with_responses(vec![
-                node_found(),
-                gateway_built(gateway(environment, target)),
-                version_printed(),
-                bundled(
-                    test_environment.sidecar(target),
-                    target,
-                    Vec::new(),
-                    response,
-                ),
-            ]);
+            let ifw = (!sidecar::bundles_sidecar(target)).then(ifw_found);
+            let mut runner = FakeRunner::with_responses(
+                ifw.into_iter()
+                    .chain([
+                        node_found(),
+                        gateway_built(gateway(environment, target)),
+                        version_printed(),
+                        bundled(
+                            test_environment.sidecar(target),
+                            target,
+                            Vec::new(),
+                            response,
+                        ),
+                    ])
+                    .collect(),
+            );
 
             let error = build_installer(&request(target, false), environment, &mut runner)
                 .expect_err("bundle failure");
@@ -372,6 +378,7 @@ fn a_signer_that_writes_no_signature_fails_the_build() {
     let appimage = bundle(environment, target, "appimage")
         .join(format!("PromptForge_{VERSION}_amd64.AppImage"));
     let mut runner = FakeRunner::with_responses(vec![
+        ifw_found(),
         node_found(),
         gateway_built(gateway(environment, target)),
         version_printed(),
@@ -411,10 +418,10 @@ fn a_missing_node_fails_before_the_gateway_build() {
     let test_environment = environment();
     let environment = &test_environment.environment;
     let target = "x86_64-unknown-linux-gnu";
-    let mut runner = FakeRunner::with_responses(vec![FakeResponse::SpawnFailed(
-        io::ErrorKind::NotFound,
-        "program not found",
-    )]);
+    let mut runner = FakeRunner::with_responses(vec![
+        ifw_found(),
+        FakeResponse::SpawnFailed(io::ErrorKind::NotFound, "program not found"),
+    ]);
 
     let error = build_installer(&request(target, false), environment, &mut runner)
         .expect_err("missing node");
@@ -425,5 +432,5 @@ fn a_missing_node_fails_before_the_gateway_build() {
             .contains("the Tauri CLI runs on `node` from PATH) could not start"),
         "{error}"
     );
-    assert_eq!(runner.commands.len(), 1);
+    assert_eq!(runner.commands.len(), 2);
 }

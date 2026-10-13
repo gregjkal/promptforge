@@ -318,6 +318,16 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
   - The fork's `master` goes upstream only together with `installers-workflow`.
   - Every push to the fork's `master` triggers `nightly.yml`, whose publish job deletes and recreates the fork's `nightly` prerelease. Cancel that run right after each merge (`gh run list --repo gregjkal/promptforge --workflow nightly.yml --limit 1`, then `gh run cancel <id> --repo gregjkal/promptforge`), so the prerelease keeps a build that carries the gateway.
 - Writing: plain English, single dashes only, never em dashes or double dashes.
+- Handoff (2026-10-13), for the next session:
+  - Branch `installer/gateway-update` (fork), checked out in the worktree `.claude/worktrees/ifw-definition` (the directory name is historical). It holds only plan commits: the nightly channel dropped, Steps 7 and 8 decomposed, Step 9 still an outline. Nothing is implemented. No pull request is open.
+  - Approved: the split of `gateway-update` into Steps 7 to 9. The maintainer deferred code-level design to the implementer; record such choices in the step as "deferred to the implementer" and ask the maintainer only product or scope questions.
+  - Open question for the maintainer: ship the Tauri CLI pin fix (Step 8, "The Tauri CLI pin") as its own small pull request before Step 7, or inside Step 8. It is a live bug on the fork's `master`: the Windows installers cannot stop a running app.
+  - Next, in order:
+    1. Decompose Step 9 in full, as Steps 7 and 8 are; its outline lists the gaps.
+    2. Implement Step 7 on `installer/gateway-update`, opening a draft fork pull request (`GH_REPO=gregjkal/promptforge gh pr create --draft`). Then run the review loop: a fresh read-only reviewer each round, local commits, and a single push once a round finds only low and nit items, then green CI.
+    3. Steps 8 and 9 follow as their own branches and pull requests from the fork's `master` after each merge. After every merge, cancel the `nightly.yml` run it triggers (above).
+  - Upstream drift: upstream `master` is 115 commits ahead of the fork's merge base (`4471d381`). None of them touch the files Steps 7 to 9 change. Upstream also bumped `quinn-proto` to 0.11.19, while the fork has 0.11.18 from Step 6; when the fork syncs, `Cargo.lock` and `crates/workspace-hack/Cargo.toml` conflict, and upstream's side wins (then `cargo hakari generate`).
+  - Local tools: `cargo-hakari` is installed under the previous job's scratch directory, not on `PATH`, so install it again or run `cargo install cargo-hakari --locked`. `cargo-deny` and `cargo-audit` are not installed; CI runs them. Qt IFW 4.11.0 was extracted under that scratch directory too, and is gone with it.
 
 <step-1>
 

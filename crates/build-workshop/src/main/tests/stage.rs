@@ -367,6 +367,19 @@ fn the_definition_names_only_files_it_holds_with_exact_double_size_images() {
 }
 
 #[test]
+fn a_hidden_page_list_comes_with_a_default_wizard_size() {
+    // IFW's 800-wide default applies only beside a visible page list; without
+    // one the wizard opens at its minimum size and clips its pages.
+    let sources = Sources::in_workspace(&repository_root());
+    let config = read(&sources.definition.join("config/config.xml"));
+    assert_eq!(element(&config, "WizardShowPageList"), "false");
+    for name in ["WizardDefaultWidth", "WizardDefaultHeight"] {
+        let pixels: u32 = element(&config, name).parse().expect(name);
+        assert!(pixels > 0, "{name}");
+    }
+}
+
+#[test]
 fn the_release_date_is_the_utc_calendar_date() {
     for (seconds, date) in [
         (0, "1970-01-01"),

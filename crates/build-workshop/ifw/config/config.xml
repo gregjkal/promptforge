@@ -8,6 +8,8 @@
     <TargetDir>{{TARGET_DIR}}</TargetDir>
     <WizardStyle>Modern</WizardStyle>
     <WizardShowPageList>false</WizardShowPageList>
+    <WizardDefaultWidth>720</WizardDefaultWidth>
+    <WizardDefaultHeight>540</WizardDefaultHeight>
     <Logo>installer-logo.png</Logo>
     <Watermark>installer-watermark.png</Watermark>
     <InstallerApplicationIcon>icon</InstallerApplicationIcon>

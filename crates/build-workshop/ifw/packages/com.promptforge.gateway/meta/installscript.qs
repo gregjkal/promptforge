@@ -28,16 +28,17 @@ Component.prototype.createOperations = function () {
     // `showStandardError` as merging stderr into the output Show Details
     // streams, so `init`'s progress lines and its error chain both show. The
     // last one is undocumented: https://github.com/qtproject/installer-framework/blob/4.11.0/src/libs/installer/elevatedexecuteoperation.cpp#L93-L113
+    // The error box never carries that output, and it is modal over Show
+    // Details, so its text sends the user to a terminal for the reason.
     var execute = ["{0}", gateway, "init"];
     if (!speech) {
         execute.push("--no-stt");
     }
     execute.push("workingdirectory=" + target);
-    execute.push("errormessage=PromptForge Gateway is installed, but its first-run setup, \""
-        + gateway + "\" " + command + ", failed; Show Details has its output. Retry runs it "
-        + "again. Ignore finishes the installation with the Gateway installed: its next start "
-        + "sets up what is missing, or run the same command again later. Cancel removes the "
-        + "whole installation.");
+    execute.push("errormessage=PromptForge Gateway is installed, but its first-run setup "
+        + "failed. To see why, choose Ignore, then run this in a terminal: \"" + gateway
+        + "\" " + command + ". Fix what it reports and run it again. Retry runs the setup "
+        + "again now. Cancel removes the whole installation.");
     execute.push("showStandardError");
     component.addOperation("Execute", execute);
 

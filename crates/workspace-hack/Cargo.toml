@@ -154,7 +154,8 @@ bitflags = { version = "2", default-features = false, features = ["serde"] }
 brotli = { version = "8" }
 dpi = { version = "0.1", features = ["serde"] }
 futures-channel = { version = "0.3", features = ["sink"] }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
+getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std"] }
 hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "server", "service"] }
 muda = { version = "0.19", default-features = false, features = ["common-controls-v6", "gtk", "libxdo", "serde"] }
@@ -170,7 +171,8 @@ brotli = { version = "8" }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 dpi = { version = "0.1", features = ["serde"] }
 futures-channel = { version = "0.3", features = ["sink"] }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
+getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std"] }
 hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "server", "service"] }
 muda = { version = "0.19", default-features = false, features = ["common-controls-v6", "gtk", "libxdo", "serde"] }
@@ -185,7 +187,7 @@ bitflags = { version = "2", default-features = false, features = ["serde"] }
 brotli = { version = "8" }
 futures-channel = { version = "0.3", features = ["sink"] }
 futures-io = { version = "0.3" }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "server", "service"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
@@ -207,7 +209,7 @@ brotli = { version = "8" }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 futures-channel = { version = "0.3", features = ["sink"] }
 futures-io = { version = "0.3" }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "server", "service"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
@@ -229,7 +231,7 @@ bitflags = { version = "2", default-features = false, features = ["serde"] }
 brotli = { version = "8" }
 futures-channel = { version = "0.3", features = ["sink"] }
 futures-io = { version = "0.3" }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "server", "service"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
@@ -251,7 +253,7 @@ brotli = { version = "8" }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 futures-channel = { version = "0.3", features = ["sink"] }
 futures-io = { version = "0.3" }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "server", "service"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
@@ -275,7 +277,7 @@ brotli = { version = "8" }
 dpi = { version = "0.1", features = ["serde"] }
 errno = { version = "0.3" }
 futures-channel = { version = "0.3", features = ["sink"] }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "server", "service"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
@@ -298,7 +300,7 @@ cc = { version = "1", default-features = false, features = ["parallel"] }
 dpi = { version = "0.1", features = ["serde"] }
 errno = { version = "0.3" }
 futures-channel = { version = "0.3", features = ["sink"] }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "server", "service"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
@@ -320,7 +322,7 @@ brotli = { version = "8" }
 dpi = { version = "0.1", features = ["serde"] }
 errno = { version = "0.3" }
 futures-channel = { version = "0.3", features = ["sink"] }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "server", "service"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
@@ -343,7 +345,7 @@ cc = { version = "1", default-features = false, features = ["parallel"] }
 dpi = { version = "0.1", features = ["serde"] }
 errno = { version = "0.3" }
 futures-channel = { version = "0.3", features = ["sink"] }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "server", "service"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }

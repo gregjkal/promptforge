@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Package>
+    <DisplayName>{{STT_DISPLAY_NAME}}</DisplayName>
+    <Description>Downloads the speech-to-text runtime and the two speech models the Gateway's default configuration names, so dictation works offline after install. Requires the Gateway component.</Description>
+    <Version>{{VERSION}}</Version>
+    <ReleaseDate>{{RELEASE_DATE}}</ReleaseDate>
+    <Default>true</Default>
+    <SortingPriority>100</SortingPriority>
+    <Dependencies>com.promptforge.gateway</Dependencies>
+</Package>

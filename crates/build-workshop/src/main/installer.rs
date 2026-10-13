@@ -1,12 +1,13 @@
 //! `cargo workshop installer`: builds the Gateway and Workshop for one target
 //! in release, bundles Workshop with the pinned Tauri CLI, and collects each
 //! platform's installer payload and, under `--sign`, its updater files into
-//! `target/installer/<triple>/`.
+//! `target/installer/<triple>/`. Windows ends with Tauri's NSIS setup; macOS
+//! and Linux end with a Qt IFW installer built from the payload.
 
 use std::ffi::OsString;
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::args::InstallerRequest;
 use super::pipeline::{resolve_target, run_checked, with_staged_sidecar};
@@ -21,6 +22,8 @@ pub(super) mod archive;
 pub(super) mod bundle;
 #[path = "installer/collect.rs"]
 pub(super) mod collect;
+#[path = "installer/ifw.rs"]
+pub(super) mod ifw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Applied to unsigned builds: it turns off `createUpdaterArtifacts`, which
@@ -104,6 +107,10 @@ pub(super) fn build_installer(
     if request.sign && platform.system != System::Windows {
         preflight_archive_signing(environment)?;
     }
+    let ifw = match platform.system {
+        System::Windows => None,
+        System::MacOs | System::Linux => Some(check_ifw(environment, runner)?),
+    };
     run_checked(runner, &node_check_command(environment), NODE_CHECK)?;
     let release = environment.target_root.join(&target).join("release");
     // A bundle left by an earlier build, possibly at another version, would
@@ -156,8 +163,92 @@ pub(super) fn build_installer(
             )));
         }
     }
-    println!("installer files: {}", output.display());
+    let installer = match &ifw {
+        Some(ifw) => build_ifw_installer(ifw, environment, platform, &output, runner)?,
+        None => collect::windows_setup(&output.join("publish"), platform.arch),
+    };
+    println!("installer: {}", installer.display());
     Ok(())
+}
+
+fn check_ifw(
+    environment: &BuildEnvironment,
+    runner: &mut impl CommandRunner,
+) -> Result<ifw::Ifw, BuildError> {
+    let cwd = std::env::current_dir()
+        .map_err(|error| failure(format!("cannot read the current directory: {error}")))?;
+    let ifw = ifw::locate(
+        environment.qtifw_dir.as_deref(),
+        environment.path.as_deref(),
+        &cwd,
+    )
+    .map_err(failure)?;
+    let printed = run_checked(
+        runner,
+        &ifw::version_command(&ifw, &environment.workspace_root),
+        &format!(
+            "Qt IFW version check (`{} --version`)",
+            ifw.installerbase.display()
+        ),
+    )?;
+    ifw::check_version(&ifw, &printed).map_err(failure)?;
+    Ok(ifw)
+}
+
+/// Stages the IFW definition around `output`'s payload and builds the
+/// installer into `output/publish/`, returning its path.
+fn build_ifw_installer(
+    ifw: &ifw::Ifw,
+    environment: &BuildEnvironment,
+    platform: Platform,
+    output: &Path,
+    runner: &mut impl CommandRunner,
+) -> Result<PathBuf, BuildError> {
+    let stage = output.join("ifw");
+    let publish = output.join("publish");
+    ifw::stage(
+        &ifw::Sources::in_workspace(&environment.workspace_root),
+        &output.join("payload"),
+        platform,
+        &environment.release_date,
+        &stage,
+    )
+    .map_err(failure)?;
+    let built = ifw::binarycreator_output(platform, &stage, &publish);
+    run_checked(
+        runner,
+        &ifw::binarycreator_command(ifw, &stage, &built),
+        "Qt IFW binarycreator",
+    )?;
+    require_output("Qt IFW binarycreator", &built)?;
+    if platform.system != System::MacOs {
+        return Ok(built);
+    }
+    run_checked(
+        runner,
+        &ifw::adhoc_sign_command(&built),
+        "Installer app ad hoc signing (codesign)",
+    )?;
+    let dmg = ifw::dmg_path(platform, &publish);
+    let app_folder = stage.join("dmg");
+    run_checked(
+        runner,
+        &ifw::hdiutil_command(&app_folder, &dmg),
+        "DMG wrap (hdiutil)",
+    )?;
+    require_output("DMG wrap (hdiutil)", &dmg)?;
+    Ok(dmg)
+}
+
+fn require_output(step: &str, path: &Path) -> Result<(), BuildError> {
+    if path.exists() {
+        Ok(())
+    } else {
+        Err(failure(format!(
+            "{step} succeeded but wrote nothing at {}",
+            path.display()
+        )))
+    }
 }
 
 fn preflight(request: &InstallerRequest, environment: &BuildEnvironment) -> Result<(), BuildError> {

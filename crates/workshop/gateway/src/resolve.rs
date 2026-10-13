@@ -222,9 +222,17 @@ fn resolve_through_handoff(
         // than falling back to the configured endpoint meanwhile. No
         // timeout of its own: the mark lasts only while the marking
         // gateway lives, and that gateway bounds its waits.
+        let mut announced = false;
         let resolution = loop {
             match probe(run_dir) {
-                Ok(Resolution::Restarting) => pause(HANDOFF_POLL_INTERVAL),
+                Ok(Resolution::Restarting) => {
+                    if !std::mem::replace(&mut announced, true) {
+                        tracing::info!(
+                            "the local gateway is handing off to a successor; waiting for it"
+                        );
+                    }
+                    pause(HANDOFF_POLL_INTERVAL);
+                }
                 resolution => break resolution,
             }
         };

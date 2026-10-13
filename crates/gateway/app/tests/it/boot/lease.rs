@@ -243,3 +243,77 @@ fn a_direct_launch_recovers_the_lease_from_a_terminated_owner() {
     );
     replacement.stop(Duration::from_secs(5));
 }
+
+/// A launch that loses the lease while the owner's discovery file carries
+/// the handoff mark keeps waiting instead of opening the marked gateway's
+/// Settings page, and hands off once an unmarked record is published.
+#[test]
+fn a_lease_loser_waits_through_a_marked_handoff() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = write_config(
+        &temp,
+        "config-version = 0\n\n[server]\nbind = \"127.0.0.1:0\"\napi_key = \"test-token\"\n\n\
+         [[profile]]\nname = \"main\"\nmodels = []\n"
+            .to_string(),
+    );
+    let run_dir = temp.path().join(".promptforge").join("run");
+    let gateway = |extra: &str, stdout: std::process::Stdio| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_promptforge-gateway"))
+            .arg("--config")
+            .arg(&path)
+            .arg("--profile")
+            .arg("main")
+            .arg(extra)
+            .env("USERPROFILE", temp.path())
+            .env("HOME", temp.path())
+            .env_remove("RUST_LOG")
+            .stdout(stdout)
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("the gateway spawns")
+    };
+    let mut owner = gateway("--no-tray", std::process::Stdio::null());
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let published = loop {
+        if let Ok(Some(file)) = gateway_api_discovery::GatewayDiscoveryFile::read(&run_dir) {
+            break file;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the owner publishes its discovery file"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    gateway_api_discovery::mark_restarting(&run_dir, published.pid).expect("mark the handoff");
+
+    let mut loser = gateway("--print-url", std::process::Stdio::piped());
+    std::thread::sleep(Duration::from_secs(2));
+    assert!(
+        loser.try_wait().expect("poll the loser").is_none(),
+        "the loser keeps waiting while the file carries the mark"
+    );
+    published
+        .write_to(&run_dir)
+        .expect("publish the unmarked record");
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let status = loop {
+        if let Some(status) = loser.try_wait().expect("poll the loser") {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = loser.kill();
+            panic!("the loser never handed off to the unmarked owner");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let mut stdout = String::new();
+    std::io::Read::read_to_string(&mut loser.stdout.take().expect("piped stdout"), &mut stdout)
+        .expect("read the loser's stdout");
+    let _ = owner.kill();
+    let _ = owner.wait();
+    assert!(status.success(), "the handoff exits successfully: {status}");
+    assert!(
+        stdout.contains(&format!("http://127.0.0.1:{}/auth?key=", published.port)),
+        "the loser hands off to the owner once unmarked: {stdout}"
+    );
+}

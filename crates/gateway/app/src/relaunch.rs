@@ -229,24 +229,6 @@ mod tests {
     }
 
     #[test]
-    fn a_lease_loser_waits_past_a_marked_handoff_for_the_owner() {
-        let temp = tempfile::TempDir::new().expect("tempdir");
-        let marked = gateway_api_discovery::GatewayDiscoveryFile {
-            restarting: true,
-            ..live_file()
-        };
-        marked.write_to(temp.path()).expect("write the mark");
-        let started = Instant::now();
-        let error = wait_for_owner(temp.path(), Duration::from_millis(300))
-            .expect_err("a marked file names no owner");
-        assert!(
-            matches!(error, GatewayStartupError::OwnerTimeout { .. }),
-            "the loser waits out its budget instead of opening the old gateway: {error}"
-        );
-        assert!(started.elapsed() >= Duration::from_millis(300));
-    }
-
-    #[test]
     fn an_empty_run_dir_settles_to_boot_with_the_lease_held() {
         let temp = tempfile::TempDir::new().expect("tempdir");
         let options = ServeOptions::new(None, None::<crate::ProfileName>)

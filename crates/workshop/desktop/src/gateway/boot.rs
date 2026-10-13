@@ -70,11 +70,20 @@ pub(crate) fn ensure_gateway(config: &Config) -> anyhow::Result<GatewayAttachmen
             Err(no_gateway_error(&install))
         };
     };
+    let mut announced = false;
     loop {
         match plan_gateway(&run_dir, &install, explicit, gateway_api_discovery::resolve) {
             // No timeout of its own: the mark lasts only while the marking
             // gateway lives, and that gateway bounds its waits.
-            GatewayPlan::AwaitRestart => std::thread::sleep(RECOVERY_POLL_INTERVAL),
+            GatewayPlan::AwaitRestart => {
+                if !std::mem::replace(&mut announced, true) {
+                    eprintln!(
+                        "the local gateway is handing off to a successor; waiting for it \
+                         before attaching"
+                    );
+                }
+                std::thread::sleep(RECOVERY_POLL_INTERVAL);
+            }
             GatewayPlan::Attach(file) => return validated_attachment(file),
             GatewayPlan::ConfigOnly => return Ok(GatewayAttachment::Config),
             GatewayPlan::Fail => return Err(no_gateway_error(&install)),

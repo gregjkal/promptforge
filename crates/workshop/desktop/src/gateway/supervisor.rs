@@ -184,6 +184,7 @@ pub(super) fn run_supervision<Identity, Probe, Recover, Publish, Wait, Error>(
     Error: std::fmt::Display,
 {
     let mut retry_delay = SUPERVISION_BASE_DELAY;
+    let mut in_handoff = false;
     loop {
         if cancellation.is_cancelled() {
             return;
@@ -192,6 +193,11 @@ pub(super) fn run_supervision<Identity, Probe, Recover, Publish, Wait, Error>(
         if cancellation.is_cancelled() {
             return;
         }
+        let handoff = matches!(observation, SupervisionProbe::Restarting);
+        if handoff && !in_handoff {
+            eprintln!("the local gateway is handing off to a successor; waiting for it");
+        }
+        in_handoff = handoff;
         match observation {
             SupervisionProbe::Replacement(identity) if identity.same_boot(&current) => {
                 retry_delay = SUPERVISION_BASE_DELAY;

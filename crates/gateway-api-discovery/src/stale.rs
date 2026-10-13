@@ -108,29 +108,60 @@ pub fn resolve_for_test(run_dir: &Path, image_name: &str) -> Result<Resolution, 
 /// full liveness gauntlet from a test binary, which is never named
 /// `promptforge-gateway`.
 pub(crate) fn resolve_named(run_dir: &Path, image_name: &str) -> Result<Resolution, SidecarError> {
-    let file = match GatewayDiscoveryFile::read(run_dir) {
-        Ok(Some(file)) => file,
-        Ok(None) => return Ok(Resolution::Absent),
-        Err(SidecarError::Parse { .. } | SidecarError::Invalid { .. }) => {
-            remove_stale(run_dir)?;
-            return Ok(Resolution::Stale(StaleReason::Invalid));
-        }
-        Err(error) => return Err(error),
-    };
-    if file.restarting {
-        return match marking_process_lives(&file, image_name) {
-            Ok(()) => Ok(Resolution::Restarting),
-            Err(reason) => {
-                remove_stale(run_dir)?;
-                Ok(Resolution::Stale(reason))
+    loop {
+        let (judged, reason) = match GatewayDiscoveryFile::read(run_dir) {
+            Ok(Some(file)) => {
+                let reason = if file.restarting {
+                    match marking_process_lives(&file, image_name) {
+                        Ok(()) => return Ok(Resolution::Restarting),
+                        Err(reason) => reason,
+                    }
+                } else {
+                    match ValidatedConnection::validate_named(file.clone(), image_name) {
+                        Ok(validated) => {
+                            return Ok(Resolution::Attach(validated.into_gateway_discovery_file()));
+                        }
+                        Err(reason) => reason,
+                    }
+                };
+                (Judged::Record(file), reason)
             }
+            Ok(None) => return Ok(Resolution::Absent),
+            Err(SidecarError::Parse { .. } | SidecarError::Invalid { .. }) => {
+                (Judged::Unusable, StaleReason::Invalid)
+            }
+            Err(error) => return Err(error),
         };
-    }
-    match ValidatedConnection::validate_named(file, image_name) {
-        Ok(validated) => Ok(Resolution::Attach(validated.into_gateway_discovery_file())),
-        Err(reason) => {
+        if judged.still_on_disk(run_dir) {
             remove_stale(run_dir)?;
-            Ok(Resolution::Stale(reason))
+            return Ok(Resolution::Stale(reason));
+        }
+    }
+}
+
+/// The file a resolution judged stale, so removal can spare a file
+/// rewritten since. A gateway marking its record for a handoff, or a
+/// successor publishing, can rewrite the file while a validation that ends
+/// in "stale" is in flight; deleting the new file would erase the mark or
+/// leave the successor undiscoverable. When the file changed, resolution
+/// judges the new one instead.
+enum Judged {
+    /// The file did not parse or failed validation.
+    Unusable,
+    /// The record judged stale.
+    Record(GatewayDiscoveryFile),
+}
+
+impl Judged {
+    /// Whether the file on disk is still the one judged. A read failure
+    /// counts as changed, so the next pass reports it.
+    fn still_on_disk(&self, run_dir: &Path) -> bool {
+        match (self, GatewayDiscoveryFile::read(run_dir)) {
+            (Judged::Unusable, Err(SidecarError::Parse { .. } | SidecarError::Invalid { .. })) => {
+                true
+            }
+            (Judged::Record(judged), Ok(Some(current))) => *judged == current,
+            _ => false,
         }
     }
 }
@@ -152,7 +183,7 @@ fn resolve_named_cancellable_with(
     run_dir: &Path,
     image_name: &str,
     cancellation: &CancellationToken,
-    validate: impl FnOnce(
+    validate: impl FnMut(
         GatewayDiscoveryFile,
         &str,
         &CancellationToken,
@@ -172,7 +203,7 @@ fn resolve_named_cancellable_with_effects(
     run_dir: &Path,
     image_name: &str,
     cancellation: &CancellationToken,
-    validate: impl FnOnce(
+    mut validate: impl FnMut(
         GatewayDiscoveryFile,
         &str,
         &CancellationToken,
@@ -180,39 +211,41 @@ fn resolve_named_cancellable_with_effects(
     mut before_remove: impl FnMut(),
     mut remove: impl FnMut(&Path) -> Result<(), SidecarError>,
 ) -> Result<Resolution, SidecarError> {
-    if cancellation.is_cancelled() {
-        return Err(SidecarError::Cancelled);
-    }
-    let file = match GatewayDiscoveryFile::read(run_dir) {
-        Ok(Some(file)) => file,
-        Ok(None) if cancellation.is_cancelled() => return Err(SidecarError::Cancelled),
-        Ok(None) => return Ok(Resolution::Absent),
-        Err(SidecarError::Parse { .. } | SidecarError::Invalid { .. }) => {
-            before_remove();
-            remove_stale_if_active(run_dir, cancellation, &mut remove)?;
-            return Ok(Resolution::Stale(StaleReason::Invalid));
+    loop {
+        if cancellation.is_cancelled() {
+            return Err(SidecarError::Cancelled);
         }
-        Err(error) => return Err(error),
-    };
-    if file.restarting {
-        // The mark is read before validation: validation refuses a marked
-        // file, which would otherwise be removed below as stale.
-        return match marking_process_lives(&file, image_name) {
-            Ok(()) => Ok(Resolution::Restarting),
-            Err(reason) => {
-                before_remove();
-                remove_stale_if_active(run_dir, cancellation, &mut remove)?;
-                Ok(Resolution::Stale(reason))
+        let (judged, reason) = match GatewayDiscoveryFile::read(run_dir) {
+            Ok(Some(file)) => {
+                // The mark is read before validation: validation refuses a
+                // marked file, which would otherwise be removed as stale.
+                let reason = if file.restarting {
+                    match marking_process_lives(&file, image_name) {
+                        Ok(()) => return Ok(Resolution::Restarting),
+                        Err(reason) => reason,
+                    }
+                } else {
+                    match validate(file.clone(), image_name, cancellation) {
+                        Ok(validated) => {
+                            return Ok(Resolution::Attach(validated.into_gateway_discovery_file()));
+                        }
+                        Err(ValidationError::Cancelled) => return Err(SidecarError::Cancelled),
+                        Err(ValidationError::Stale(reason)) => reason,
+                    }
+                };
+                (Judged::Record(file), reason)
             }
+            Ok(None) if cancellation.is_cancelled() => return Err(SidecarError::Cancelled),
+            Ok(None) => return Ok(Resolution::Absent),
+            Err(SidecarError::Parse { .. } | SidecarError::Invalid { .. }) => {
+                (Judged::Unusable, StaleReason::Invalid)
+            }
+            Err(error) => return Err(error),
         };
-    }
-    match validate(file, image_name, cancellation) {
-        Ok(validated) => Ok(Resolution::Attach(validated.into_gateway_discovery_file())),
-        Err(ValidationError::Cancelled) => Err(SidecarError::Cancelled),
-        Err(ValidationError::Stale(reason)) => {
-            before_remove();
+        before_remove();
+        if judged.still_on_disk(run_dir) {
             remove_stale_if_active(run_dir, cancellation, &mut remove)?;
-            Ok(Resolution::Stale(reason))
+            return Ok(Resolution::Stale(reason));
         }
     }
 }

@@ -172,3 +172,68 @@ fn the_mark_is_absent_from_unmarked_json_and_round_trips() {
     let parsed: GatewayDiscoveryFile = serde_json::from_str(&json).expect("parse");
     assert_eq!(parsed, marked);
 }
+
+#[test]
+fn a_mark_written_while_validation_fails_is_not_removed() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    live_file(1, "key").write_to(dir.path()).expect("write");
+    let run_dir = dir.path().to_owned();
+
+    let resolution = resolve_named_cancellable_with_effects(
+        dir.path(),
+        &own_image_name(),
+        &CancellationToken::new(),
+        |_, _, _| {
+            // The gateway marks its record and stops serving while the
+            // proof is in flight, so the proof fails.
+            mark_restarting(&run_dir, std::process::id()).expect("mark");
+            Err(ValidationError::Stale(StaleReason::HealthFailed))
+        },
+        || {},
+        remove_stale,
+    )
+    .expect("resolve");
+
+    assert_eq!(resolution, Resolution::Restarting);
+    assert!(
+        GatewayDiscoveryFile::read(dir.path())
+            .expect("read")
+            .expect("the mark survives")
+            .restarting
+    );
+}
+
+#[test]
+fn a_successor_published_after_a_dead_mark_was_judged_is_attached() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    GatewayDiscoveryFile {
+        pid: dead_pid(),
+        ..marked_file(1)
+    }
+    .write_to(dir.path())
+    .expect("write");
+    let successor = live_file(fixture_gateway("key"), "key");
+    let mut published = false;
+
+    let resolution = resolve_named_cancellable_with_effects(
+        dir.path(),
+        &own_image_name(),
+        &CancellationToken::new(),
+        ValidatedConnection::validate_named_cancellable,
+        || {
+            // The successor publishes between the judgment and the removal.
+            if !std::mem::replace(&mut published, true) {
+                successor.write_to(dir.path()).expect("publish");
+            }
+        },
+        remove_stale,
+    )
+    .expect("resolve");
+
+    assert_eq!(resolution, Resolution::Attach(successor.clone()));
+    assert_eq!(
+        GatewayDiscoveryFile::read(dir.path()).expect("read"),
+        Some(successor),
+        "the successor's file is never removed as the dead mark"
+    );
+}

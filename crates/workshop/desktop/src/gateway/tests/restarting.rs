@@ -3,12 +3,16 @@
 
 use std::cell::{Cell, RefCell};
 use std::path::Path;
+use std::time::Duration;
 
-use gateway_api_discovery::{CancellationToken, GatewayDiscoveryFile};
+use gateway_api_discovery::{CancellationToken, GatewayDiscoveryFile, Resolution};
 
 use super::{TestIdentity, dead_pid, live_file, probe_own_image, test_identity, workshop_exe};
 use crate::gateway::boot::{GatewayPlan, WorkshopInstall, plan_gateway};
-use crate::gateway::supervisor::{SupervisionProbe, probe_local_gateway, run_supervision};
+use crate::gateway::supervisor::{
+    SupervisionProbe, SystemClock, probe_local_gateway, run_supervision,
+    wait_for_launched_file_cancellable_with,
+};
 
 /// A handoff mark naming the test process, whose gateway stopped serving.
 fn marked_file() -> GatewayDiscoveryFile {
@@ -120,4 +124,33 @@ fn supervision_never_recovers_during_a_handoff_then_attaches_to_the_successor() 
 
     assert!(polls.get() > HANDOFF_POLLS);
     assert_eq!(published.borrow().as_slice(), [successor]);
+}
+
+#[test]
+fn the_launched_gateway_wait_keeps_waiting_through_a_handoff() {
+    let run = tempfile::TempDir::new().expect("tempdir");
+    let successor = live_file(1, "k");
+    successor.write_to(run.path()).expect("write");
+    let resolves = Cell::new(0_usize);
+
+    let attached = wait_for_launched_file_cancellable_with(
+        run.path(),
+        Duration::from_secs(10),
+        &CancellationToken::new(),
+        &SystemClock,
+        |_, _, _| Ok(()),
+        |_, _| {
+            resolves.set(resolves.get() + 1);
+            if resolves.get() <= 3 {
+                Ok(Resolution::Restarting)
+            } else {
+                Ok(Resolution::Attach(successor.clone()))
+            }
+        },
+        || None,
+    )
+    .expect("the successor attaches");
+
+    assert_eq!(resolves.get(), 4, "each handoff sighting polled again");
+    assert_eq!(attached, successor);
 }

@@ -97,7 +97,9 @@ pub enum LaunchDecision {
 /// to `timeout` for the winner's gateway to become attachable, and takes
 /// the lock itself when the winner dies without writing one. During a
 /// handoff ([`Resolution::Restarting`]) every caller waits, launching
-/// nothing, and the timeout counts from the last sighting of the mark.
+/// nothing: the lock holder releases the lock and retries for as long as
+/// the mark holds, and a loser's timeout counts from its last sighting of
+/// the mark.
 ///
 /// # Errors
 /// Returns [`SidecarError::CreateDir`] when the run directory cannot be

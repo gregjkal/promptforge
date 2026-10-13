@@ -355,3 +355,36 @@ fn a_loser_waits_through_a_handoff_while_another_caller_holds_the_lock() {
     }
     drop(holder);
 }
+
+#[test]
+fn cancellation_ends_a_lock_holders_wait_through_a_handoff() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    marked_file().write_to(dir.path()).expect("write the mark");
+    let cancellation = crate::CancellationToken::new();
+    let worker_cancellation = cancellation.clone();
+    let run_dir = dir.path().to_owned();
+    let image = own_image_name();
+    let worker = std::thread::spawn(move || {
+        launch_or_attach_named_cancellable(
+            &run_dir,
+            &image,
+            Duration::from_millis(150),
+            &worker_cancellation,
+        )
+    });
+    std::thread::sleep(Duration::from_millis(400));
+    assert!(
+        !worker.is_finished(),
+        "the holder waits through the handoff"
+    );
+
+    let started = Instant::now();
+    cancellation.cancel();
+    let result = worker.join().expect("the race thread joins");
+    assert!(started.elapsed() < Duration::from_millis(250));
+    assert!(matches!(result, Err(SidecarError::Cancelled)));
+    assert!(
+        crate::paths::gateway_discovery_file_path(dir.path()).exists(),
+        "a cancelled wait leaves the mark"
+    );
+}

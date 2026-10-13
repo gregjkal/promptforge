@@ -6,6 +6,8 @@ use std::io::{Read, Write as _};
 use std::net::TcpListener;
 use std::sync::mpsc;
 
+use crate::stale::tests::dead_pid;
+
 /// The test process's own image name, so the pid and image checks
 /// pass and the loser reaches the probe path.
 fn own_image_name() -> String {
@@ -50,6 +52,7 @@ fn live_file(port: u16) -> GatewayDiscoveryFile {
         epoch: 1_757_000_000,
         version: "0.2.0".to_owned(),
         started_at: "2026-09-03T12:00:00Z".to_owned(),
+        restarting: false,
     }
 }
 
@@ -227,4 +230,168 @@ fn cancellation_joins_a_blocked_launch_race_without_launching() {
         "the cancelled loser never publishes or launches"
     );
     drop(winner);
+}
+
+/// A handoff mark naming the test process, whose gateway stopped serving.
+fn marked_file() -> GatewayDiscoveryFile {
+    GatewayDiscoveryFile {
+        restarting: true,
+        ..live_file(1)
+    }
+}
+
+/// Runs `race` on a thread over a marked run directory, checks it is
+/// still waiting well past its own timeout, then lets `finish` end the
+/// handoff and returns the decision.
+fn race_through_handoff(
+    race: impl FnOnce(&Path) -> Result<LaunchDecision, SidecarError> + Send + 'static,
+    finish: impl FnOnce(&Path),
+) -> LaunchDecision {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    marked_file().write_to(dir.path()).expect("write the mark");
+    let run_dir = dir.path().to_owned();
+    let worker = std::thread::spawn(move || race(&run_dir));
+    std::thread::sleep(Duration::from_millis(600));
+    assert!(
+        !worker.is_finished(),
+        "the race neither launches nor times out while the handoff lasts"
+    );
+    finish(dir.path());
+    worker
+        .join()
+        .expect("the race thread joins")
+        .expect("the race settles")
+}
+
+#[test]
+fn the_lock_holder_waits_through_a_handoff_then_launches_when_it_dies() {
+    let image = own_image_name();
+    let decision = race_through_handoff(
+        move |dir| launch_or_attach_named(dir, &image, Duration::from_millis(150)),
+        |dir| {
+            let dead = GatewayDiscoveryFile {
+                pid: dead_pid(),
+                ..marked_file()
+            };
+            dead.write_to(dir).expect("the marking gateway died");
+        },
+    );
+    assert!(matches!(decision, LaunchDecision::Launch(_)));
+}
+
+#[test]
+fn the_lock_holder_attaches_to_the_successor() {
+    let image = own_image_name();
+    let successor = live_file(fixture_gateway());
+    let published = successor.clone();
+    let decision = race_through_handoff(
+        move |dir| launch_or_attach_named(dir, &image, Duration::from_millis(150)),
+        move |dir| published.write_to(dir).expect("the successor publishes"),
+    );
+    match decision {
+        LaunchDecision::Attach(attached) => assert_eq!(attached, successor),
+        LaunchDecision::Launch(_) => panic!("a handoff's successor is attached, not raced"),
+    }
+}
+
+#[test]
+fn the_cancellable_lock_holder_attaches_to_the_successor() {
+    let image = own_image_name();
+    let successor = live_file(fixture_gateway());
+    let published = successor.clone();
+    let decision = race_through_handoff(
+        move |dir| {
+            launch_or_attach_named_cancellable(
+                dir,
+                &image,
+                Duration::from_millis(150),
+                &crate::CancellationToken::new(),
+            )
+        },
+        move |dir| published.write_to(dir).expect("the successor publishes"),
+    );
+    match decision {
+        LaunchDecision::Attach(attached) => assert_eq!(attached, successor),
+        LaunchDecision::Launch(_) => panic!("a handoff's successor is attached, not raced"),
+    }
+}
+
+/// Runs `race` as a loser while another caller holds the launch lock over
+/// a marked file, then publishes the successor it must attach to.
+fn loser_through_handoff(
+    race: impl FnOnce(&Path) -> Result<LaunchDecision, SidecarError> + Send + 'static,
+) {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let lock_path = lock_file_path(dir.path());
+    std::fs::write(&lock_path, b"").expect("create the lock file");
+    let holder = std::fs::File::open(&lock_path).expect("open the lock file");
+    holder.lock().expect("another caller holds the launch lock");
+    let successor = live_file(fixture_gateway());
+    let run_dir = dir.path().to_owned();
+    marked_file().write_to(&run_dir).expect("write the mark");
+    let worker = std::thread::spawn(move || race(&run_dir));
+    std::thread::sleep(Duration::from_millis(600));
+    assert!(!worker.is_finished(), "the loser outwaits its timeout");
+    successor
+        .write_to(dir.path())
+        .expect("the successor publishes");
+    match worker.join().expect("joins").expect("settles") {
+        LaunchDecision::Attach(attached) => assert_eq!(attached, successor),
+        LaunchDecision::Launch(_) => panic!("the loser never holds the lock here"),
+    }
+    drop(holder);
+}
+
+#[test]
+fn a_loser_waits_through_a_handoff_while_another_caller_holds_the_lock() {
+    let image = own_image_name();
+    loser_through_handoff(move |dir| {
+        launch_or_attach_named(dir, &image, Duration::from_millis(150))
+    });
+}
+
+#[test]
+fn a_cancellable_loser_waits_through_a_handoff_while_another_caller_holds_the_lock() {
+    let image = own_image_name();
+    loser_through_handoff(move |dir| {
+        launch_or_attach_named_cancellable(
+            dir,
+            &image,
+            Duration::from_millis(150),
+            &crate::CancellationToken::new(),
+        )
+    });
+}
+
+#[test]
+fn cancellation_ends_a_lock_holders_wait_through_a_handoff() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    marked_file().write_to(dir.path()).expect("write the mark");
+    let cancellation = crate::CancellationToken::new();
+    let worker_cancellation = cancellation.clone();
+    let run_dir = dir.path().to_owned();
+    let image = own_image_name();
+    let worker = std::thread::spawn(move || {
+        launch_or_attach_named_cancellable(
+            &run_dir,
+            &image,
+            Duration::from_millis(150),
+            &worker_cancellation,
+        )
+    });
+    std::thread::sleep(Duration::from_millis(400));
+    assert!(
+        !worker.is_finished(),
+        "the holder waits through the handoff"
+    );
+
+    let started = Instant::now();
+    cancellation.cancel();
+    let result = worker.join().expect("the race thread joins");
+    assert!(started.elapsed() < Duration::from_millis(250));
+    assert!(matches!(result, Err(SidecarError::Cancelled)));
+    assert!(
+        crate::paths::gateway_discovery_file_path(dir.path()).exists(),
+        "a cancelled wait leaves the mark"
+    );
 }

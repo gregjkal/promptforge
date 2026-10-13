@@ -31,6 +31,13 @@ pub struct GatewayDiscoveryFile {
     pub version: String,
     /// RFC 3339 rendering of the boot instant.
     pub started_at: String,
+    /// The handoff mark: the process named by `pid` is handing its place
+    /// to a successor. Readers wait while that process lives instead of
+    /// attaching or launching, and a marked file whose process is gone is
+    /// stale. Omitted when false, so an unmarked file reads as it did
+    /// before the field existed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub restarting: bool,
 }
 
 impl fmt::Debug for GatewayDiscoveryFile {
@@ -43,6 +50,7 @@ impl fmt::Debug for GatewayDiscoveryFile {
             .field("epoch", &self.epoch)
             .field("version", &"[REDACTED]")
             .field("started_at", &"[REDACTED]")
+            .field("restarting", &self.restarting)
             .finish()
     }
 }
@@ -143,7 +151,9 @@ impl GatewayDiscoveryFile {
 /// process `pid`, so a shutting-down gateway withdraws itself from
 /// discovery but can never delete a replacement's file. A missing file is
 /// not an error; an unreadable or foreign file is left alone for the next
-/// [`crate::resolve`] to clean.
+/// [`crate::resolve`] to clean. A file carrying the handoff mark is left
+/// too: the marking process stops serving before its successor publishes,
+/// and removing the file then would end the handoff readers wait through.
 ///
 /// # Errors
 /// Returns [`SidecarError::Remove`] when the file is this process's own
@@ -153,7 +163,7 @@ pub fn remove_if_mine(run_dir: &Path, pid: u32) -> Result<(), SidecarError> {
     match fs::read_to_string(&path) {
         Ok(raw) => {
             let owned = serde_json::from_str::<GatewayDiscoveryFile>(&raw)
-                .is_ok_and(|file| file.pid == pid);
+                .is_ok_and(|file| file.pid == pid && !file.restarting);
             if !owned {
                 return Ok(());
             }
@@ -171,6 +181,31 @@ pub fn remove_if_mine(run_dir: &Path, pid: u32) -> Result<(), SidecarError> {
     }
 }
 
+/// Marks the gateway discovery file in `run_dir` as handing off, rewriting
+/// it atomically with [`GatewayDiscoveryFile::restarting`] set. Only the
+/// process the file names may mark it.
+///
+/// # Errors
+/// Returns [`SidecarError::NotOwner`] when no file exists or the file
+/// names another process, the [`GatewayDiscoveryFile::read`] errors when it
+/// cannot be read or is invalid, and the [`GatewayDiscoveryFile::write_to`]
+/// errors when the rewrite fails.
+pub fn mark_restarting(run_dir: &Path, pid: u32) -> Result<(), SidecarError> {
+    let path = gateway_discovery_file_path(run_dir);
+    let mut file = match GatewayDiscoveryFile::read(run_dir)? {
+        Some(file) if file.pid == pid => file,
+        found => {
+            return Err(SidecarError::NotOwner {
+                path,
+                caller: pid,
+                owner: found.map(|file| file.pid),
+            });
+        }
+    };
+    file.restarting = true;
+    file.write_to(run_dir)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,6 +218,7 @@ mod tests {
             epoch: 1_757_000_000,
             version: "0.2.0".to_owned(),
             started_at: "2026-09-03T12:00:00Z".to_owned(),
+            restarting: false,
         }
     }
 

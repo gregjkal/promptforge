@@ -268,6 +268,7 @@ fn dropping_a_candidate_signals_without_waiting_for_an_unresponsive_child() {
         epoch: 1_778_000_001,
         version: "test".to_owned(),
         started_at: "2026-09-08T18:00:01Z".to_owned(),
+        restarting: false,
     };
     let validated = ValidatedConnection::validate(file).expect("the hanging endpoint validates");
     hang.store(true, Ordering::SeqCst);

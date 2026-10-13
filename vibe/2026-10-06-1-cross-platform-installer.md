@@ -314,22 +314,21 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
 
 ## Execution Instructions
 
-- Status: steps 1 to 6 (`peer-lookup`, `gateway-init`, `nsis-components`, `build-installer`, `platform-bundles`, `ifw-definition`) completed and merged into the fork's `master`, Step 4 through fork pull request [#5](https://github.com/gregjkal/promptforge/pull/5), Step 5 through [#6](https://github.com/gregjkal/promptforge/pull/6), and Step 6 through [#7](https://github.com/gregjkal/promptforge/pull/7). Step 7, `restart-resolution`, is implemented on branch `installer/gateway-update` from the fork's `master`, reviewed, and green in draft fork pull request [#8](https://github.com/gregjkal/promptforge/pull/8), awaiting the maintainer's merge. Steps 8 and 9 are decomposed below and not implemented; the split of `gateway-update` into Steps 7 to 9 was approved on 2026-10-13.
+- Status: steps 1 to 7 (`peer-lookup`, `gateway-init`, `nsis-components`, `build-installer`, `platform-bundles`, `ifw-definition`, `restart-resolution`) completed and merged into the fork's `master`, Step 4 through fork pull request [#5](https://github.com/gregjkal/promptforge/pull/5), Step 5 through [#6](https://github.com/gregjkal/promptforge/pull/6), Step 6 through [#7](https://github.com/gregjkal/promptforge/pull/7), and Step 7 through [#8](https://github.com/gregjkal/promptforge/pull/8), squash-merged as `605eda4e`. Steps 8 and 9 are decomposed below and not implemented; the split of `gateway-update` into Steps 7 to 9 was approved on 2026-10-13.
 - Expected order: `peer-lookup`, `gateway-init`, `nsis-components`, `build-installer`, `platform-bundles`, `ifw-definition`, `restart-resolution`, `gateway-update`, `update-surfaces`, `installers-workflow`, `docs`, `verify`. The first four change no published output. `platform-bundles` changes what `release-workshop.yml` and `nightly.yml` produce (their macOS `.app` and Linux AppImage no longer carry the gateway, Tauri builds no DMG, and Linux builds no `.deb`), and it is merged into the fork's `master` ahead of `installers-workflow` (Decision Record). So until `installers-workflow` deletes those two workflows:
   - The fork's `master` goes upstream only together with `installers-workflow`.
   - Every push to the fork's `master` triggers `nightly.yml`, whose publish job deletes and recreates the fork's `nightly` prerelease. Cancel that run right after each merge (`gh run list --repo gregjkal/promptforge --workflow nightly.yml --limit 1`, then `gh run cancel <id> --repo gregjkal/promptforge`), so the prerelease keeps a build that carries the gateway.
 - Writing: plain English, single dashes only, never em dashes or double dashes.
 - Review loop (maintainer's rule, 2026-10-13): the session that implements a step never runs its review loop. It ends at a local commit with the gates run, and the maintainer starts the review loop in a new agent session: a fresh read-only reviewer each round, fixes committed locally, one push and a draft fork pull request (`GH_REPO=gregjkal/promptforge gh pr create --draft`) once a round finds only low and nit items, then green CI.
-- Handoff (2026-10-13), for the next session:
-  - Branch `installer/gateway-update` (fork), checked out in the worktree `.claude/worktrees/ifw-definition` (the directory name is historical). Step 7 is implemented and committed locally, not pushed; no pull request is open. Steps 8 and 9 are decomposed.
-  - Step 7's review: rounds 1 and 2 ran in the implementing session before the rule above. Round 1's fixes are committed; round 2's findings are recorded in Step 7's Review record, unfixed. The next session starts the review loop with them.
+- Handoff (2026-10-13, after Step 7's merge), for the next session:
+  - Next: implement Step 8, `gateway-update`, on branch `installer/gateway-self-update`, checked out in the worktree `.claude/worktrees/ifw-definition` (the directory name is historical). The branch starts at the fork's `master` (`605eda4e`, Step 7 merged) plus this handoff commit; it is local, with no upstream set and no pull request. Push it to the fork under its own name, never to `master`.
+  - Per the review-loop rule above, the implementing session ends at a local commit with Step 8's gates run, and the maintainer starts the review loop in a new session. Step 9 follows the same way after Step 8 merges. After every merge, cancel the `nightly.yml` run it triggers (above).
+  - Step 8's anchors were checked against `605eda4e`. Step 7 moved only the ones in `crates/workshop/desktop/src/gateway/boot.rs` and `crates/gateway/app/src/relaunch.rs`, now corrected in Step 8; the rest still hold.
+  - What Step 7 left for Step 8 (Step 7, As built): `mark_restarting` marks the caller's own record; `remove_if_mine` leaves a marked file, so Step 8 adds `remove_marked_if_mine` for its rollback and watchdog; readers wait on a mark with no timeout of their own, so the watchdog is what bounds a stuck succession.
   - Approved: the split of `gateway-update` into Steps 7 to 9. The maintainer deferred code-level design to the implementer; record such choices in the step as "deferred to the implementer" and ask the maintainer only product or scope questions.
   - Answered: the Tauri CLI pin fix ships inside Step 8 (Decision Record).
-  - Next, in order:
-    1. A new session runs Step 7's review loop (above), starting from round 2's recorded findings, then pushes, opens the draft pull request, and gets CI green. The maintainer merges.
-    2. Steps 8 and 9 follow as their own branches from the fork's `master` after each merge, each implemented in one session and reviewed in another. After every merge, cancel the `nightly.yml` run it triggers (above).
   - Upstream drift: upstream `master` is 115 commits ahead of the fork's merge base (`4471d381`). None of them touch the files Steps 7 to 9 change. Upstream also bumped `quinn-proto` to 0.11.19, while the fork has 0.11.18 from Step 6; when the fork syncs, `Cargo.lock` and `crates/workspace-hack/Cargo.toml` conflict, and upstream's side wins (then `cargo hakari generate`).
-  - Local tools: `cargo-hakari` is installed under the previous job's scratch directory, not on `PATH`, so install it again or run `cargo install cargo-hakari --locked`. `cargo-deny` and `cargo-audit` are not installed; CI runs them. Qt IFW 4.11.0 was extracted under that scratch directory too, and is gone with it.
+  - Local tools: `cargo-hakari`, `cargo-deny`, and `cargo-audit` are not on this Mac's `PATH`. Step 8 adds dependencies, so its gates need `cargo install cargo-hakari cargo-deny --locked` first (`cargo hakari generate` after the `Cargo.toml` changes, then `cargo hakari verify` and `cargo deny check`). Qt IFW 4.11.0 is not installed either; Step 8 does not need it.
 
 <step-1>
 
@@ -706,7 +705,7 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
 
 <step-7>
 
-### Step 7: The `Restarting` resolution
+### Step 7: The `Restarting` resolution [completed]
 
 - Component: `gateway-api-discovery` (`file.rs`, `stale.rs`, `lock.rs`, `lib.rs`, tests), `gateway` (`relaunch.rs`, the full `GatewayDiscoveryFile` literals in `runner/thread.rs` and `diagnostics.rs`), `workshop` (`src/gateway/boot.rs`, `supervisor.rs`, `supervisor/launch.rs`, tests), `workshop-gateway` (`resolve.rs`, `test_gateway.rs`, tests).
 
@@ -802,6 +801,7 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
 - Component: `gateway` (new `src/update.rs` and `src/update/`, `src/shutdown.rs`, `src/runner.rs`, `src/runner/thread.rs`, `src/tray.rs` and each backend's `run`, `src/main.rs`, `src/admin/walled.rs`, new `src/admin/walled/update.rs`, tests), `gateway-api-discovery` (the detached spawn helper moved in from Workshop), `workshop` (`src/gateway/boot.rs` uses the moved helper), root `Cargo.toml` (`minisign-verify`, `semver`; `minisign` for tests), `crates/workshop/package.json` (Tauri CLI, below).
 
 - Covers todo `gateway-update`: the update module, the `POST /update` route, the Windows NSIS path, and the end-to-end update test. The tray notice and Workshop's call are Step 9; Step 7's `restarting` mark is in place.
+- Anchors are from the fork's `master` at `4c43fc51`, checked again at `605eda4e` after Step 7 merged; the `boot.rs` and `relaunch.rs` ones below are corrected to `605eda4e`.
 - Settled questions (deferred to the implementer, 2026-10-13; sources: the 2026-10-13 code surveys):
   - Flow on macOS and Linux, from a request (the route here, the tray item in Step 9):
     1. Check: fetch `latest.json` (`PROMPTFORGE_UPDATE_URL` or the `workshop-latest` constant, read as `PROMPTFORGE_MODELS_SHEET_URL` is, `runner/thread.rs` lines 307 to 312), with `gateway_protocol::http_util::bounded_client` and `read_bytes_capped` (`crates/gateway/protocol/src/http_util.rs`, lines 24 and 103). Parse only `version` and `platforms.<key>.{url, signature}`; compare with `semver` against `CARGO_PKG_VERSION`, stripping a leading `v`, as the Tauri updater does (`tauri-plugin-updater` 2.11.0, `updater.rs`, lines 1514 to 1521). Keys are `darwin-aarch64-gateway`, `darwin-x86_64-gateway`, `linux-x86_64-gateway`, and `linux-aarch64-gateway`; the `-gateway` suffix never collides with the updater's `{os}-{arch}-{installer}` keys (lines 608 to 638).
@@ -827,9 +827,9 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
       - `--profile` when given;
       - `--no-tray` when the old process ran headless;
       - always `--login`, and never `--browser` or `--print-url`.
-    - The detached spawn with an exit reaper moves from `crates/workshop/desktop/src/gateway/boot.rs` (lines 208 to 242, Windows breakaway flags included) into `gateway-api-discovery`, so the gateway and Workshop share it.
+    - The detached spawn with an exit reaper moves from `crates/workshop/desktop/src/gateway/boot.rs` (the Windows creation-flag constants at lines 18 to 28, and `spawn_detached_windows_with`, `detached_command`, and `spawn_detached` at lines 265 to 316) into `gateway-api-discovery`, so the gateway and Workshop share it.
   - Waits and rollback:
-    - The old process polls, as `wait_for_owner` does (`relaunch.rs`, lines 118 to 149), for any validated, unmarked gateway whose `version` is the advertised one. On success it removes `<name>.previous` and the staging directory, then exits.
+    - The old process polls, as `wait_for_owner` does (`relaunch.rs`, lines 127 to 158, with `wait_for_owner_with`), for any validated, unmarked gateway whose `version` is the advertised one. On success it removes `<name>.previous` and the staging directory, then exits.
     - The successor publishes about a second after start, since provisioning is queued after readiness (`runner/thread.rs`, lines 261 to 281). So the wait is 30 seconds, and the rollback's wait is 30 seconds.
     - On timeout, the old process:
       1. kills the successor if its reaper has not seen it exit;

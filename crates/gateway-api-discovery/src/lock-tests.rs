@@ -316,24 +316,23 @@ fn the_cancellable_lock_holder_attaches_to_the_successor() {
     }
 }
 
-#[test]
-fn a_loser_waits_through_a_handoff_while_another_caller_holds_the_lock() {
-    let image = own_image_name();
+/// Runs `race` as a loser while another caller holds the launch lock over
+/// a marked file, then publishes the successor it must attach to.
+fn loser_through_handoff(
+    race: impl FnOnce(&Path) -> Result<LaunchDecision, SidecarError> + Send + 'static,
+) {
     let dir = tempfile::TempDir::new().expect("tempdir");
     let lock_path = lock_file_path(dir.path());
     std::fs::write(&lock_path, b"").expect("create the lock file");
     let holder = std::fs::File::open(&lock_path).expect("open the lock file");
     holder.lock().expect("another caller holds the launch lock");
     let successor = live_file(fixture_gateway());
-    let published = successor.clone();
     let run_dir = dir.path().to_owned();
     marked_file().write_to(&run_dir).expect("write the mark");
-    let worker = std::thread::spawn(move || {
-        launch_or_attach_named(&run_dir, &image, Duration::from_millis(150))
-    });
+    let worker = std::thread::spawn(move || race(&run_dir));
     std::thread::sleep(Duration::from_millis(600));
     assert!(!worker.is_finished(), "the loser outwaits its timeout");
-    published
+    successor
         .write_to(dir.path())
         .expect("the successor publishes");
     match worker.join().expect("joins").expect("settles") {
@@ -341,6 +340,27 @@ fn a_loser_waits_through_a_handoff_while_another_caller_holds_the_lock() {
         LaunchDecision::Launch(_) => panic!("the loser never holds the lock here"),
     }
     drop(holder);
+}
+
+#[test]
+fn a_loser_waits_through_a_handoff_while_another_caller_holds_the_lock() {
+    let image = own_image_name();
+    loser_through_handoff(move |dir| {
+        launch_or_attach_named(dir, &image, Duration::from_millis(150))
+    });
+}
+
+#[test]
+fn a_cancellable_loser_waits_through_a_handoff_while_another_caller_holds_the_lock() {
+    let image = own_image_name();
+    loser_through_handoff(move |dir| {
+        launch_or_attach_named_cancellable(
+            dir,
+            &image,
+            Duration::from_millis(150),
+            &crate::CancellationToken::new(),
+        )
+    });
 }
 
 #[test]

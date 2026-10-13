@@ -17,8 +17,13 @@ use workshop_protocol::Activity;
 use workshop_registry::Push;
 use workshop_support::GatewayConfig;
 
-/// Delay between probes while the gateway discovery file marks a handoff.
+/// Delay between probes while the gateway discovery file marks a handoff,
+/// and after a resolved gateway fails its second proof.
 const HANDOFF_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Consecutive failed second proofs of a resolved gateway before startup
+/// falls back, so a gateway that answers only some probes cannot hold it.
+const SECOND_PROOF_ATTEMPTS: u32 = 3;
 
 /// The gateway endpoint state construction connects to, and how it was
 /// found.
@@ -223,7 +228,8 @@ fn resolve_through_handoff(
         // timeout of its own: the mark lasts only while the marking
         // gateway lives, and that gateway bounds its waits.
         let mut announced = false;
-        let resolution = loop {
+        let mut failed_proofs = 0;
+        loop {
             match probe(run_dir) {
                 Ok(Resolution::Restarting) => {
                     if !std::mem::replace(&mut announced, true) {
@@ -231,6 +237,7 @@ fn resolve_through_handoff(
                             "the local gateway is handing off to a successor; waiting for it"
                         );
                     }
+                    failed_proofs = 0;
                     pause(HANDOFF_POLL_INTERVAL);
                 }
                 // The probe's proof and this one are separate. When this
@@ -246,29 +253,36 @@ fn resolve_through_handoff(
                             stale: None,
                         });
                     }
-                    Err(reason) => tracing::info!(
-                        reason = stale_clause(reason),
-                        "the resolved gateway changed before attaching; resolving again"
-                    ),
+                    Err(reason) => {
+                        failed_proofs += 1;
+                        if failed_proofs == SECOND_PROOF_ATTEMPTS {
+                            stale = Some(reason);
+                            break;
+                        }
+                        tracing::info!(
+                            reason = stale_clause(reason),
+                            "the resolved gateway changed before attaching; resolving again"
+                        );
+                        pause(HANDOFF_POLL_INTERVAL);
+                    }
                 },
-                resolution => break resolution,
+                Ok(Resolution::Stale(reason)) => {
+                    tracing::warn!(
+                        reason = stale_clause(reason),
+                        "removed a stale gateway discovery file"
+                    );
+                    stale = Some(reason);
+                    break;
+                }
+                // A read or cleanup I/O failure degrades discovery to the
+                // config fallback; it never fails startup on its own.
+                Err(error) => {
+                    tracing::warn!("could not resolve the gateway discovery file: {error}");
+                    break;
+                }
+                // Absent, or any other resolution: nothing to attach to.
+                Ok(_) => break,
             }
-        };
-        match resolution {
-            Ok(Resolution::Stale(reason)) => {
-                tracing::warn!(
-                    reason = stale_clause(reason),
-                    "removed a stale gateway discovery file"
-                );
-                stale = Some(reason);
-            }
-            // A read or cleanup I/O failure degrades discovery to the
-            // config fallback; it never fails startup on its own.
-            Err(error) => {
-                tracing::warn!("could not resolve the gateway discovery file: {error}");
-            }
-            // Absent, or any other resolution: nothing to attach to.
-            _ => {}
         }
     }
     if is_explicit(config) {
@@ -336,6 +350,7 @@ fn stale_clause(reason: StaleReason) -> &'static str {
         StaleReason::ImageMismatch => "the recorded pid belongs to another program",
         StaleReason::HealthFailed => "the recorded gateway does not answer",
         StaleReason::KeyRejected => "the file's key was rejected",
+        StaleReason::Restarting => "the recorded gateway is handing off to a successor",
         _ => "the file is stale",
     }
 }

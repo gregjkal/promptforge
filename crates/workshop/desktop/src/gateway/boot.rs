@@ -78,33 +78,41 @@ pub(crate) fn ensure_gateway(config: &Config) -> anyhow::Result<GatewayAttachmen
         validated_attachment,
         |exe| {
             launch_and_attach_cancellable(&run_dir, &exe, &CancellationToken::new())
-                .and_then(validated_recovery_attachment)
                 .context("launch the sidecar gateway")
         },
         || std::thread::sleep(RECOVERY_POLL_INTERVAL),
     )
 }
 
+/// Consecutive failed second proofs of a resolved gateway before boot gives
+/// up, so a gateway that answers only some probes fails boot instead of
+/// holding it.
+const SECOND_PROOF_ATTEMPTS: u32 = 3;
+
 /// Plans until the plan settles, with resolution, the attachment proof, the
 /// launch, and the pause between plans injected for tests.
 ///
 /// A handoff pauses and plans again, with no timeout of its own: the mark
 /// lasts only while the marking gateway lives, and that gateway bounds its
-/// waits. A resolved file whose second proof fails also plans again: the
-/// gateway changed between the two proofs, as when a handoff begins, and
-/// the next plan sees what it became.
+/// waits. A gateway that resolution proved, or that the launch race found
+/// already running, is proved a second time; when that proof fails, the
+/// gateway changed between the two, as when a handoff begins, so boot
+/// pauses and plans again, up to [`SECOND_PROOF_ATTEMPTS`] times in a row.
+/// A gateway this boot launched keeps failing on a failed proof, since a
+/// new plan would lose its ownership.
 pub(super) fn attach_or_launch(
     run_dir: &Path,
     install: &WorkshopInstall,
     explicit: bool,
     mut resolve: impl FnMut(&Path) -> Result<Resolution, SidecarError>,
     mut attach: impl FnMut(GatewayDiscoveryFile) -> anyhow::Result<GatewayAttachment>,
-    launch: impl FnOnce(PathBuf) -> anyhow::Result<GatewayAttachment>,
+    mut launch: impl FnMut(PathBuf) -> anyhow::Result<RecoveryLaunch>,
     mut pause: impl FnMut(),
 ) -> anyhow::Result<GatewayAttachment> {
     let mut announced = false;
+    let mut failed_proofs = 0;
     loop {
-        match plan_gateway(run_dir, install, explicit, &mut resolve) {
+        let file = match plan_gateway(run_dir, install, explicit, &mut resolve) {
             GatewayPlan::AwaitRestart => {
                 if !std::mem::replace(&mut announced, true) {
                     eprintln!(
@@ -112,17 +120,30 @@ pub(super) fn attach_or_launch(
                          before attaching"
                     );
                 }
+                failed_proofs = 0;
                 pause();
+                continue;
             }
-            GatewayPlan::Attach(file) => match attach(file) {
-                Ok(attachment) => return Ok(attachment),
-                Err(error) => {
-                    eprintln!("the resolved gateway changed before attaching: {error:#}");
-                }
-            },
+            GatewayPlan::Attach(file) => file,
             GatewayPlan::ConfigOnly => return Ok(GatewayAttachment::Config),
             GatewayPlan::Fail => return Err(no_gateway_error(install)),
-            GatewayPlan::Launch(exe) => return launch(exe),
+            GatewayPlan::Launch(exe) => match launch(exe)? {
+                RecoveryLaunch::Attached(file) => file,
+                RecoveryLaunch::Launched { child_pid, file } => {
+                    return launched_attachment(child_pid, file);
+                }
+            },
+        };
+        match attach(file) {
+            Ok(attachment) => return Ok(attachment),
+            Err(error) => {
+                failed_proofs += 1;
+                if failed_proofs == SECOND_PROOF_ATTEMPTS {
+                    return Err(error);
+                }
+                eprintln!("the resolved gateway changed before attaching: {error:#}");
+                pause();
+            }
         }
     }
 }
@@ -134,20 +155,19 @@ fn validated_attachment(file: GatewayDiscoveryFile) -> anyhow::Result<GatewayAtt
         .context("validate the selected gateway process identity")
 }
 
-fn validated_recovery_attachment(recovery: RecoveryLaunch) -> anyhow::Result<GatewayAttachment> {
-    match recovery {
-        RecoveryLaunch::Attached(file) => validated_attachment(file),
-        RecoveryLaunch::Launched { child_pid, file } => {
-            let validated = ValidatedConnection::validate(file)
-                .context("validate the launched gateway process identity")?;
-            Ok(
-                match RecoveryCandidate::authenticate(child_pid, validated) {
-                    RecoveryOwnership::Owned(candidate) => GatewayAttachment::Launched(candidate),
-                    RecoveryOwnership::Unowned(unowned) => GatewayAttachment::Sidecar(unowned),
-                },
-            )
-        }
-    }
+/// Proves the gateway this boot launched and keeps its ownership.
+fn launched_attachment(
+    child_pid: u32,
+    file: GatewayDiscoveryFile,
+) -> anyhow::Result<GatewayAttachment> {
+    let validated = ValidatedConnection::validate(file)
+        .context("validate the launched gateway process identity")?;
+    Ok(
+        match RecoveryCandidate::authenticate(child_pid, validated) {
+            RecoveryOwnership::Owned(candidate) => GatewayAttachment::Launched(candidate),
+            RecoveryOwnership::Unowned(unowned) => GatewayAttachment::Sidecar(unowned),
+        },
+    )
 }
 
 /// Chooses attach, a wait through a handoff, launch, configured fallback,

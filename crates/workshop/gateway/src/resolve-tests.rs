@@ -173,9 +173,32 @@ fn a_gateway_that_changes_between_the_two_proofs_is_resolved_again() {
     .expect("the successor resolves");
 
     assert_eq!(probes, 3, "the failed second proof probed again");
-    assert_eq!(pauses, 1, "only the handoff paused");
+    assert_eq!(pauses, 2, "the failed proof and the handoff each paused");
     assert_eq!(resolved.source(), GatewaySource::GatewayDiscoveryFile);
     assert_eq!(resolved.stale(), None, "no file was removed");
+}
+
+#[test]
+fn a_gateway_that_keeps_failing_its_second_proof_falls_back_to_config() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    // Names the test process, which the second proof refuses as no gateway.
+    let changed = live_file(1, "k");
+    let mut probes = 0_u32;
+
+    let resolved = resolve_through_handoff(
+        Some(dir.path()),
+        &explicit_config(),
+        |_| {
+            probes += 1;
+            Ok(Resolution::Attach(changed.clone()))
+        },
+        |_| {},
+    )
+    .expect("explicit config is the fallback");
+
+    assert_eq!(probes, SECOND_PROOF_ATTEMPTS);
+    assert_eq!(resolved.source(), GatewaySource::Config);
+    assert_eq!(resolved.stale(), Some(StaleReason::ImageMismatch));
 }
 
 #[test]

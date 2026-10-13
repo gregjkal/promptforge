@@ -8,7 +8,8 @@
 //! file to go live and attaches. Cleanup is the lock holder's privilege.
 //! The OS-file-lock pattern mirrors gateway-local's `lock_artifact`: an
 //! `OpenOptions` create plus a `std::fs::File` advisory lock, released by
-//! dropping the handle.
+//! dropping the handle, or explicitly while the holder waits through a
+//! handoff.
 
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::Path;

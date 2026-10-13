@@ -2,13 +2,15 @@
 //! supervision launches nothing, and a dead marker still recovers.
 
 use std::cell::{Cell, RefCell};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use gateway_api_discovery::{CancellationToken, GatewayDiscoveryFile, Resolution};
 
 use super::{TestIdentity, dead_pid, live_file, probe_own_image, test_identity, workshop_exe};
-use crate::gateway::boot::{GatewayPlan, WorkshopInstall, attach_or_launch, plan_gateway};
+use crate::gateway::boot::{
+    GatewayPlan, RecoveryLaunch, WorkshopInstall, attach_or_launch, plan_gateway,
+};
 use crate::gateway::identity::GatewayAttachment;
 use crate::gateway::supervisor::{
     SUPERVISION_BASE_DELAY, SupervisionProbe, SystemClock, probe_local_gateway, run_supervision,
@@ -59,42 +61,95 @@ fn boot_launches_over_a_handoff_whose_gateway_died() {
     assert!(matches!(plan, GatewayPlan::Launch(_)), "{plan:?}");
 }
 
-#[test]
-fn boot_plans_again_when_the_resolved_gateway_changes_before_attaching() {
+/// Runs boot's loop over a scripted resolution and launch, attaching only
+/// `successor`; returns the outcome, the files offered for attachment, and
+/// the pause count.
+fn boot_through(
+    resolutions: impl Fn(usize) -> Resolution,
+    launch: impl FnMut(PathBuf) -> anyhow::Result<RecoveryLaunch>,
+    successor: &GatewayDiscoveryFile,
+) -> (
+    anyhow::Result<GatewayAttachment>,
+    Vec<GatewayDiscoveryFile>,
+    usize,
+) {
     let (_dir, exe) = workshop_exe(true);
-    let changed = live_file(54_377, "old");
-    let successor = live_file(54_378, "new");
-    let resolves = Cell::new(0_usize);
-    let attached = RefCell::new(Vec::new());
-    let pauses = Cell::new(0_usize);
-
-    let attachment = attach_or_launch(
+    let mut resolves = 0;
+    let mut attached = Vec::new();
+    let mut pauses = 0;
+    let outcome = attach_or_launch(
         Path::new("unused"),
         &install(&exe),
         false,
         |_| {
-            resolves.set(resolves.get() + 1);
-            Ok(match resolves.get() {
-                1 => Resolution::Attach(changed.clone()),
-                2 => Resolution::Restarting,
-                _ => Resolution::Attach(successor.clone()),
-            })
+            resolves += 1;
+            Ok(resolutions(resolves))
         },
         |file| {
-            attached.borrow_mut().push(file.clone());
-            if file == changed {
+            attached.push(file.clone());
+            if file == *successor {
+                Ok(GatewayAttachment::Config)
+            } else {
                 anyhow::bail!("the recorded gateway is handing off to a successor")
             }
-            Ok(GatewayAttachment::Config)
+        },
+        launch,
+        || pauses += 1,
+    );
+    (outcome, attached, pauses)
+}
+
+#[test]
+fn boot_plans_again_when_the_resolved_gateway_changes_before_attaching() {
+    let changed = live_file(54_377, "old");
+    let successor = live_file(54_378, "new");
+
+    let (outcome, attached, pauses) = boot_through(
+        |resolve| match resolve {
+            1 => Resolution::Attach(changed.clone()),
+            2 => Resolution::Restarting,
+            _ => Resolution::Attach(successor.clone()),
         },
         |_| panic!("a resolvable gateway is never launched over"),
-        || pauses.set(pauses.get() + 1),
-    )
-    .expect("the successor attaches");
+        &successor,
+    );
 
-    assert!(matches!(attachment, GatewayAttachment::Config));
-    assert_eq!(attached.into_inner(), [changed, successor]);
-    assert_eq!(pauses.get(), 1, "only the handoff paused");
+    assert!(matches!(outcome, Ok(GatewayAttachment::Config)));
+    assert_eq!(attached, [changed, successor]);
+    assert_eq!(pauses, 2, "the failed proof and the handoff each paused");
+}
+
+#[test]
+fn boot_plans_again_when_the_launch_race_finds_a_gateway_that_changes() {
+    let changed = live_file(54_377, "old");
+    let successor = live_file(54_378, "new");
+    let launched = changed.clone();
+
+    let (outcome, attached, _) = boot_through(
+        |resolve| match resolve {
+            1 => Resolution::Absent,
+            _ => Resolution::Attach(successor.clone()),
+        },
+        move |_| Ok(RecoveryLaunch::Attached(launched.clone())),
+        &successor,
+    );
+
+    assert!(matches!(outcome, Ok(GatewayAttachment::Config)));
+    assert_eq!(attached, [changed, successor]);
+}
+
+#[test]
+fn boot_fails_when_a_resolved_gateway_keeps_failing_its_second_proof() {
+    let changed = live_file(54_377, "old");
+
+    let (outcome, attached, _) = boot_through(
+        |_| Resolution::Attach(changed.clone()),
+        |_| panic!("a resolvable gateway is never launched over"),
+        &live_file(54_378, "new"),
+    );
+
+    assert!(outcome.is_err());
+    assert_eq!(attached.len(), 3, "boot gave up after three failed proofs");
 }
 
 #[test]

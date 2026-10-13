@@ -14,7 +14,8 @@
 //! 1. The writer ([`GatewayDiscoveryFile::write_to`]) lands the file atomically
 //!    with owner-only permissions (mode `0600` on Unix; on Windows the file
 //!    relies on the user profile's ACL, which already restricts it to the
-//!    owner) and removes it on clean shutdown with [`remove_if_mine`].
+//!    owner) and removes it on clean shutdown with [`remove_if_mine`],
+//!    which leaves a file carrying the handoff mark for the successor.
 //! 2. A reader ([`resolve`]) attaches only when the file is live: the pid
 //!    is alive, one OS process boot with a `promptforge-gateway` image
 //!    brackets a same-socket health and bearer proof, and the file

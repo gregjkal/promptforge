@@ -319,14 +319,15 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
   - The fork's `master` goes upstream only together with `installers-workflow`.
   - Every push to the fork's `master` triggers `nightly.yml`, whose publish job deletes and recreates the fork's `nightly` prerelease. Cancel that run right after each merge (`gh run list --repo gregjkal/promptforge --workflow nightly.yml --limit 1`, then `gh run cancel <id> --repo gregjkal/promptforge`), so the prerelease keeps a build that carries the gateway.
 - Writing: plain English, single dashes only, never em dashes or double dashes.
+- Review loop (maintainer's rule, 2026-10-13): the session that implements a step never runs its review loop. It ends at a local commit with the gates run, and the maintainer starts the review loop in a new agent session: a fresh read-only reviewer each round, fixes committed locally, one push and a draft fork pull request (`GH_REPO=gregjkal/promptforge gh pr create --draft`) once a round finds only low and nit items, then green CI.
 - Handoff (2026-10-13), for the next session:
-  - Branch `installer/gateway-update` (fork), checked out in the worktree `.claude/worktrees/ifw-definition` (the directory name is historical). It holds only plan commits: the nightly channel dropped, Steps 7, 8, and 9 decomposed. Nothing is implemented. No pull request is open.
+  - Branch `installer/gateway-update` (fork), checked out in the worktree `.claude/worktrees/ifw-definition` (the directory name is historical). Step 7 is implemented and committed locally, not pushed; no pull request is open. Steps 8 and 9 are decomposed.
+  - Step 7's review: rounds 1 and 2 ran in the implementing session before the rule above. Round 1's fixes are committed; round 2's findings are recorded in Step 7's Review record, unfixed. The next session starts the review loop with them.
   - Approved: the split of `gateway-update` into Steps 7 to 9. The maintainer deferred code-level design to the implementer; record such choices in the step as "deferred to the implementer" and ask the maintainer only product or scope questions.
   - Answered: the Tauri CLI pin fix ships inside Step 8 (Decision Record).
   - Next, in order:
-    1. Decompose Step 9 in full (done, 2026-10-13).
-    2. Implement Step 7 on `installer/gateway-update`, opening a draft fork pull request (`GH_REPO=gregjkal/promptforge gh pr create --draft`). Then run the review loop: a fresh read-only reviewer each round, local commits, and a single push once a round finds only low and nit items, then green CI.
-    3. Steps 8 and 9 follow as their own branches and pull requests from the fork's `master` after each merge. After every merge, cancel the `nightly.yml` run it triggers (above).
+    1. A new session runs Step 7's review loop (above), starting from round 2's recorded findings, then pushes, opens the draft pull request, and gets CI green. The maintainer merges.
+    2. Steps 8 and 9 follow as their own branches from the fork's `master` after each merge, each implemented in one session and reviewed in another. After every merge, cancel the `nightly.yml` run it triggers (above).
   - Upstream drift: upstream `master` is 115 commits ahead of the fork's merge base (`4471d381`). None of them touch the files Steps 7 to 9 change. Upstream also bumped `quinn-proto` to 0.11.19, while the fork has 0.11.18 from Step 6; when the fork syncs, `Cargo.lock` and `crates/workspace-hack/Cargo.toml` conflict, and upstream's side wins (then `cargo hakari generate`).
   - Local tools: `cargo-hakari` is installed under the previous job's scratch directory, not on `PATH`, so install it again or run `cargo install cargo-hakari --locked`. `cargo-deny` and `cargo-audit` are not installed; CI runs them. Qt IFW 4.11.0 was extracted under that scratch directory too, and is gone with it.
 
@@ -667,7 +668,7 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
   - Delivery:
     - Work on `installer/ifw-definition`, which starts from this decomposition commit.
     - Open a draft pull request on the fork with `GH_REPO=gregjkal/promptforge gh pr create --draft`. Nothing goes to `cppalliance/promptforge`.
-    - Review rounds commit locally until a round finds only nits. Then push the branch and let CI run once on the final head. The `native-whisper` check skips on the fork.
+    - Review rounds commit locally until a round finds only nits. Then push the branch and let CI run once on the final head. The `native-whisper` check skips on the fork. (Since 2026-10-13 the review loop runs in its own session; see Execution Instructions.)
     - Add As built notes for anything that differs from this step.
     - The maintainer merges. After a merge, cancel the `nightly.yml` run it triggers, as above.
     - No em dashes in prose, commits, or pull request text.
@@ -774,6 +775,18 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
   - Accepted risk: the marking process's liveness is identity plus image name, with no bearer or start-time proof. If the marking gateway dies and another `promptforge-gateway` (another profile's) reuses its pid, readers wait for as long as that gateway lives. Comparing the process start time with the file's `epoch` would close it, but the platform start markers are not wall-clock times.
 - Review record:
   - Round 1 fixed two mediums (the compare-before-delete removal, and the log lines plus Step 8's watchdog for unbounded waits) and the lows: the vacuous `wait_for_owner` unit test replaced by the binary-level test, tests for the launched-gateway probe through a handoff and for cancelling a lock holder's handoff wait, the accepted pid-reuse risk recorded, the plan's Status line, and the `launch_or_attach` doc. Not added: a test of `ensure_gateway`'s loop itself, which reads the real run directory; `plan_gateway`'s `AwaitRestart` is tested.
+  - Round 2 (on `c1e19ca2`) found nothing at medium or above. Its findings are recorded here unfixed, for the review-loop session (Execution Instructions) to take up:
+    - Low: `resolve_named`'s compare-before-delete guard (`stale.rs`, around line 135) has no test; both race tests go through the cancellable path. Suggested: run `resolve_named` through `resolve_named_cancellable_with_effects` with a fresh token and a `validate_named` adapter, leaving one tested loop.
+    - Low: removal still has a microsecond gap between the re-read in `still_on_disk` and `fs::remove_file`, where a successor's atomic rename could land; the `Judged` doc and the As built line read as if the gap were closed. Suggested: say the window is narrowed, or close it by renaming aside, comparing, and restoring with `hard_link`.
+    - Low: the launched-gateway probe's `Restarting` arm (`supervisor/launch.rs`, around line 197) is nearly unreachable, because the health probe runs first and a marked gateway has stopped serving; its test passes with the old wildcard too. Suggested: record the handoff error when `file.restarting` is set, before the health probe, and test that a timeout names the handoff.
+    - Low: Workshop boot's `validated_attachment` (`boot.rs`, around line 100) and workshop-gateway's `validate_resolved` (`resolve.rs`, around line 240) prove the resolved file a second time; a handoff that starts between the two makes boot fail, or workshop-server fall back to the configured endpoint. The double proof predates this step, but Steps 8 and 9 make handoffs routine. Suggested: plan or probe again when the second proof fails.
+    - Nits:
+      - `stale.rs`'s module doc says a marked file is "neither" live nor stale, though a dead one is stale, and line 2 omits the third outcome.
+      - `still_on_disk`'s doc should say "An I/O failure" counts as changed.
+      - In `tests/restarting.rs`, the "More polls than any fixed interval" comment is meaningless with an instant wait, and the supervision test should assert every handoff wait is `SUPERVISION_BASE_DELAY`.
+      - The As built "each wait logs once" does not hold for `launch_or_attach`'s waits.
+      - `dead_pid` is duplicated in `lock-tests.rs`.
+  - Rounds 1 and 2 ran in the implementing session; the maintainer then set the rule that review loops start in a new session (2026-10-13), so the loop stopped here.
   - Local runs on this Mac: `realtime_relay::overload::stalled_browser_cleanup_is_bounded_after_gateway_disconnect` in `workshop-server` fails at `overload.rs` line 21 on this branch and on the commit before Step 7 alike, so it is pre-existing and outside this step.
 
 </step-7>

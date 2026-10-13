@@ -105,6 +105,7 @@ mod speech;
 #[cfg(test)]
 mod test_support;
 mod tray;
+mod update;
 #[cfg(feature = "web-search")]
 mod web_search;
 
@@ -129,9 +130,10 @@ use crate::boot_load::STT_RUNTIME_UNAVAILABLE;
 pub use crate::diagnostics::diagnostics_json;
 pub use crate::relaunch::{GatewayStartup, GatewayStartupError, settle_gateway_startup};
 pub use crate::runner::{
-    Gateway, GatewayHandle, ProfilesContext, ServeOptions, run, run_printing_url, spawn,
+    Gateway, GatewayHandle, ProfilesContext, ServeOptions, Stopped, run, run_printing_url, spawn,
 };
 pub use crate::tray::run_with_tray;
+pub use crate::update::{Succession, SuccessionError, SuccessorShape, version};
 pub use gateway_config::{
     Config, ConfigError, ConfigErrorKind, ProfileName, ProfileNameError, Secret,
 };

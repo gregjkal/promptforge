@@ -1,8 +1,9 @@
 //! The Gateway's public wire vocabulary (`gateway-api-types`): the provider
 //! model sheet schema, one versioned JSON snapshot of every provider's models
 //! published as a release artifact and consumed by the Gateway and the
-//! Workshop UI; the model metadata types; and the [`Progress`] snapshot the
-//! Gateway streams to its status consumers.
+//! Workshop UI; the model metadata types; the [`Progress`] snapshot the
+//! Gateway streams to its status consumers; and the [`UpdateAnswer`] its
+//! `POST /update` route returns.
 //!
 //! This crate is pure vocabulary: it depends only on `serde` and `time` and
 //! on no other workspace crate, so every product crate may depend on it.
@@ -14,9 +15,11 @@ use time::{Date, OffsetDateTime};
 
 mod metadata;
 pub mod progress;
+mod update;
 
 pub use metadata::{Capabilities, ModelInfo, ModelKind, ThinkingMode};
 pub use progress::Progress;
+pub use update::{UpdateAnswer, UpdateOutcome};
 
 /// The sheet schema version this reader accepts: the writer in
 /// `gateway-cloud-providers` stamps it and the gateway reader gates on it.

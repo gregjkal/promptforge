@@ -159,11 +159,27 @@ impl GatewayDiscoveryFile {
 /// Returns [`SidecarError::Remove`] when the file is this process's own
 /// but cannot be removed.
 pub fn remove_if_mine(run_dir: &Path, pid: u32) -> Result<(), SidecarError> {
+    remove_owned(run_dir, pid, false)
+}
+
+/// Removes the gateway discovery file in `run_dir` when it belongs to
+/// process `pid` and carries the handoff mark: how a gateway whose
+/// succession failed withdraws the mark it wrote, so readers stop waiting.
+/// An unmarked, foreign, missing, or unreadable file is left alone.
+///
+/// # Errors
+/// Returns [`SidecarError::Remove`] when the file is this process's marked
+/// record but cannot be removed.
+pub fn remove_marked_if_mine(run_dir: &Path, pid: u32) -> Result<(), SidecarError> {
+    remove_owned(run_dir, pid, true)
+}
+
+fn remove_owned(run_dir: &Path, pid: u32, restarting: bool) -> Result<(), SidecarError> {
     let path = gateway_discovery_file_path(run_dir);
     match fs::read_to_string(&path) {
         Ok(raw) => {
             let owned = serde_json::from_str::<GatewayDiscoveryFile>(&raw)
-                .is_ok_and(|file| file.pid == pid && !file.restarting);
+                .is_ok_and(|file| file.pid == pid && file.restarting == restarting);
             if !owned {
                 return Ok(());
             }

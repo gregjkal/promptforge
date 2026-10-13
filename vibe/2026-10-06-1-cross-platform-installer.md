@@ -84,6 +84,7 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
   - A stable release. The README's one download link (`README.md`, line 10) points at `releases/tag/workshop-latest`, which opens the bare tag with only GitHub's source archives, and the updater endpoint (`workshop-latest/latest.json`) returns 404, so no installed copy can update itself. The first `v0.3.1` release fixes this.
   - A gateway-only install on macOS and Windows. The installer provides it by checking only Gateway; there is no separate gateway download. Releases also carry `latest.json` and the signed updater archives the gateway and Workshop fetch when updating; these are not for people to download.
   - The cargo-dist gateway pipeline never published a release (no `gateway-v*` tag exists), so deleting it loses nothing.
+- Outside this repository: the gateway also downloads its cloud model list at runtime from `cppalliance/promptforge-cloud-providers`'s rolling `models` release (`DEFAULT_SHEET_URL`, `crates/gateway/app/src/boot.rs`, line 26), which that repository's weekly workflow rebuilds from this repository's `master`. This plan does not touch it. Its schedule has failed since 2026-09-21: the package it builds was renamed to `gateway-cloud-providers` (`32e4cf05`).
 - Tags with no release: `workshop-latest` (the release is created on the first publish), `promptforge-workshop-latest`, `promptforge-workshop-v0.2.0` and its three `-test` tags, `v0.1.0`, `v0.3.0`. This plan touches none of them; cleanup is the maintainers' call.
 
 ## Functional Specification
@@ -312,7 +313,7 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
 
 ## Execution Instructions
 
-- Status: steps 1 to 6 (`peer-lookup`, `gateway-init`, `nsis-components`, `build-installer`, `platform-bundles`, `ifw-definition`) completed and merged into the fork's `master`, Step 4 through fork pull request [#5](https://github.com/gregjkal/promptforge/pull/5), Step 5 through [#6](https://github.com/gregjkal/promptforge/pull/6), and Step 6 through [#7](https://github.com/gregjkal/promptforge/pull/7). Next is Step 7, `restart-resolution`, decomposed below on branch `installer/gateway-update` from the fork's `master`, and approved with the split of `gateway-update` into Steps 7 to 9 on 2026-10-13. Step 8 is decomposed next; Step 7 is not implemented yet.
+- Status: steps 1 to 6 (`peer-lookup`, `gateway-init`, `nsis-components`, `build-installer`, `platform-bundles`, `ifw-definition`) completed and merged into the fork's `master`, Step 4 through fork pull request [#5](https://github.com/gregjkal/promptforge/pull/5), Step 5 through [#6](https://github.com/gregjkal/promptforge/pull/6), and Step 6 through [#7](https://github.com/gregjkal/promptforge/pull/7). Next is Step 7, `restart-resolution`, decomposed below on branch `installer/gateway-update` from the fork's `master`, and approved with the split of `gateway-update` into Steps 7 to 9 on 2026-10-13. Step 8 is decomposed below; neither is implemented yet.
 - Expected order: `peer-lookup`, `gateway-init`, `nsis-components`, `build-installer`, `platform-bundles`, `ifw-definition`, `restart-resolution`, `gateway-update`, `update-surfaces`, `installers-workflow`, `docs`, `verify`. The first four change no published output. `platform-bundles` changes what `release-workshop.yml` and `nightly.yml` produce (their macOS `.app` and Linux AppImage no longer carry the gateway, Tauri builds no DMG, and Linux builds no `.deb`), and it is merged into the fork's `master` ahead of `installers-workflow` (Decision Record). So until `installers-workflow` deletes those two workflows:
   - The fork's `master` goes upstream only together with `installers-workflow`.
   - Every push to the fork's `master` triggers `nightly.yml`, whose publish job deletes and recreates the fork's `nightly` prerelease. Cancel that run right after each merge (`gh run list --repo gregjkal/promptforge --workflow nightly.yml --limit 1`, then `gh run cancel <id> --repo gregjkal/promptforge`), so the prerelease keeps a build that carries the gateway.
@@ -753,24 +754,102 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
 
 <step-8>
 
-### Step 8: Gateway self-update (outline, decomposed after Step 7 is approved)
+### Step 8: Gateway self-update
 
-- Covers the rest of `gateway-update` except its callers: the update module (check, verify, stage, swap, handoff, rollback), `POST /update` in `crates/gateway/app/src/admin/walled/update.rs` beside `shutdown.rs`, the Windows NSIS path, and the end-to-end update test from the Testing Plan.
-- Gaps the survey found, with the proposed answer for each:
-  - **Lease and process lifetime.** The lease is a local in `main.rs` (line 136) that no library API sees, and every tray tick quits the process once serving stops and shutdown has fired (`tray/macos-actions.rs` lines 24 to 30, `windows-actions.rs` about 25 to 34, `linux.rs` 164 to 169). The serve loop therefore returns a handoff outcome; `main` keeps the lease and performs the handoff after the runtime has stopped:
-    1. Mark the file (Step 7's `mark_restarting`) before serving stops.
-    2. Drop the lease.
-    3. Spawn the successor.
-    4. Wait for it, and roll back if it never publishes.
+- Component: `gateway` (new `src/update.rs` and `src/update/`, `src/shutdown.rs`, `src/runner.rs`, `src/runner/thread.rs`, `src/tray.rs` and each backend's `run`, `src/main.rs`, `src/admin/walled.rs`, new `src/admin/walled/update.rs`, tests), `gateway-api-discovery` (the detached spawn helper moved in from Workshop), `workshop` (`src/gateway/boot.rs` uses the moved helper), root `Cargo.toml` (`minisign-verify`, `semver`; `minisign` for tests), `crates/workshop/package.json` (Tauri CLI, below).
 
-    To confirm first: that the macOS tray's quit path returns to `main` instead of ending the process inside AppKit.
-  - **Successor arguments.** The successor gets the old process's `--config` and `--profile` plus `--login`, not `--login` alone, so a gateway started with an explicit config keeps it.
-  - **Download and extract.** The artifact store's `download` and `extract_archive_with_progress` are `pub(super)` inside `gateway-local`, which is optional under the `local` feature. The update module uses `gateway_protocol::http_util`'s public client instead, plus its own `tar` and `flate2` extraction; both crates are already workspace dependencies. The update archives are `.tar.gz` only (Step 4, `collect.rs` lines 116 to 141); Windows downloads the setup and extracts nothing. The module needs no `local` feature, so `--no-default-features` builds get it too.
-  - **New dependencies.** `minisign-verify` 0.2.5 (already in `Cargo.lock` through `tauri-plugin-updater`) and `semver` 1 become workspace dependencies, so this step runs `cargo deny check` and `cargo hakari verify`.
-  - **Headless gateways.** The route works on every gateway, headless included; only the notice (Step 9) is tray-only. The end-to-end test drives a `--print-url` gateway through the route.
-  - **Test version.** Both test binaries report the same `CARGO_PKG_VERSION`. A `test-fixtures`-only environment override of the reported version, read like the start-rendezvous variables (`main.rs`, lines 29 to 34), lets a copied test binary stand in as 0.N+1. The test copies the binary into a temporary install directory before swapping.
-  - **`latest.json` gateway entries.** Nothing writes the `*-gateway` keys yet; `release-workshop.yml` (lines 509 to 558) writes only Workshop's. The `installers-workflow` todo now names that job.
-  - **Windows.** The NSIS path runs only when `installed_workshop` (`gateway-api-discovery/src/peer.rs`, line 141) finds no Workshop. Today's NSIS anchors are `GatewayWasRunning` (line 87), detection (lines 811 to 818), and the relaunch (lines 944 to 950).
+- Covers todo `gateway-update`: the update module, the `POST /update` route, the Windows NSIS path, and the end-to-end update test. The tray notice and Workshop's call are Step 9; Step 7's `restarting` mark is in place.
+- Settled questions (deferred to the implementer, 2026-10-13; sources: the 2026-10-13 code surveys):
+  - Flow on macOS and Linux, from a request (the route here, the tray item in Step 9):
+    1. Check: fetch `latest.json` (`PROMPTFORGE_UPDATE_URL` or the `workshop-latest` constant, read as `PROMPTFORGE_MODELS_SHEET_URL` is, `runner/thread.rs` lines 307 to 312), with `gateway_protocol::http_util::bounded_client` and `read_bytes_capped` (`crates/gateway/protocol/src/http_util.rs`, lines 24 and 103). Parse only `version` and `platforms.<key>.{url, signature}`; compare with `semver` against `CARGO_PKG_VERSION`, stripping a leading `v`, as the Tauri updater does (`tauri-plugin-updater` 2.11.0, `updater.rs`, lines 1514 to 1521). Keys are `darwin-aarch64-gateway`, `darwin-x86_64-gateway`, `linux-x86_64-gateway`, and `linux-aarch64-gateway`; the `-gateway` suffix never collides with the updater's `{os}-{arch}-{installer}` keys (lines 608 to 638).
+    2. Locate the installed item before touching anything: the `.app` bundle holding the executable on macOS (`app_bundle`, `gateway-api-discovery/src/peer.rs`, line 216), the binary itself on Linux. `current_exe` is read here, before the swap: on Linux it follows `/proc/self/exe` to the moved-aside inode afterward.
+    3. Stage in `<install parent>/.promptforge-gateway-update/`, created fresh; failing to create it is the "install location not writable" answer, naming the directory. This also covers `gateway.service`'s `/usr/local/bin` under `DynamicUser`.
+    4. Download the archive with `streaming_client` (line 39; `bounded_client`'s 120-second limit is too short), capped at 512 MB, verifying while writing with `minisign_verify::PublicKey::verify_stream` (`minisign-verify` 0.2.5, `lib.rs`, line 374).
+    5. Verify:
+       - Decode exactly as the Tauri updater does (`updater.rs`, lines 1524 to 1542): the embedded key and the entry's `signature` are each standard base64 of minisign text, so `base64` (already a workspace dependency) decodes them before `PublicKey::decode` and `Signature::decode`.
+       - The trusted comment must also carry `version:<advertised>`, which Step 4's `signer sign --app-version` writes. A signature for another version is refused.
+       - Any failure refuses, naming the platform key and the reason.
+    6. Extract the `.tar.gz` with `tar` and `flate2` (workspace dependencies; the artifact store's extractor is `pub(super)` inside the optional `gateway-local`). The archive holds one top-level item (`collect.rs`, lines 116 to 141). Entries resolving outside the staging directory, and symlinks, are refused.
+    7. Run the staged executable's `--version` and require `promptforge-gateway <advertised>` (`main.rs`, line 90).
+    8. Swap by rename: the installed item moves to `<name>.previous` beside it, and the staged item takes its place. A failed second rename moves the first back and reports.
+    9. Mark the discovery file (Step 7's `mark_restarting`), then request the succession (below) and answer the caller.
+  - Succession. "Handoff" already names `/auth` (`admin/walled/handoff.rs`) and the second-launch path (`relaunch.rs`), so the restart is called the succession throughout.
+    - The request travels on `ShutdownSignal` (`shutdown.rs`, 56 lines), which already reaches the routes (`AppState.shutdown`), the serve loop (`runner/gateway.rs`, lines 280 to 281), and the trays (`GatewayHandle::tray_state`). It gains a set-once succession slot and a `request_succession(plan)` that fills the slot and fires. `lib.rs` (489 of 500 lines) does not change.
+    - `GatewayHandle::join` and `shutdown` (`runner/thread.rs`, lines 58 and 72) read the slot after the gateway thread ends and return `Stopped::Quit` or `Stopped::Succession(plan)`. `run`, `run_printing_url`, `run_with_tray` and each backend's `run` return that outcome to `main.rs` (lines 167 to 193). Nothing outside `gateway` calls them.
+    - `main` still owns the lease (line 136). On `Succession` it:
+      1. drops the lease;
+      2. spawns the installed path, detached, with null stdio, in its own process group, using an environment snapshot taken at the top of `main`. The snapshot keeps the `<config>.env` values that `load_env_file` folded in (`runner.rs`, lines 385 to 389) from shadowing later edits.
+    - The successor's arguments are rebuilt from the `Invocation`, not copied from argv:
+      - `--config` with the resolved path from `AdminConfig` (on macOS the default "beside the executable" lookup would look inside the swapped bundle);
+      - `--profile` when given;
+      - `--no-tray` when the old process ran headless;
+      - always `--login`, and never `--browser` or `--print-url`.
+    - The detached spawn with an exit reaper moves from `crates/workshop/desktop/src/gateway/boot.rs` (lines 208 to 242, Windows breakaway flags included) into `gateway-api-discovery`, so the gateway and Workshop share it.
+  - Waits and rollback:
+    - The old process polls, as `wait_for_owner` does (`relaunch.rs`, lines 118 to 149), for any validated, unmarked gateway whose `version` is the advertised one. On success it removes `<name>.previous` and the staging directory, then exits.
+    - The successor publishes about a second after start, since provisioning is queued after readiness (`runner/thread.rs`, lines 261 to 281). So the wait is 30 seconds, and the rollback's wait is 30 seconds.
+    - On timeout, the old process:
+      1. kills the successor if its reaper has not seen it exit;
+      2. moves `<name>.previous` back;
+      3. spawns it the same way, keeping the mark;
+      4. waits;
+      5. if that also times out, removes the mark (a new `remove_marked_if_mine` beside Step 7's `mark_restarting`), logs the failure, and exits.
+    - The successor's log rotation moves `gateway.log` aside while the old process still writes, so on Unix the succession's own lines land in `gateway.log.1`. That is accepted, and the docs step says where to look.
+  - The macOS tray must reach `main`. `request_quit` (`tray/macos-actions.rs`, lines 183 to 188) calls `NSApplication::stop`, which AppKit acts on only after the next event. It is called from the status timer when a route-fired shutdown is seen (line 29), and a timer callback is not an event, so an idle menu-bar gateway would never return to `main`, and the succession would never start. `request_quit` therefore posts an application-defined event after `stop`, as winit does. The smoke checks a route-fired shutdown with no mouse input.
+  - Windows, when `installed_workshop` (`peer.rs`, line 141) finds no Workshop:
+    1. Read `windows-x86_64` (Workshop's NSIS setup), download it to a temporary directory, and verify it the same way.
+    2. Start it detached, outside the gateway's job, with `/P /UPDATE` and never `/R`. `/R` would make `.onInstSuccess` (`installer.nsi`, lines 962 to 973) launch a Workshop that is not installed.
+    3. Keep serving.
+
+    NSIS then:
+    - restores the gateway-only selection (`RestoreComponentSelections`, lines 1163 to 1194);
+    - skips every page and `init`;
+    - stops the gateway through `CheckIfAppIsRunning` (line 818);
+    - relaunches it with `--login` (lines 944 to 950).
+
+    With Workshop beside it, the route answers that Workshop's updater owns updates on this install.
+  - The Tauri CLI pin. `installer.nsi` calls `CheckIfAppIsRunning` with `$INSTDIR` paths (lines 746, 818, 1000, 1009), which needs Tauri CLI 2.12 or later (`8be38ae8`; https://github.com/tauri-apps/tauri/pull/14479). Step 4 pinned `@tauri-apps/cli` 2.11.5 (`crates/workshop/package.json`, line 9), whose macro finds processes by bare name, so the fork's Windows installers never stop a running app. A passive `/UPDATE` then stops at NSIS's file-in-use dialog. The pin moves to the 2.12 release matching the `tauri` crate, and the crate moves with it if the CLI requires. This is a prerequisite for the Windows path, and it fixes every Windows update over a running Workshop or gateway.
+  - The route: `POST /update`, walled like `/shutdown` (`admin/walled/shutdown.rs`, line 22), merged in `routes()` and `registry()` (`admin/walled.rs`, lines 46 and 72). It answers after the swap and before the succession:
+    - `202` with the version it is moving to;
+    - `200` when already current, or when Workshop owns updates on Windows;
+    - `409` while another update runs (an in-progress flag beside the succession slot);
+    - an error status naming what failed: the check, verification with the platform key, an unwritable location, or the staged version.
+
+    The download shows as a progress activity ("Downloading PromptForge Gateway 0.N+1"), which every tray's status line and `/admin/progress` already display. The route exists on every gateway, headless included, and in `--no-default-features` builds.
+  - Keys and test seams:
+    - The release public key is embedded as a constant. A unit test requires it to equal `plugins.updater.pubkey` in `crates/workshop/desktop/tauri.conf.json` (line 39), so drift fails in CI before the publish job's check.
+    - `test-fixtures` builds read two more variables, beside the start-rendezvous ones (`main.rs`, lines 29 to 34): `PROMPTFORGE_UPDATE_TEST_PUBKEY` replaces the key, and `PROMPTFORGE_GATEWAY_TEST_VERSION` replaces the reported version.
+    - Tests sign their fixtures at run time with the `minisign` crate, as a dev-dependency only, with an unencrypted key generated per run.
+  - Module layout: `src/update.rs` with `src/update/` holding `manifest.rs`, `verify.rs`, `stage.rs`, `swap.rs`, `succession.rs`, and `windows.rs`, plus `tests/`. That is three or more files, so it is a subdirectory under the flat-directory rule. The tidy rule lets `admin/walled/update.rs` name `crate::update` freely (`crates/build-xtask/src/tidy.rs`, lines 284 to 296).
+- Tests:
+  - Unit, under `src/update/tests/`:
+    - The platform key per target.
+    - Offered only when newer.
+    - A missing, malformed, wrong-key, or wrong-version signature refuses, naming the key.
+    - Traversal entries and symlinks are refused.
+    - The staged `--version` must match.
+    - A failed second rename restores the original (fault injected at the rename).
+    - The successor's argv per invocation shape.
+    - The release key equals `tauri.conf.json`'s.
+  - Succession, with a fake successor through an injected spawn:
+    - Rollback when the successor panics, exits early, or never publishes.
+    - No rollback when a different new-version gateway publishes.
+    - The successor takes the lease while the old process lives.
+    - The mark is present from before the lease drops until the successor publishes, and through a rollback until the restored copy publishes.
+    - Both spawns carry `--login`.
+  - Route authority, as `/shutdown`'s tests do: a LAN caller gets 403, a bearer is accepted, loopback is accepted under `trust_loopback`, and a wrong bearer is refused. A concurrent request gets 409.
+  - End to end, in `tests/it/update.rs` behind `test-fixtures`:
+    - Setup: copy the test binary into a temporary install directory, keeping its name. Serve `latest.json` and a `.tar.gz` of another copy (reporting 0.N+1 through `PROMPTFORGE_GATEWAY_TEST_VERSION`) from `spawn_backend`, signed with a run-time key passed through `PROMPTFORGE_UPDATE_TEST_PUBKEY`. Run it with `--print-url`.
+    - After `POST /update`: the old process exits, a successor holds the lease and publishes at 0.N+1, and the installed path's `--version` prints 0.N+1.
+    - A bad signature leaves 0.N serving and the install untouched.
+  - Windows: the path choice and the refusal with Workshop present, as unit tests. The NSIS half is the `installers-workflow` gateway-only relaunch cell.
+  - macOS tray: the no-input route-fired quit, in the smoke.
+- Smoke, on this Mac: build a release gateway, install it into a temporary directory, and serve a fixture `latest.json` and archive from a local server signed with a throwaway key. That needs a `test-fixtures` build; the release key never leaves CI. Update it through `POST /update` from a tray run without touching the mouse, and confirm the successor at 0.N+1 and no browser window.
+- Verify:
+  - The `AGENTS.md` gates: `cargo deny check` and `cargo hakari verify` for the new dependencies, and the docs gate.
+  - `cargo check -p gateway --no-default-features`.
+  - `npm ci --prefix crates/workshop` after the CLI pin moves.
+- Commit: subject `Let the gateway update itself from latest.json`.
 
 </step-8>
 

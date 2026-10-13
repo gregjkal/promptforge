@@ -11,7 +11,9 @@ use gateway_api_discovery::{
 use workshop_server_api::Config;
 
 use super::identity::GatewayAttachment;
-use super::supervisor::{RecoveryCandidate, RecoveryOwnership, launch_and_attach_cancellable};
+use super::supervisor::{
+    RECOVERY_POLL_INTERVAL, RecoveryCandidate, RecoveryOwnership, launch_and_attach_cancellable,
+};
 
 #[cfg(windows)]
 const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
@@ -30,6 +32,9 @@ const WINDOWS_BREAKAWAY_CREATION_FLAGS: u32 =
 pub(super) enum GatewayPlan {
     /// A live gateway discovery file exists.
     Attach(GatewayDiscoveryFile),
+    /// The running gateway is handing off to a successor: plan again once
+    /// the handoff ends, instead of launching a rival.
+    AwaitRestart,
     /// No live file exists and a sibling Gateway can be launched.
     Launch(PathBuf),
     /// Explicit configuration is the only available endpoint.
@@ -65,14 +70,19 @@ pub(crate) fn ensure_gateway(config: &Config) -> anyhow::Result<GatewayAttachmen
             Err(no_gateway_error(&install))
         };
     };
-    match plan_gateway(&run_dir, &install, explicit, gateway_api_discovery::resolve) {
-        GatewayPlan::Attach(file) => validated_attachment(file),
-        GatewayPlan::ConfigOnly => Ok(GatewayAttachment::Config),
-        GatewayPlan::Fail => Err(no_gateway_error(&install)),
-        GatewayPlan::Launch(exe) => {
-            launch_and_attach_cancellable(&run_dir, &exe, &CancellationToken::new())
-                .and_then(validated_recovery_attachment)
-                .context("launch the sidecar gateway")
+    loop {
+        match plan_gateway(&run_dir, &install, explicit, gateway_api_discovery::resolve) {
+            // No timeout of its own: the mark lasts only while the marking
+            // gateway lives, and that gateway bounds its waits.
+            GatewayPlan::AwaitRestart => std::thread::sleep(RECOVERY_POLL_INTERVAL),
+            GatewayPlan::Attach(file) => return validated_attachment(file),
+            GatewayPlan::ConfigOnly => return Ok(GatewayAttachment::Config),
+            GatewayPlan::Fail => return Err(no_gateway_error(&install)),
+            GatewayPlan::Launch(exe) => {
+                return launch_and_attach_cancellable(&run_dir, &exe, &CancellationToken::new())
+                    .and_then(validated_recovery_attachment)
+                    .context("launch the sidecar gateway");
+            }
         }
     }
 }
@@ -100,7 +110,8 @@ fn validated_recovery_attachment(recovery: RecoveryLaunch) -> anyhow::Result<Gat
     }
 }
 
-/// Chooses attach, launch, configured fallback, or failure.
+/// Chooses attach, a wait through a handoff, launch, configured fallback,
+/// or failure.
 pub(super) fn plan_gateway(
     run_dir: &Path,
     install: &WorkshopInstall,
@@ -109,6 +120,7 @@ pub(super) fn plan_gateway(
 ) -> GatewayPlan {
     match resolve(run_dir) {
         Ok(Resolution::Attach(file)) => return GatewayPlan::Attach(file),
+        Ok(Resolution::Restarting) => return GatewayPlan::AwaitRestart,
         Ok(_) => {}
         Err(error) => {
             eprintln!("could not resolve the gateway discovery file: {error}");

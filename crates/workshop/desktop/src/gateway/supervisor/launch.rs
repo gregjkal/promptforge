@@ -194,6 +194,13 @@ where
                                     .context("resolve the launched gateway discovery file"),
                             );
                         }
+                        // A handoff keeps the wait going: the successor's
+                        // file replaces the marked one.
+                        Ok(Resolution::Restarting) => {
+                            last_probe_error = Some(anyhow::anyhow!(
+                                "the gateway discovery file still marks a handoff to a successor"
+                            ));
+                        }
                         Ok(_) => {}
                     }
                 }

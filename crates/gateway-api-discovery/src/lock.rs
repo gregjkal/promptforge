@@ -95,7 +95,9 @@ pub enum LaunchDecision {
 /// [`LaunchDecision::Attach`] when one does - either already running, or
 /// launched by the race winner while this caller waited. A loser waits up
 /// to `timeout` for the winner's gateway to become attachable, and takes
-/// the lock itself when the winner dies without writing one.
+/// the lock itself when the winner dies without writing one. During a
+/// handoff ([`Resolution::Restarting`]) every caller waits, launching
+/// nothing, and the timeout counts from the last sighting of the mark.
 ///
 /// # Errors
 /// Returns [`SidecarError::CreateDir`] when the run directory cannot be
@@ -143,27 +145,35 @@ fn launch_or_attach_named(
             path: lock_path.clone(),
             source,
         })?;
-    let deadline = Instant::now() + timeout;
+    let mut deadline = Instant::now() + timeout;
     loop {
         match lock.try_lock() {
             Ok(()) => {
                 // The lock is held; a previous winner may have written a
                 // live file before releasing, so re-validate before
                 // launching. As the holder, cleanup is ours.
-                return Ok(match stale::resolve_named(run_dir, image_name)? {
-                    Resolution::Attach(file) => LaunchDecision::Attach(file),
+                match stale::resolve_named(run_dir, image_name)? {
+                    Resolution::Attach(file) => return Ok(LaunchDecision::Attach(file)),
                     Resolution::Absent | Resolution::Stale(_) => {
-                        LaunchDecision::Launch(LaunchLock { _file: lock })
+                        return Ok(LaunchDecision::Launch(LaunchLock { _file: lock }));
                     }
-                });
+                    Resolution::Restarting => {
+                        release_for_handoff(&lock, &lock_path)?;
+                        deadline = Instant::now() + timeout;
+                    }
+                }
+                std::thread::sleep(RETRY_INTERVAL);
             }
             Err(TryLockError::WouldBlock) => {
                 // Another process holds the lock and is mid-launch. Attach
                 // as soon as its file goes live; never delete here.
-                if let Ok(Some(file)) = GatewayDiscoveryFile::read(run_dir)
-                    && stale::is_live(&file, image_name)
-                {
-                    return Ok(LaunchDecision::Attach(file));
+                if let Ok(Some(file)) = GatewayDiscoveryFile::read(run_dir) {
+                    if stale::is_live(&file, image_name) {
+                        return Ok(LaunchDecision::Attach(file));
+                    }
+                    if stale::is_restarting(&file, image_name) {
+                        deadline = Instant::now() + timeout;
+                    }
                 }
                 if Instant::now() >= deadline {
                     return Err(SidecarError::LaunchTimeout { timeout });
@@ -219,7 +229,7 @@ fn launch_or_attach_named_cancellable_with(
             path: lock_path.clone(),
             source,
         })?;
-    let deadline = Instant::now() + timeout;
+    let mut deadline = Instant::now() + timeout;
     loop {
         if cancellation.is_cancelled() {
             return Err(SidecarError::Cancelled);
@@ -231,24 +241,34 @@ fn launch_or_attach_named_cancellable_with(
                 if cancellation.is_cancelled() {
                     return Err(SidecarError::Cancelled);
                 }
-                return Ok(match resolution {
-                    Resolution::Attach(file) => LaunchDecision::Attach(file),
+                match resolution {
+                    Resolution::Attach(file) => return Ok(LaunchDecision::Attach(file)),
                     Resolution::Absent | Resolution::Stale(_) => {
-                        LaunchDecision::Launch(LaunchLock { _file: lock })
+                        return Ok(LaunchDecision::Launch(LaunchLock { _file: lock }));
                     }
-                });
+                    Resolution::Restarting => {
+                        release_for_handoff(&lock, &lock_path)?;
+                        deadline = Instant::now() + timeout;
+                    }
+                }
+                if wait(RETRY_INTERVAL) {
+                    return Err(SidecarError::Cancelled);
+                }
             }
             Err(TryLockError::WouldBlock) => {
                 if cancellation.is_cancelled() {
                     return Err(SidecarError::Cancelled);
                 }
-                if let Ok(Some(file)) = GatewayDiscoveryFile::read(run_dir)
-                    && stale::is_live_cancellable(&file, image_name, cancellation)?
-                {
-                    if cancellation.is_cancelled() {
-                        return Err(SidecarError::Cancelled);
+                if let Ok(Some(file)) = GatewayDiscoveryFile::read(run_dir) {
+                    if stale::is_live_cancellable(&file, image_name, cancellation)? {
+                        if cancellation.is_cancelled() {
+                            return Err(SidecarError::Cancelled);
+                        }
+                        return Ok(LaunchDecision::Attach(file));
                     }
-                    return Ok(LaunchDecision::Attach(file));
+                    if stale::is_restarting(&file, image_name) {
+                        deadline = Instant::now() + timeout;
+                    }
                 }
                 if Instant::now() >= deadline {
                     return Err(SidecarError::LaunchTimeout { timeout });
@@ -265,6 +285,18 @@ fn launch_or_attach_named_cancellable_with(
             }
         }
     }
+}
+
+/// Releases the launch lock while a handoff runs, so the lock never
+/// outlasts one retry while this caller waits for the successor's file
+/// instead of launching a rival. The wait has no deadline of its own: each
+/// sighting of the mark restarts the caller's, since a handoff lasts only
+/// while the marking gateway lives.
+fn release_for_handoff(lock: &File, lock_path: &Path) -> Result<(), SidecarError> {
+    lock.unlock().map_err(|source| SidecarError::Lock {
+        path: lock_path.to_owned(),
+        source,
+    })
 }
 
 #[cfg(test)]

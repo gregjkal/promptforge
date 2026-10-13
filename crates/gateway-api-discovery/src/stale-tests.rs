@@ -10,7 +10,7 @@ use crate::paths::gateway_discovery_file_path;
 
 /// The test process's own image name, so the pid and image checks
 /// pass and the test reaches the probe under test.
-fn own_image_name() -> String {
+pub(super) fn own_image_name() -> String {
     std::env::current_exe()
         .expect("current exe")
         .file_name()
@@ -20,7 +20,7 @@ fn own_image_name() -> String {
 }
 
 /// A gateway discovery file pointing at the test process itself.
-fn live_file(port: u16, api_key: &str) -> GatewayDiscoveryFile {
+pub(super) fn live_file(port: u16, api_key: &str) -> GatewayDiscoveryFile {
     GatewayDiscoveryFile {
         port,
         api_key: api_key.to_owned(),
@@ -28,12 +28,13 @@ fn live_file(port: u16, api_key: &str) -> GatewayDiscoveryFile {
         epoch: 1_757_000_000,
         version: "0.2.0".to_owned(),
         started_at: "2026-09-03T12:00:00Z".to_owned(),
+        restarting: false,
     }
 }
 
 /// A pid guaranteed dead: a short-lived child, reaped and dropped so
 /// no handle keeps the process object alive.
-fn dead_pid() -> u32 {
+pub(super) fn dead_pid() -> u32 {
     let mut child = std::process::Command::new(std::env::current_exe().expect("current exe"))
         .arg("--list")
         .stdout(std::process::Stdio::null())
@@ -48,7 +49,7 @@ fn dead_pid() -> u32 {
 
 /// A fixture gateway: answers `GET /health` with 200 and the key
 /// probe with 200 only when the bearer matches `expected_key`.
-fn fixture_gateway(expected_key: &'static str) -> u16 {
+pub(super) fn fixture_gateway(expected_key: &'static str) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind fixture");
     let port = listener.local_addr().expect("fixture address").port();
     std::thread::spawn(move || {

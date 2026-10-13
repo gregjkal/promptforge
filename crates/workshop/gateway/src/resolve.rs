@@ -9,12 +9,16 @@
 //! to connect to, which is the plain [`ResolveError`].
 
 use std::path::Path;
+use std::time::Duration;
 
 use gateway_api_discovery::{Resolution, SidecarError, StaleReason, ValidatedConnection};
 
 use workshop_protocol::Activity;
 use workshop_registry::Push;
 use workshop_support::GatewayConfig;
+
+/// Delay between probes while the gateway discovery file marks a handoff.
+const HANDOFF_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// The gateway endpoint state construction connects to, and how it was
 /// found.
@@ -201,9 +205,30 @@ fn resolve_with(
     config: &GatewayConfig,
     probe: fn(&Path) -> Result<Resolution, SidecarError>,
 ) -> Result<ResolvedGateway, ResolveError> {
+    resolve_through_handoff(run_dir, config, probe, std::thread::sleep)
+}
+
+/// [`resolve_with`] with the pause between probes injected, so a test
+/// walks a handoff without taking real time.
+fn resolve_through_handoff(
+    run_dir: Option<&Path>,
+    config: &GatewayConfig,
+    mut probe: impl FnMut(&Path) -> Result<Resolution, SidecarError>,
+    mut pause: impl FnMut(Duration),
+) -> Result<ResolvedGateway, ResolveError> {
     let mut stale = None;
     if let Some(run_dir) = run_dir {
-        match probe(run_dir) {
+        // A handoff resolves to the successor's file: wait for it rather
+        // than falling back to the configured endpoint meanwhile. No
+        // timeout of its own: the mark lasts only while the marking
+        // gateway lives, and that gateway bounds its waits.
+        let resolution = loop {
+            match probe(run_dir) {
+                Ok(Resolution::Restarting) => pause(HANDOFF_POLL_INTERVAL),
+                resolution => break resolution,
+            }
+        };
+        match resolution {
             Ok(Resolution::Attach(file)) => match validate_resolved(file) {
                 Ok(identity) => {
                     return Ok(ResolvedGateway {

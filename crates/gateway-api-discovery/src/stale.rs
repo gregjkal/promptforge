@@ -3,9 +3,11 @@
 //!
 //! A file is live when one OS process boot with a `promptforge-gateway`
 //! image is unchanged across a same-socket health and bearer proof, and
-//! the file includes a boot identity. Anything else is stale - the Jupyter
-//! phantom-server bug class - and the file is deleted so the next reader
-//! relaunches instead of retrying a corpse.
+//! the file includes a boot identity. A file carrying the handoff mark is
+//! neither: while its marking gateway lives, readers wait for the
+//! successor's file. Anything else is stale - the Jupyter phantom-server
+//! bug class - and the file is deleted so the next reader relaunches
+//! instead of retrying a corpse.
 
 use std::fs;
 use std::io;
@@ -14,7 +16,7 @@ use std::path::Path;
 use crate::error::SidecarError;
 use crate::paths::gateway_discovery_file_path;
 pub(crate) use crate::validated::GATEWAY_IMAGE_NAME;
-use crate::validated::{ValidatedConnection, ValidationError};
+use crate::validated::{ValidatedConnection, ValidationError, marking_process_lives};
 use crate::{CancellationToken, GatewayDiscoveryFile};
 
 /// What [`resolve`] found in the run directory.
@@ -27,6 +29,10 @@ pub enum Resolution {
     Absent,
     /// A gateway discovery file existed but was stale; it was removed.
     Stale(StaleReason),
+    /// The file carries the handoff mark and the gateway that marked it
+    /// still lives: it is handing its place to a successor. The file stays
+    /// on disk. Wait and resolve again; neither attach nor launch.
+    Restarting,
 }
 
 /// Why a gateway discovery file was judged stale.
@@ -55,10 +61,17 @@ pub enum StaleReason {
     /// The bearer key was rejected.
     #[error("the gateway discovery file bearer was rejected")]
     KeyRejected,
+    /// The file carries the handoff mark: its gateway is handing off to a
+    /// successor and accepts no new attachments. Validation reports it;
+    /// resolution reports [`Resolution::Restarting`] instead and never
+    /// removes such a file while its gateway lives.
+    #[error("the recorded gateway is handing off to a successor")]
+    Restarting,
 }
 
 /// Resolves the gateway discovery file in `run_dir`: attach parameters for a
-/// live gateway, or stale-file cleanup plus the reason.
+/// live gateway, [`Resolution::Restarting`] during a handoff, or stale-file
+/// cleanup plus the reason.
 ///
 /// # Errors
 /// Returns [`SidecarError::Read`] when the file exists but cannot be
@@ -104,6 +117,15 @@ pub(crate) fn resolve_named(run_dir: &Path, image_name: &str) -> Result<Resoluti
         }
         Err(error) => return Err(error),
     };
+    if file.restarting {
+        return match marking_process_lives(&file, image_name) {
+            Ok(()) => Ok(Resolution::Restarting),
+            Err(reason) => {
+                remove_stale(run_dir)?;
+                Ok(Resolution::Stale(reason))
+            }
+        };
+    }
     match ValidatedConnection::validate_named(file, image_name) {
         Ok(validated) => Ok(Resolution::Attach(validated.into_gateway_discovery_file())),
         Err(reason) => {
@@ -172,6 +194,18 @@ fn resolve_named_cancellable_with_effects(
         }
         Err(error) => return Err(error),
     };
+    if file.restarting {
+        // The mark is read before validation: validation refuses a marked
+        // file, which would otherwise be removed below as stale.
+        return match marking_process_lives(&file, image_name) {
+            Ok(()) => Ok(Resolution::Restarting),
+            Err(reason) => {
+                before_remove();
+                remove_stale_if_active(run_dir, cancellation, &mut remove)?;
+                Ok(Resolution::Stale(reason))
+            }
+        };
+    }
     match validate(file, image_name, cancellation) {
         Ok(validated) => Ok(Resolution::Attach(validated.into_gateway_discovery_file())),
         Err(ValidationError::Cancelled) => Err(SidecarError::Cancelled),
@@ -197,7 +231,7 @@ fn remove_stale_if_active(
 /// now, with no cleanup: the read-only check a diagnostics report runs.
 /// Stale-file deletion is the prospective owner's privilege, so a stale
 /// file reads as not-running and stays on disk for the next launch to
-/// clean.
+/// clean. A file carrying the handoff mark reads as not-running too.
 #[must_use]
 pub fn is_running(run_dir: &Path) -> bool {
     is_running_named(run_dir, GATEWAY_IMAGE_NAME)
@@ -215,9 +249,15 @@ fn is_running_named(run_dir: &Path, image_name: &str) -> bool {
 
 /// Whether the file's gateway is live right now, with no cleanup: the
 /// check a launch-race loser runs, since deleting is the lock holder's
-/// privilege.
+/// privilege. A marked file is never live: validation refuses it.
 pub(crate) fn is_live(file: &GatewayDiscoveryFile, image_name: &str) -> bool {
     ValidatedConnection::validate_named(file.clone(), image_name).is_ok()
+}
+
+/// Whether the file carries the handoff mark and the gateway that marked
+/// it still lives: the [`Resolution::Restarting`] test, with no cleanup.
+pub(crate) fn is_restarting(file: &GatewayDiscoveryFile, image_name: &str) -> bool {
+    file.restarting && marking_process_lives(file, image_name).is_ok()
 }
 
 pub(crate) fn is_live_cancellable(
@@ -248,3 +288,7 @@ fn remove_stale(run_dir: &Path) -> Result<(), SidecarError> {
 #[cfg(test)]
 #[path = "stale-tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "stale-tests-restarting.rs"]
+mod tests_restarting;

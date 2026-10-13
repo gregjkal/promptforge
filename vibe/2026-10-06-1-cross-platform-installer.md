@@ -783,7 +783,7 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
     - Low: a handoff starting between resolution's proof and the second proof failed boot or sent workshop-server to the configured endpoint. Fixed: both plan or probe again (As built), each with a test.
     - Nits, all fixed: `stale.rs`'s module doc names the three outcomes and calls a dead mark stale; `still_on_disk` says "An I/O failure"; the supervision test drops the meaningless comment and asserts every handoff wait is `SUPERVISION_BASE_DELAY`; As built says which waits log; `lock-tests.rs` uses `stale-tests.rs`'s `dead_pid`.
   - Rounds 1 and 2 ran in the implementing session; the maintainer then set the rule that review loops start in a new session (2026-10-13), so the loop stopped there.
-  - Round 3 (on `c6316386`, a fresh reviewer in the review-loop session) found nothing at medium or above. Its lows and nits were fixed before the push:
+  - Round 3 (on `f0b89a03`, a fresh reviewer in the review-loop session) found nothing at medium or above. Its lows and nits were fixed before the push:
     - Low: boot still failed when the launch race found an already-running gateway that changed before its second proof. Fixed: the launch closure returns the unproved `RecoveryLaunch`, and `Attached` takes the same proof and replan as a resolved file.
     - Low: the replan after a failed second proof had no pause and no limit. Fixed: it pauses, and gives up after `SECOND_PROOF_ATTEMPTS`, with tests for both crates.
     - Low: the step's opening line claimed unmarked files saw no change. Fixed: it names the three deliberate changes.

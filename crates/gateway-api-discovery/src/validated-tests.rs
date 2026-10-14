@@ -95,17 +95,21 @@ fn a_gateway_is_known_by_its_name_or_its_superseded_name() {
 fn a_gateway_moved_aside_by_its_update_still_holds_its_record() {
     let dir = tempfile::TempDir::new().expect("tempdir");
     let installed = dir.path().join("promptforge-gateway");
-    // `cp` writes the stand-in, so no descriptor for it is ever open in this
-    // process, where a sibling test's fork could inherit it and make the
-    // exec below fail with ETXTBSY.
+    // The stand-in is a shell, which ignores the name it runs under; a
+    // multi-call `sleep` (uutils coreutils, Ubuntu 26.04) refuses to run as
+    // `promptforge-gateway`. `cp` writes it, so no descriptor for it is
+    // ever open in this process, where a sibling test's fork could inherit
+    // it and make the exec below fail with ETXTBSY.
     let copied = std::process::Command::new("cp")
-        .arg("/bin/sleep")
+        .arg("/bin/sh")
         .arg(&installed)
         .status()
         .expect("run cp");
     assert!(copied.success(), "copy a stand-in gateway");
+    // It waits on its stdin, which the test closes to end it.
     let mut child = std::process::Command::new(&installed)
-        .arg("30")
+        .args(["-c", "read _"])
+        .stdin(std::process::Stdio::piped())
         .spawn()
         .expect("start the stand-in");
     std::fs::rename(&installed, dir.path().join("promptforge-gateway.previous"))
@@ -115,11 +119,13 @@ fn a_gateway_moved_aside_by_its_update_still_holds_its_record() {
     file.pid = child.id();
     file.restarting = true;
     let lives = marking_process_lives(&file, "promptforge-gateway");
-    let _ = child.kill();
+    drop(child.stdin.take());
     let _ = child.wait();
     assert!(
-        image.is_some_and(|image| image.ends_with("promptforge-gateway.previous")),
-        "Linux reports the moved name, so the superseded branch is the one tested"
+        image
+            .as_deref()
+            .is_some_and(|image| image.ends_with("promptforge-gateway.previous")),
+        "Linux reports the moved name, so the superseded branch is the one tested: {image:?}"
     );
     assert_eq!(lives, Ok(()));
 }

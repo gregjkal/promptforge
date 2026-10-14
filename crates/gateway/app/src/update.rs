@@ -190,7 +190,7 @@ pub(crate) enum UpdateError {
         actual: String,
     },
     /// The staged gateway could not be renamed into place.
-    #[error("cannot swap the update into {installed}; the previous gateway is back in place")]
+    #[error("cannot swap the update into {installed}; the previous gateway is in place")]
     Swap {
         /// The installed item.
         installed: PathBuf,
@@ -278,8 +278,8 @@ async fn apply_with(state: &AppState, environment: &Environment) -> Result<Appli
 }
 
 /// The update `ticket` claims. Every early end drops the ticket and frees
-/// the claim; the swap keeps it for the process's remaining life, and the
-/// Windows setup holds it until the setup exits.
+/// the claim; the swap and a stranded install keep it for the process's
+/// remaining life, and the Windows setup holds it until the setup exits.
 async fn update(
     state: &AppState,
     environment: &Environment,
@@ -390,8 +390,8 @@ fn install_staged(
 }
 
 /// Ends `ticket`'s update after a failed install, unless the install is
-/// stranded: this process then runs from the moved-aside copy, which a
-/// later update would locate and swap in place of the install.
+/// stranded: this process then runs from the moved-aside copy, which on
+/// Linux a later update would locate and swap in place of the install.
 fn end_failed_install(ticket: UpdateTicket, error: &UpdateError) {
     if matches!(error, UpdateError::Stranded { .. }) {
         ticket.keep();

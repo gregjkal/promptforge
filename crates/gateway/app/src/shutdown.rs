@@ -42,8 +42,8 @@ struct SuccessionSlot {
 }
 
 /// The right to run the one update at a time. Dropping it ends the update;
-/// [`UpdateTicket::keep`] holds the claim for the process's remaining life
-/// once a succession is requested.
+/// [`UpdateTicket::keep`] holds the claim for the process's remaining life,
+/// once a succession is requested or an install is stranded.
 #[derive(Debug)]
 pub(crate) struct UpdateTicket {
     slot: Arc<SuccessionSlot>,
@@ -51,8 +51,8 @@ pub(crate) struct UpdateTicket {
 }
 
 impl UpdateTicket {
-    /// Keeps the update claimed: this process is handing off, and no
-    /// second update may start.
+    /// Keeps the update claimed: no second update may start in this
+    /// process.
     pub(crate) fn keep(mut self) {
         self.kept = true;
     }

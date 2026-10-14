@@ -87,8 +87,10 @@ fn a_gateway_is_known_by_its_name_or_its_superseded_name() {
 }
 
 /// A self-update renames the running executable aside before it marks the
-/// record; the gateway must still count as alive, marked or not.
-#[cfg(unix)]
+/// record; the gateway must still count as alive, marked or not. Linux
+/// only: there `/proc/<pid>/exe` follows the rename, while on macOS the
+/// swap renames the bundle and the executable keeps its name.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_gateway_moved_aside_by_its_update_still_holds_its_record() {
     let dir = tempfile::TempDir::new().expect("tempdir");
@@ -108,7 +110,6 @@ fn a_gateway_moved_aside_by_its_update_still_holds_its_record() {
         .expect("start the stand-in");
     std::fs::rename(&installed, dir.path().join("promptforge-gateway.previous"))
         .expect("move it aside");
-    #[cfg(target_os = "linux")]
     let image = crate::sys::process_identity(child.id()).map(|identity| identity.image);
     let mut file = connection(1, "key");
     file.pid = child.id();
@@ -116,7 +117,6 @@ fn a_gateway_moved_aside_by_its_update_still_holds_its_record() {
     let lives = marking_process_lives(&file, "promptforge-gateway");
     let _ = child.kill();
     let _ = child.wait();
-    #[cfg(target_os = "linux")]
     assert!(
         image.is_some_and(|image| image.ends_with("promptforge-gateway.previous")),
         "Linux reports the moved name, so the superseded branch is the one tested"
@@ -282,6 +282,45 @@ fn a_process_boot_change_during_the_network_proof_is_rejected() {
         ),
         Err(StaleReason::ProcessChanged),
         "a reused pid cannot complete a mixed proof"
+    );
+}
+
+/// A self-update renames the executable aside; a proof that straddles the
+/// rename still validates the same boot, while an exec into another
+/// program under the same boot does not.
+#[test]
+fn a_rename_during_the_network_proof_keeps_the_boot_and_an_exec_does_not() {
+    let image = own_image_name();
+    let proof = |after: &str| {
+        let mut observations = [
+            Some(ProcessIdentity::for_test(
+                std::path::PathBuf::from(&image),
+                41,
+            )),
+            Some(ProcessIdentity::for_test(
+                std::path::PathBuf::from(after),
+                41,
+            )),
+        ]
+        .into_iter();
+        validate_with(
+            connection(8081, "key"),
+            &image,
+            |_| observations.next().flatten(),
+            |_, _, _| ConnectionProbe::Accepted,
+        )
+    };
+    let renamed = format!("{image}{SUPERSEDED_SUFFIX}");
+    let validated = proof(&renamed).expect("the same boot, renamed aside");
+    let unrenamed = proof(&image).expect("the same boot");
+    assert!(
+        validated.same_boot(&unrenamed),
+        "a rename does not make a new boot"
+    );
+    assert_eq!(
+        proof("sleep").map(drop),
+        Err(StaleReason::ProcessChanged),
+        "an exec into another program is not the gateway"
     );
 }
 

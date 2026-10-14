@@ -55,7 +55,7 @@ use crate::tray::menu::{BuiltMenu, MenuBuildError};
 #[path = "macos-actions.rs"]
 mod actions;
 
-use self::actions::{act, log_translocation, probe_workshop, tick};
+use self::actions::{act, log_translocation, probe_workshop, stop_run_loop, tick};
 
 /// The status-refresh cadence: the label, tooltip, Workshop enabled bit,
 /// and login check all re-read their sources on this timer, never from
@@ -137,7 +137,7 @@ pub(super) fn run(options: &ServeOptions) -> Result<Stopped, StartupError> {
             // No tray to quit through; leave the run loop so the headless
             // Ctrl-C loop below takes over.
             if let Some(mtm) = MainThreadMarker::new() {
-                NSApplication::sharedApplication(mtm).stop(None);
+                stop_run_loop(&NSApplication::sharedApplication(mtm));
             }
         }
     });

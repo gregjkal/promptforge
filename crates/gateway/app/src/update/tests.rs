@@ -6,19 +6,12 @@ use std::net::SocketAddr;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 
-#[path = "tests/apply.rs"]
 mod apply;
-#[path = "tests/manifest.rs"]
 mod manifest;
-#[path = "tests/stage.rs"]
 mod stage;
-#[path = "tests/succession.rs"]
 mod succession;
-#[path = "tests/swap.rs"]
 mod swap;
-#[path = "tests/verify.rs"]
 mod verify;
-#[path = "tests/windows.rs"]
 mod windows;
 
 /// A minisign key pair generated for one test, never the release key.

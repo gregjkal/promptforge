@@ -151,8 +151,19 @@ pub(crate) enum UpdateError {
         /// Why verification refused it.
         reason: String,
     },
-    /// The install location cannot hold the staged update.
-    #[error("the install location {directory} is not writable")]
+    /// The executable sits inside another application's bundle, which the
+    /// swap would replace and its clean-up delete.
+    #[error(
+        "the gateway runs inside {bundle}, not a standalone {name}; only a standalone gateway updates itself",
+        name = gateway_api_discovery::GATEWAY_BUNDLE_NAME
+    )]
+    NotStandalone {
+        /// The enclosing bundle.
+        bundle: PathBuf,
+    },
+    /// The directory the update writes cannot be written: the staging
+    /// directory beside the install, or the setup's download directory.
+    #[error("the update directory {directory} is not writable")]
     NotWritable {
         /// The directory the update must write.
         directory: PathBuf,
@@ -250,21 +261,17 @@ async fn apply_with(state: &AppState, environment: &Environment) -> Result<Appli
     let Some(ticket) = state.shutdown.begin_update() else {
         return Ok(Applied::Busy);
     };
-    let applied = update(state, environment).await;
-    settle(ticket, &applied);
-    applied
+    update(state, environment, ticket).await
 }
 
-/// Ends the update `ticket` claims, unless it is installing: the
-/// succession or the setup then stops this process, and a second update
-/// must not start meanwhile.
-fn settle(ticket: UpdateTicket, applied: &Result<Applied, UpdateError>) {
-    if matches!(applied, Ok(Applied::Updating { .. })) {
-        ticket.keep();
-    }
-}
-
-async fn update(state: &AppState, environment: &Environment) -> Result<Applied, UpdateError> {
+/// The update `ticket` claims. Every early end drops the ticket and frees
+/// the claim; the swap keeps it for the process's remaining life, and the
+/// Windows setup holds it until the setup exits.
+async fn update(
+    state: &AppState,
+    environment: &Environment,
+    ticket: UpdateTicket,
+) -> Result<Applied, UpdateError> {
     let exe = std::env::current_exe().map_err(UpdateError::Executable)?;
     let route = windows::route(environment.os, || {
         gateway_api_discovery::installed_workshop(&exe)
@@ -292,19 +299,18 @@ async fn update(state: &AppState, environment: &Environment) -> Result<Applied, 
     };
     let verifier = verify::Verifier::new(&environment.public_key, &entry.signature, &version)
         .map_err(|reason| UpdateError::Signature { key, reason })?;
-    let activity = state
-        .hub
-        .begin(format!("Downloading PromptForge Gateway {version}"));
+    let label = format!("Downloading PromptForge Gateway {version}");
+    let activity = state.hub.begin(label.clone());
     let download = stage::Download {
         url: &entry.url,
         key,
         verifier: &verifier,
         activity: &activity,
-        label: format!("Downloading PromptForge Gateway {version}"),
+        label,
     };
     if route == windows::Route::Setup {
         let setup = windows::download_setup(download).await?;
-        windows::start_setup(&setup)?;
+        windows::start_setup(&setup, ticket)?;
         tracing::info!(
             "started the PromptForge {version} setup {}; it restarts this gateway",
             setup.display()
@@ -312,6 +318,7 @@ async fn update(state: &AppState, environment: &Environment) -> Result<Applied, 
         return Ok(Applied::Updating { version });
     }
     let install = stage::Install::locate(&exe);
+    install.require_standalone()?;
     let staging = stage::Staging::create(&install)?;
     stage::download(download, &staging.archive()).await?;
     activity.set_text(format!("Installing PromptForge Gateway {version}"));
@@ -333,6 +340,7 @@ async fn update(state: &AppState, environment: &Environment) -> Result<Applied, 
         state.config.as_ref().map(|config| config.path.clone()),
     );
     succession.mark();
+    ticket.keep();
     state.commands.cancel_active();
     state.shutdown.request_succession(succession);
     Ok(Applied::Updating { version })

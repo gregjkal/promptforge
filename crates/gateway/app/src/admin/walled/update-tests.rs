@@ -121,6 +121,10 @@ fn each_result_has_its_status_and_answer() {
         |message| message.contains("linux-x86_64-gateway") && message.contains("another key")
     ));
 
+    let (status, reply) = answer(Err(UpdateError::ShuttingDown));
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(reply.outcome, UpdateOutcome::Failed);
+
     let (status, reply) = answer(Err(UpdateError::NotWritable {
         directory: "/usr/local/bin/.promptforge-gateway-update".into(),
         source: std::io::Error::from(std::io::ErrorKind::PermissionDenied),

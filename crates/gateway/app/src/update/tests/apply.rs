@@ -5,11 +5,12 @@
 
 use gateway_config::Config;
 
+use crate::update::stage::Install;
 #[cfg(unix)]
-use crate::update::install_staged;
+use crate::update::stage::{STAGING_DIR_NAME, Staging};
+use crate::update::{Applied, Environment, UpdateError, apply_with};
 #[cfg(unix)]
-use crate::update::stage::{Install, STAGING_DIR_NAME, Staging};
-use crate::update::{Applied, Environment, UpdateError, apply_with, settle};
+use crate::update::{install_staged, windows::release_on_exit};
 
 use super::{manifest_json, serve};
 
@@ -98,29 +99,49 @@ async fn an_unsigned_release_is_refused_naming_the_platform_key() {
     );
 }
 
-/// Every path that reports `Updating`, the swap's and the Windows setup's,
-/// keeps the claim, since the succession or the setup ends this process.
+/// The Windows setup holds the claim while it runs, and an exit this
+/// gateway outlives (a setup that did not install) frees it again.
+#[cfg(unix)]
 #[test]
-fn an_update_under_way_keeps_its_claim_and_any_other_end_frees_it() {
-    let updating = Ok(Applied::Updating {
-        version: "0.4.0".to_owned(),
-    });
-    let held = state();
-    settle(held.shutdown.begin_update().expect("claim"), &updating);
+fn a_running_setup_holds_the_claim_until_it_exits() {
+    let state = state();
+    let ticket = state.shutdown.begin_update().expect("claim");
+    let setup = std::process::Command::new("sh")
+        .args(["-c", "sleep 0.3; exit 3"])
+        .spawn()
+        .expect("a stand-in setup");
+    let watcher = release_on_exit(setup, ticket).expect("the watcher starts");
     assert!(
-        held.shutdown.begin_update().is_none(),
-        "a second update waits for the restart"
+        state.shutdown.begin_update().is_none(),
+        "a second update waits for the setup"
     );
+    watcher.join().expect("the watcher ends");
+    assert!(
+        state.shutdown.begin_update().is_some(),
+        "a setup that exited without installing frees the claim"
+    );
+}
 
-    for ended in [
-        Ok(Applied::Current {
-            version: "0.3.1".to_owned(),
-        }),
-        Err(UpdateError::ShuttingDown),
+#[test]
+fn an_executable_inside_another_bundle_is_refused() {
+    let workshop = Install::locate(std::path::Path::new(
+        "/Applications/PromptForge.app/Contents/MacOS/promptforge-gateway",
+    ));
+    let error = workshop
+        .require_standalone()
+        .expect_err("Workshop's bundle");
+    assert!(
+        matches!(&error, UpdateError::NotStandalone { bundle }
+            if bundle == std::path::Path::new("/Applications/PromptForge.app")),
+        "{error}"
+    );
+    for standalone in [
+        "/Applications/PromptForge Gateway.app/Contents/MacOS/promptforge-gateway",
+        "/usr/local/bin/promptforge-gateway",
     ] {
-        let freed = state();
-        settle(freed.shutdown.begin_update().expect("claim"), &ended);
-        assert!(freed.shutdown.begin_update().is_some(), "{ended:?}");
+        Install::locate(std::path::Path::new(standalone))
+            .require_standalone()
+            .expect(standalone);
     }
 }
 

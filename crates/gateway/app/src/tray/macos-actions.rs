@@ -180,14 +180,19 @@ pub(super) fn log_translocation() {
     }
 }
 
-/// Ends the run loop. AppKit acts on `stop` only after the next event
-/// finishes dispatching, and a timer callback is not an event, so the tick
-/// timer's call (a route-fired shutdown or a self-update) would leave an
-/// idle menu-bar gateway in the loop until the mouse moved. An
-/// application-defined event posted after `stop` ends it at once, as winit
-/// does. https://developer.apple.com/documentation/appkit/nsapplication/stop(_:)
 fn request_quit(tray: &Tray) {
-    tray.app.stop(None);
+    stop_run_loop(&tray.app);
+}
+
+/// Ends `app`'s run loop. AppKit acts on `stop` only after the next event
+/// finishes dispatching, and a timer callback is not an event, so a timer's
+/// call (the tick seeing a route-fired shutdown or a self-update, or the
+/// build timer falling back to headless) would leave an idle menu-bar
+/// gateway in the loop until the mouse moved. An application-defined event
+/// posted after `stop` ends it at once, as winit does.
+/// https://developer.apple.com/documentation/appkit/nsapplication/stop(_:)
+pub(super) fn stop_run_loop(app: &objc2_app_kit::NSApplication) {
+    app.stop(None);
     let wake = objc2_app_kit::NSEvent::otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2(
         objc2_app_kit::NSEventType::ApplicationDefined,
         objc2_foundation::NSPoint::new(0.0, 0.0),
@@ -200,7 +205,7 @@ fn request_quit(tray: &Tray) {
         0,
     );
     match wake {
-        Some(event) => tray.app.postEvent_atStart(&event, true),
+        Some(event) => app.postEvent_atStart(&event, true),
         None => {
             tracing::warn!("could not post the run loop's wake event; quitting on the next event");
         }

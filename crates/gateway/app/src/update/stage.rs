@@ -20,6 +20,9 @@ pub(crate) const STAGING_DIR_NAME: &str = ".promptforge-gateway-update";
 /// tens of megabytes; the Windows setup carries Workshop too.
 pub(crate) const DOWNLOAD_CAP: u64 = 512 * 1024 * 1024;
 
+/// How long a download may go without a byte before it fails.
+const STALL_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// How long the staged executable may take to print its version.
 const VERSION_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -68,6 +71,26 @@ impl Install {
     /// The installed executable.
     pub(crate) fn executable(&self) -> PathBuf {
         self.executable_in(&self.item)
+    }
+
+    /// Refuses an executable inside another application's bundle, such as
+    /// Workshop's: the swap would replace that application, and the
+    /// succession's clean-up would then delete it.
+    ///
+    /// # Errors
+    /// Returns [`UpdateError::NotStandalone`] naming the bundle.
+    pub(crate) fn require_standalone(&self) -> Result<(), UpdateError> {
+        let bundled = !self.within.as_os_str().is_empty();
+        let own_bundle = self.item.file_name()
+            == Some(std::ffi::OsStr::new(
+                gateway_api_discovery::GATEWAY_BUNDLE_NAME,
+            ));
+        if bundled && !own_bundle {
+            return Err(UpdateError::NotStandalone {
+                bundle: self.item.clone(),
+            });
+        }
+        Ok(())
     }
 }
 
@@ -167,7 +190,16 @@ pub(crate) struct Download<'a> {
 /// write failure, and [`UpdateError::Signature`] when the signature does
 /// not verify. Either way nothing stays at `to`.
 pub(crate) async fn download(download: Download<'_>, to: &Path) -> Result<(), UpdateError> {
-    let result = fetch(download, to).await;
+    download_within(download, to, STALL_TIMEOUT).await
+}
+
+/// [`download`], failing once no byte arrives for `stall`.
+pub(crate) async fn download_within(
+    download: Download<'_>,
+    to: &Path,
+    stall: Duration,
+) -> Result<(), UpdateError> {
+    let result = fetch(download, to, stall).await;
     if result.is_err() {
         // The Windows setup lands in the temporary directory, which no
         // staging guard removes, so unverified bytes go here.
@@ -176,7 +208,7 @@ pub(crate) async fn download(download: Download<'_>, to: &Path) -> Result<(), Up
     result
 }
 
-async fn fetch(download: Download<'_>, to: &Path) -> Result<(), UpdateError> {
+async fn fetch(download: Download<'_>, to: &Path, stall: Duration) -> Result<(), UpdateError> {
     let failed = |reason: String| UpdateError::Download {
         url: download.url.to_owned(),
         reason,
@@ -194,7 +226,7 @@ async fn fetch(download: Download<'_>, to: &Path) -> Result<(), UpdateError> {
     let status = response.status();
     if !status.is_success() {
         return Err(failed(format!(
-            "the server answered {status}, required 200 OK"
+            "the server answered {status}, required a 2xx success"
         )));
     }
     let total = response.content_length();
@@ -209,9 +241,15 @@ async fn fetch(download: Download<'_>, to: &Path) -> Result<(), UpdateError> {
     let mut writer = io::BufWriter::new(file);
     let mut received: u64 = 0;
     let mut shown = None;
-    while let Some(chunk) = response
-        .chunk()
+    // The streaming client bounds only the connect, so a peer that holds
+    // the connection open and stops sending would hold the update forever.
+    while let Some(chunk) = tokio::time::timeout(stall, response.chunk())
         .await
+        .map_err(|_| {
+            failed(format!(
+                "nothing arrived for {stall:?} after {received} bytes"
+            ))
+        })?
         .map_err(|error| failed(transport(error)))?
     {
         received += chunk.len() as u64;

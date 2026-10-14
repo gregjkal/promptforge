@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::update::UpdateError;
-use crate::update::stage::{Download, Install, STAGING_DIR_NAME, Staging, download, extract};
+use crate::update::stage::{
+    Download, Install, STAGING_DIR_NAME, Staging, download, download_within, extract,
+};
 use crate::update::verify::Verifier;
 
 use super::{TestKey, serve, tar_gz};
@@ -272,4 +274,51 @@ async fn a_failed_download_names_its_cause() {
         reason.to_lowercase().contains("refused"),
         "the transport error carries its root cause: {reason}"
     );
+}
+
+#[tokio::test]
+async fn a_download_that_stops_arriving_fails() {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let address = listener.local_addr().expect("address");
+    tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept");
+        let mut request = [0_u8; 1024];
+        let _ = socket.read(&mut request).await;
+        let _ = socket
+            .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 100\r\n\r\n0123456789")
+            .await;
+        // Holds the connection open and sends nothing more.
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        drop(socket);
+    });
+    let key = TestKey::generate();
+    let verifier =
+        Verifier::new(&key.public(), &key.sign_version(b"x", "0.4.0"), "0.4.0").expect("decode");
+    let hub = gateway_progress::ProgressHub::new();
+    let activity = hub.begin("Downloading");
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let to = dir.path().join("download.tar.gz");
+    let error = download_within(
+        Download {
+            url: &format!("http://{address}/gateway.tar.gz"),
+            key: "linux-x86_64-gateway",
+            verifier: &verifier,
+            activity: &activity,
+            label: "Downloading".to_owned(),
+        },
+        &to,
+        std::time::Duration::from_millis(200),
+    )
+    .await
+    .expect_err("a stalled download");
+    assert!(
+        error
+            .to_string()
+            .contains("nothing arrived for 200ms after 10 bytes"),
+        "{error}"
+    );
+    assert!(!to.exists(), "the partial download is removed");
 }

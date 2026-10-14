@@ -110,6 +110,7 @@ fn failure_status(error: &UpdateError) -> StatusCode {
         | UpdateError::StagedVersion { .. } => StatusCode::BAD_GATEWAY,
         UpdateError::Executable(_)
         | UpdateError::NoPlatform { .. }
+        | UpdateError::NotStandalone { .. }
         | UpdateError::NotWritable { .. }
         | UpdateError::Swap { .. }
         | UpdateError::Setup { .. }

@@ -80,7 +80,7 @@ where
 {
     match spawn(WINDOWS_BREAKAWAY_CREATION_FLAGS) {
         Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
-            // Hosted runners can forbid breakaway from their job object.
+            // GitHub-hosted runners can forbid breakaway from their job object.
             // https://github.com/actions/runner/issues/595
             spawn(WINDOWS_DETACHED_CREATION_FLAGS)
         }

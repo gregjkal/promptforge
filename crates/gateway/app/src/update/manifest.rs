@@ -86,7 +86,7 @@ pub(crate) async fn check(
     if !status.is_success() {
         return Err(UpdateError::Manifest {
             url: url.to_owned(),
-            reason: format!("the server answered {status}, required 200 OK"),
+            reason: format!("the server answered {status}, required a 2xx success"),
         });
     }
     let body = read_bytes_capped(response, MAX_JSON_BODY)

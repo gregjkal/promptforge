@@ -220,7 +220,11 @@ fn finish(
                     ExitCode::SUCCESS
                 }
                 Err(error) => {
-                    log_error_chain(&error);
+                    if logged {
+                        log_error_chain(&error);
+                    } else {
+                        print_error_chain(&error);
+                    }
                     ExitCode::FAILURE
                 }
             }

@@ -7,10 +7,12 @@
 //! gateway leaves updates to Workshop.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::process::Child;
+use std::thread::JoinHandle;
 
 use super::UpdateError;
 use super::stage::{Download, download, remove_item};
+use crate::shutdown::UpdateTicket;
 
 /// The setup's arguments: passive, update mode. Never `/R`, which would
 /// launch a Workshop that is not installed.
@@ -85,17 +87,49 @@ pub(crate) async fn download_setup(setup: Download<'_>) -> Result<PathBuf, Updat
 }
 
 /// Starts the verified setup detached, outside the gateway's job object,
-/// so it outlives the gateway it stops.
+/// so it outlives the gateway it stops, and holds the update `ticket`
+/// until the setup exits.
 ///
 /// # Errors
 /// Returns [`UpdateError::Setup`] when it cannot start.
-pub(crate) fn start_setup(path: &Path) -> Result<(), UpdateError> {
+pub(crate) fn start_setup(path: &Path, ticket: UpdateTicket) -> Result<(), UpdateError> {
     let mut command = std::process::Command::new(path);
     command.args(SETUP_ARGUMENTS);
-    gateway_api_discovery::spawn_detached_reaped(&mut command, Arc::new(OnceLock::new()))
-        .map(drop)
-        .map_err(|source| UpdateError::Setup {
+    let setup = gateway_api_discovery::spawn_detached(&mut command).map_err(|source| {
+        UpdateError::Setup {
             path: path.to_path_buf(),
             source,
-        })
+        }
+    })?;
+    release_on_exit(setup, ticket);
+    Ok(())
+}
+
+/// Holds `ticket` until `setup` exits. A setup that installs stops this
+/// gateway first, so an exit seen here means the update did not install,
+/// and the claim is freed for the next attempt.
+pub(crate) fn release_on_exit(mut setup: Child, ticket: UpdateTicket) -> Option<JoinHandle<()>> {
+    let pid = setup.id();
+    let watcher = std::thread::Builder::new()
+        .name("gateway-update-setup".to_owned())
+        .spawn(move || {
+            match setup.wait() {
+                Ok(status) => tracing::warn!(
+                    "the update setup {pid} exited ({status}) and this gateway still runs; the update did not install"
+                ),
+                Err(error) => {
+                    tracing::warn!("could not wait for the update setup {pid}: {error}");
+                }
+            }
+            drop(ticket);
+        });
+    match watcher {
+        Ok(handle) => Some(handle),
+        Err(error) => {
+            // The closure, and the ticket with it, dropped: the claim is
+            // free while the setup may still run.
+            tracing::warn!("could not watch the update setup {pid}: {error}");
+            None
+        }
+    }
 }

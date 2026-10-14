@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use crate::health::{self, ConnectionProbe};
 use crate::stale::StaleReason;
 use crate::sys::{ProcessIdentity, process_identity};
-use crate::{CancellationToken, GatewayDiscoveryFile};
+use crate::{CancellationToken, GatewayDiscoveryFile, SUPERSEDED_SUFFIX};
 
 /// The image file name a live Gateway process must have: the gateway
 /// executable the installed-peer lookup finds.
@@ -360,10 +360,18 @@ pub(crate) fn marking_process_lives(
     let Some(identity) = process_identity(file.pid) else {
         return Err(StaleReason::ProcessDead);
     };
-    if !image_name_matches(&identity.image, image_name) {
+    if !marking_image_matches(&identity.image, image_name) {
         return Err(StaleReason::ImageMismatch);
     }
     Ok(())
+}
+
+/// Whether a marking process's `image` is the gateway's: its own name, or
+/// that name with [`SUPERSEDED_SUFFIX`] once its self-update moved it
+/// aside, which Linux reports through `/proc/<pid>/exe`.
+fn marking_image_matches(image: &Path, expected: &str) -> bool {
+    image_name_matches(image, expected)
+        || image_name_matches(image, &format!("{expected}{SUPERSEDED_SUFFIX}"))
 }
 
 fn image_name_matches(image: &Path, expected: &str) -> bool {

@@ -197,6 +197,12 @@ fn remove_owned(run_dir: &Path, pid: u32, restarting: bool) -> Result<(), Sideca
     }
 }
 
+/// The suffix a self-update appends to the installed item it replaces,
+/// which waits beside the install as `<name>.previous` until the successor
+/// serves. On Linux the marking process's image path follows that rename,
+/// so a marked file's reader accepts the suffixed name as the marker's.
+pub const SUPERSEDED_SUFFIX: &str = ".previous";
+
 /// Marks the gateway discovery file in `run_dir` as handing off, rewriting
 /// it atomically with [`GatewayDiscoveryFile::restarting`] set. Only the
 /// process the file names may mark it.

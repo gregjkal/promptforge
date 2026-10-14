@@ -70,6 +70,49 @@ fn fixture_gateway(expected_key: &'static str) -> u16 {
 }
 
 #[test]
+fn a_marking_gateway_is_known_by_its_name_or_its_superseded_name() {
+    let expected = "promptforge-gateway";
+    for image in [
+        "/opt/promptforge/promptforge-gateway",
+        "/opt/promptforge/promptforge-gateway.previous",
+    ] {
+        assert!(marking_image_matches(Path::new(image), expected), "{image}");
+    }
+    for image in [
+        "/opt/promptforge/promptforge-gateway.old",
+        "/opt/promptforge/sleep",
+    ] {
+        assert!(
+            !marking_image_matches(Path::new(image), expected),
+            "{image}"
+        );
+    }
+}
+
+/// A self-update renames the running executable aside before the
+/// successor publishes; the marking process must still count as alive.
+#[cfg(unix)]
+#[test]
+fn a_marking_gateway_moved_aside_by_its_update_still_holds_its_mark() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let installed = dir.path().join("promptforge-gateway");
+    std::fs::copy("/bin/sleep", &installed).expect("copy a stand-in gateway");
+    let mut child = std::process::Command::new(&installed)
+        .arg("30")
+        .spawn()
+        .expect("start the stand-in");
+    std::fs::rename(&installed, dir.path().join("promptforge-gateway.previous"))
+        .expect("move it aside");
+    let mut file = connection(1, "key");
+    file.pid = child.id();
+    file.restarting = true;
+    let lives = marking_process_lives(&file, "promptforge-gateway");
+    let _ = child.kill();
+    let _ = child.wait();
+    assert_eq!(lives, Ok(()));
+}
+
+#[test]
 fn a_wrong_process_image_cannot_create_a_capability() {
     let file = connection(1, "key");
 

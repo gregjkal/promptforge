@@ -50,6 +50,32 @@ fn a_failed_second_rename_puts_the_original_back() {
 }
 
 #[test]
+fn a_swap_that_cannot_put_the_original_back_names_where_it_waits() {
+    let (_dir, installed, staged) = fixture();
+    let mut calls = 0;
+    let error = swap_with(&installed, &staged, |from, to| {
+        calls += 1;
+        if calls == 1 {
+            std::fs::rename(from, to)
+        } else {
+            Err(io::Error::other("injected"))
+        }
+    })
+    .expect_err("the second and third renames fail");
+    let previous = previous_path(&installed);
+    assert!(
+        matches!(&error, UpdateError::Stranded { installed: named, previous: waiting, .. }
+            if *named == installed && *waiting == previous),
+        "{error}"
+    );
+    assert!(
+        error.to_string().contains("could not be moved back"),
+        "{error}"
+    );
+    assert_eq!(read(&previous), "old", "the previous gateway waits aside");
+}
+
+#[test]
 fn a_failed_first_rename_changes_nothing() {
     let (_dir, installed, staged) = fixture();
     let error = swap_with(&installed, &staged, |_, _| {

@@ -73,7 +73,8 @@ impl ShutdownSignal {
     }
 
     /// Whether the signal has been fired; the tray's status tick reads it
-    /// to tell a requested shutdown apart from a serve-loop failure.
+    /// to tell a requested shutdown apart from a serve-loop failure, and
+    /// the update reads it before it swaps or starts the setup.
     pub(crate) fn is_fired(&self) -> bool {
         self.token.is_cancelled()
     }

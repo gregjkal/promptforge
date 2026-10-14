@@ -308,7 +308,7 @@ async fn stalled_download(sent: &'static [u8]) -> (UpdateError, bool) {
             label: "Downloading".to_owned(),
         },
         &to,
-        std::time::Duration::from_millis(200),
+        std::time::Duration::from_secs(2),
     )
     .await
     .expect_err("a stalled download");
@@ -322,7 +322,7 @@ async fn a_download_that_stops_arriving_fails() {
     assert!(
         error
             .to_string()
-            .contains("nothing arrived for 200ms after 10 bytes"),
+            .contains("nothing arrived for 2s after 10 bytes"),
         "{error}"
     );
     assert!(!left, "the partial download is removed");
@@ -332,9 +332,7 @@ async fn a_download_that_stops_arriving_fails() {
 async fn a_download_whose_response_never_comes_fails() {
     let (error, _) = stalled_download(b"").await;
     assert!(
-        error
-            .to_string()
-            .contains("no response arrived within 200ms"),
+        error.to_string().contains("no response arrived within 2s"),
         "{error}"
     );
 }

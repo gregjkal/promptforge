@@ -15,7 +15,7 @@ pub(crate) fn previous_path(installed: &Path) -> PathBuf {
         .file_name()
         .map(OsString::from)
         .unwrap_or_default();
-    name.push(".previous");
+    name.push(gateway_api_discovery::SUPERSEDED_SUFFIX);
     installed.with_file_name(name)
 }
 
@@ -23,7 +23,8 @@ pub(crate) fn previous_path(installed: &Path) -> PathBuf {
 ///
 /// # Errors
 /// Returns [`UpdateError::Swap`] when either rename fails; a failed second
-/// rename moves the original back first.
+/// rename moves the original back first, and [`UpdateError::Stranded`]
+/// when that also fails.
 pub(crate) fn swap(installed: &Path, staged: &Path) -> Result<(), UpdateError> {
     swap_with(installed, staged, |from, to| std::fs::rename(from, to))
 }
@@ -47,11 +48,11 @@ pub(crate) fn swap_with(
     rename(installed, &previous).map_err(failed)?;
     if let Err(error) = rename(staged, installed) {
         if let Err(restore) = rename(&previous, installed) {
-            tracing::error!(
-                "could not move {} back to {} after a failed swap: {restore}",
-                previous.display(),
-                installed.display()
-            );
+            return Err(UpdateError::Stranded {
+                installed: installed.to_path_buf(),
+                previous,
+                reason: format!("{error}; moving it back: {restore}"),
+            });
         }
         return Err(failed(error));
     }

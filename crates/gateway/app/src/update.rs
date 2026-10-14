@@ -198,6 +198,19 @@ pub(crate) enum UpdateError {
         #[source]
         source: std::io::Error,
     },
+    /// The swap failed and the previous gateway could not be moved back,
+    /// so nothing is installed until it is moved back by hand.
+    #[error(
+        "cannot swap the update into {installed}, and the previous gateway could not be moved back ({reason}); it waits at {previous}: move it to {installed}"
+    )]
+    Stranded {
+        /// The installed item's path, now empty.
+        installed: PathBuf,
+        /// Where the previous gateway waits.
+        previous: PathBuf,
+        /// Both rename errors.
+        reason: String,
+    },
     /// The Windows setup could not be started.
     #[error("cannot start the update setup {path}")]
     Setup {

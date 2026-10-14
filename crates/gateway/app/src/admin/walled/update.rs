@@ -113,6 +113,7 @@ fn failure_status(error: &UpdateError) -> StatusCode {
         | UpdateError::NotStandalone { .. }
         | UpdateError::NotWritable { .. }
         | UpdateError::Swap { .. }
+        | UpdateError::Stranded { .. }
         | UpdateError::Setup { .. }
         | UpdateError::Task(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }

@@ -60,7 +60,7 @@ mod validated;
 pub use crate::cancellation::CancellationToken;
 pub use crate::error::SidecarError;
 pub use crate::file::{
-    GatewayDiscoveryFile, mark_restarting, remove_if_mine, remove_marked_if_mine,
+    GatewayDiscoveryFile, SUPERSEDED_SUFFIX, mark_restarting, remove_if_mine, remove_marked_if_mine,
 };
 pub use crate::health::{HealthError, ProbeError, wait_for_health, wait_for_health_cancellable};
 pub use crate::lock::{

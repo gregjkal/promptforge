@@ -106,15 +106,19 @@ async fn an_unsigned_release_is_refused_naming_the_platform_key() {
 fn a_running_setup_holds_the_claim_until_it_exits() {
     let state = state();
     let ticket = state.shutdown.begin_update().expect("claim");
-    let setup = std::process::Command::new("sh")
-        .args(["-c", "sleep 0.3; exit 3"])
+    // The stand-in exits only once the test closes its stdin.
+    let mut setup = std::process::Command::new("sh")
+        .args(["-c", "read _; exit 3"])
+        .stdin(std::process::Stdio::piped())
         .spawn()
         .expect("a stand-in setup");
+    let release = setup.stdin.take().expect("the stand-in's stdin");
     let watcher = release_on_exit(setup, ticket).expect("the watcher starts");
     assert!(
         state.shutdown.begin_update().is_none(),
         "a second update waits for the setup"
     );
+    drop(release);
     watcher.join().expect("the watcher ends");
     assert!(
         state.shutdown.begin_update().is_some(),

@@ -18,6 +18,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::AppState;
+use crate::shutdown::{ShutdownSignal, UpdateTicket};
 
 mod manifest;
 mod stage;
@@ -26,6 +27,7 @@ mod swap;
 mod verify;
 mod windows;
 
+pub(crate) use self::succession::stopped;
 pub use self::succession::{Succession, SuccessionError, SuccessorShape};
 
 /// The release manifest the gateway reads unless [`UPDATE_URL_ENV`]
@@ -194,6 +196,9 @@ pub(crate) enum UpdateError {
         #[source]
         source: std::io::Error,
     },
+    /// The gateway began shutting down before the swap.
+    #[error("the gateway is shutting down; the update was not installed")]
+    ShuttingDown,
     /// Blocking update work panicked or was cancelled.
     #[error("the update's file work did not finish: {0}")]
     Task(String),
@@ -245,6 +250,21 @@ async fn apply_with(state: &AppState, environment: &Environment) -> Result<Appli
     let Some(ticket) = state.shutdown.begin_update() else {
         return Ok(Applied::Busy);
     };
+    let applied = update(state, environment).await;
+    settle(ticket, &applied);
+    applied
+}
+
+/// Ends the update `ticket` claims, unless it is installing: the
+/// succession or the setup then stops this process, and a second update
+/// must not start meanwhile.
+fn settle(ticket: UpdateTicket, applied: &Result<Applied, UpdateError>) {
+    if matches!(applied, Ok(Applied::Updating { .. })) {
+        ticket.keep();
+    }
+}
+
+async fn update(state: &AppState, environment: &Environment) -> Result<Applied, UpdateError> {
     let exe = std::env::current_exe().map_err(UpdateError::Executable)?;
     let route = windows::route(environment.os, || {
         gateway_api_discovery::installed_workshop(&exe)
@@ -295,21 +315,11 @@ async fn apply_with(state: &AppState, environment: &Environment) -> Result<Appli
     let staging = stage::Staging::create(&install)?;
     stage::download(download, &staging.archive()).await?;
     activity.set_text(format!("Installing PromptForge Gateway {version}"));
-    let staged = {
-        let (archive, extracted) = (staging.archive(), staging.extracted());
-        let install = install.clone();
-        let version = version.clone();
-        run_blocking(move || {
-            let staged = stage::extract(&archive, &extracted, key)?;
-            stage::require_version(&install.executable_in(&staged), &version)?;
-            Ok(staged)
-        })
-        .await?
+    let staging = {
+        let (install, version, shutdown) =
+            (install.clone(), version.clone(), state.shutdown.clone());
+        run_blocking(move || install_staged(staging, &install, &version, key, &shutdown)).await?
     };
-    {
-        let installed = install.item().to_path_buf();
-        run_blocking(move || swap::swap(&installed, &staged)).await?;
-    }
     drop(activity);
     tracing::info!(
         "installed PromptForge Gateway {version} at {}; restarting into it",
@@ -323,10 +333,31 @@ async fn apply_with(state: &AppState, environment: &Environment) -> Result<Appli
         state.config.as_ref().map(|config| config.path.clone()),
     );
     succession.mark();
-    ticket.keep();
     state.commands.cancel_active();
     state.shutdown.request_succession(succession);
     Ok(Applied::Updating { version })
+}
+
+/// Extracts the verified download in `staging`, checks the staged
+/// executable's version, and swaps it into `install`, unless `shutdown`
+/// has fired: a gateway asked to quit does not restart into the update.
+///
+/// The staging guard moves in, so it is removed only after the swap is
+/// over, even when the runtime drops the waiting update meanwhile.
+fn install_staged(
+    staging: stage::Staging,
+    install: &stage::Install,
+    version: &str,
+    key: &'static str,
+    shutdown: &ShutdownSignal,
+) -> Result<stage::Staging, UpdateError> {
+    let staged = stage::extract(&staging.archive(), &staging.extracted(), key)?;
+    stage::require_version(&install.executable_in(&staged), version)?;
+    if shutdown.is_fired() {
+        return Err(UpdateError::ShuttingDown);
+    }
+    swap::swap(install.item(), &staged)?;
+    Ok(staging)
 }
 
 /// Runs file work off the runtime's worker threads.

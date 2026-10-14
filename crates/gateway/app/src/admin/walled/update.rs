@@ -19,6 +19,7 @@ use gateway_api_types::{UpdateAnswer, UpdateOutcome};
 
 use crate::AppState;
 use crate::auth::LoopbackCaller;
+use crate::error::error_chain;
 use crate::registry::RouteInfo;
 use crate::update::{Applied, UpdateError};
 
@@ -95,10 +96,12 @@ pub(super) fn answer(result: Result<Applied, UpdateError>) -> (StatusCode, Updat
     }
 }
 
-/// `502` when the release channel served something unusable, `500` when
-/// this machine could not apply a good release.
+/// `502` when the release channel served something unusable, `503` when
+/// the gateway began shutting down first, `500` when this machine could not
+/// apply a good release.
 fn failure_status(error: &UpdateError) -> StatusCode {
     match error {
+        UpdateError::ShuttingDown => StatusCode::SERVICE_UNAVAILABLE,
         UpdateError::Fetch { .. }
         | UpdateError::Manifest { .. }
         | UpdateError::Download { .. }
@@ -112,18 +115,6 @@ fn failure_status(error: &UpdateError) -> StatusCode {
         | UpdateError::Setup { .. }
         | UpdateError::Task(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
-}
-
-/// The error and its sources on one line, so the answer names the cause.
-fn error_chain(error: &dyn std::error::Error) -> String {
-    let mut text = error.to_string();
-    let mut source = error.source();
-    while let Some(cause) = source {
-        text.push_str(": ");
-        text.push_str(&cause.to_string());
-        source = cause.source();
-    }
-    text
 }
 
 #[cfg(test)]

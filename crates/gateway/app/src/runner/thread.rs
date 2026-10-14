@@ -76,21 +76,14 @@ impl GatewayHandle {
     /// Joins the gateway thread, then reads the succession a self-update
     /// left: only once serving has ended may the caller hand off.
     fn join_inner(&mut self) -> Result<Stopped, StartupError> {
-        if let Some(thread) = self.thread.take() {
-            match thread.join() {
-                Ok(result) => result?,
-                Err(_) => {
-                    return Err(StartupError::serve(crate::api_error::ServeError::io(
-                        std::io::Error::other("gateway thread panicked"),
-                    )));
-                }
-            }
-        }
-        Ok(self
-            .state
-            .shutdown
-            .take_succession()
-            .map_or(Stopped::Quit, Stopped::Succession))
+        let served = match self.thread.take().map(JoinHandle::join) {
+            None | Some(Ok(Ok(()))) => Ok(()),
+            Some(Ok(Err(error))) => Err(error),
+            Some(Err(_)) => Err(StartupError::serve(crate::api_error::ServeError::io(
+                std::io::Error::other("gateway thread panicked"),
+            ))),
+        };
+        crate::update::stopped(served, self.state.shutdown.take_succession())
     }
 }
 

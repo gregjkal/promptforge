@@ -25,6 +25,8 @@ use gateway_config::ProfileName;
 use super::manifest::bare_version;
 use super::stage::{Install, remove_item};
 use super::swap;
+use crate::Stopped;
+use crate::api_error::StartupError;
 
 /// How long the successor and, after a rollback, the restored gateway each
 /// have to publish. A gateway publishes about a second after start, since
@@ -326,6 +328,25 @@ impl Succession {
             tracing::error!("could not withdraw the restart mark: {error}");
         }
     }
+}
+
+/// How serving ended, given the succession a self-update requested. The
+/// succession wins over a serve error: the update is already swapped in,
+/// and only the succession starts it.
+pub(crate) fn stopped(
+    served: Result<(), StartupError>,
+    succession: Option<Succession>,
+) -> Result<Stopped, StartupError> {
+    let Some(succession) = succession else {
+        return served.map(|()| Stopped::Quit);
+    };
+    if let Err(error) = served {
+        tracing::error!(
+            "serving ended with an error after the update was installed: {}; restarting into it",
+            crate::error::error_chain(&error)
+        );
+    }
+    Ok(Stopped::Succession(succession))
 }
 
 /// The successor's arguments, rebuilt from how the old process ran: the

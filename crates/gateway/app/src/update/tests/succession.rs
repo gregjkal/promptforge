@@ -359,3 +359,26 @@ fn the_watchdog_withdraws_the_mark_and_ends_the_process() {
         "the mark is withdrawn before the process ends"
     );
 }
+
+#[test]
+fn a_requested_succession_outlives_a_serve_error() {
+    let fixture = Fixture::new();
+    let failed = || {
+        Err(crate::api_error::StartupError::serve(
+            crate::api_error::ServeError::io(io::Error::other("the drain failed")),
+        ))
+    };
+    assert!(matches!(
+        crate::update::stopped(failed(), Some(fixture.succession())),
+        Ok(crate::Stopped::Succession(_))
+    ));
+    assert!(matches!(
+        crate::update::stopped(Ok(()), Some(fixture.succession())),
+        Ok(crate::Stopped::Succession(_))
+    ));
+    assert!(crate::update::stopped(failed(), None).is_err());
+    assert!(matches!(
+        crate::update::stopped(Ok(()), None),
+        Ok(crate::Stopped::Quit)
+    ));
+}

@@ -165,8 +165,18 @@ pub(crate) struct Download<'a> {
 /// # Errors
 /// Returns [`UpdateError::Download`] for a transport, status, size, or
 /// write failure, and [`UpdateError::Signature`] when the signature does
-/// not verify.
+/// not verify. Either way nothing stays at `to`.
 pub(crate) async fn download(download: Download<'_>, to: &Path) -> Result<(), UpdateError> {
+    let result = fetch(download, to).await;
+    if result.is_err() {
+        // The Windows setup lands in the temporary directory, which no
+        // staging guard removes, so unverified bytes go here.
+        let _ = fs::remove_file(to);
+    }
+    result
+}
+
+async fn fetch(download: Download<'_>, to: &Path) -> Result<(), UpdateError> {
     let failed = |reason: String| UpdateError::Download {
         url: download.url.to_owned(),
         reason,
@@ -180,7 +190,7 @@ pub(crate) async fn download(download: Download<'_>, to: &Path) -> Result<(), Up
         .get(download.url)
         .send()
         .await
-        .map_err(|error| failed(error.to_string()))?;
+        .map_err(|error| failed(transport(error)))?;
     let status = response.status();
     if !status.is_success() {
         return Err(failed(format!(
@@ -202,7 +212,7 @@ pub(crate) async fn download(download: Download<'_>, to: &Path) -> Result<(), Up
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|error| failed(error.to_string()))?
+        .map_err(|error| failed(transport(error)))?
     {
         received += chunk.len() as u64;
         if received > DOWNLOAD_CAP {
@@ -225,6 +235,12 @@ pub(crate) async fn download(download: Download<'_>, to: &Path) -> Result<(), Up
         .flush()
         .map_err(|error| failed(format!("cannot write {}: {error}", to.display())))?;
     stream.finish().map_err(signature)
+}
+
+/// A transport error with its causes, without the URL the message
+/// already names.
+fn transport(error: reqwest::Error) -> String {
+    crate::error::error_chain(&error.without_url())
 }
 
 fn percent(received: u64, total: Option<u64>) -> Option<u64> {

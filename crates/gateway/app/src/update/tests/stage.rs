@@ -238,4 +238,38 @@ async fn a_download_lands_only_when_its_signature_verifies() {
         ),
         "{error}"
     );
+    assert!(!to.exists(), "unverified bytes never stay behind");
+}
+
+#[tokio::test]
+async fn a_failed_download_names_its_cause() {
+    let key = TestKey::generate();
+    let verifier =
+        Verifier::new(&key.public(), &key.sign_version(b"x", "0.4.0"), "0.4.0").expect("decode");
+    let hub = gateway_progress::ProgressHub::new();
+    let activity = hub.begin("Downloading");
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let error = download(
+        Download {
+            url: "http://127.0.0.1:1/gateway.tar.gz",
+            key: "linux-x86_64-gateway",
+            verifier: &verifier,
+            activity: &activity,
+            label: "Downloading".to_owned(),
+        },
+        &dir.path().join("download.tar.gz"),
+    )
+    .await
+    .expect_err("nothing listens on port 1");
+    let UpdateError::Download { reason, .. } = &error else {
+        panic!("a download error: {error}");
+    };
+    assert!(
+        !reason.contains("127.0.0.1:1"),
+        "the URL is named once, by the message: {reason}"
+    );
+    assert!(
+        reason.to_lowercase().contains("refused"),
+        "the transport error carries its root cause: {reason}"
+    );
 }

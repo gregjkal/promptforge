@@ -135,8 +135,8 @@ mod tests {
     use super::*;
 
     /// The tray's status tick reads `is_fired` synchronously to tell a
-    /// requested shutdown apart from a serve-loop failure; the method is
-    /// gated on the tray backends like its only callers.
+    /// requested shutdown apart from a serve-loop failure, and the update
+    /// reads it before it swaps or starts the setup.
     #[test]
     fn fire_sets_the_synchronous_peek() {
         let signal = ShutdownSignal::default();

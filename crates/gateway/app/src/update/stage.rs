@@ -20,7 +20,8 @@ pub(crate) const STAGING_DIR_NAME: &str = ".promptforge-gateway-update";
 /// tens of megabytes; the Windows setup carries Workshop too.
 pub(crate) const DOWNLOAD_CAP: u64 = 512 * 1024 * 1024;
 
-/// How long a download may go without a byte before it fails.
+/// How long a download may wait for its response, and then for each next
+/// byte, before it fails.
 const STALL_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// How long the staged executable may take to print its version.
@@ -193,7 +194,8 @@ pub(crate) async fn download(download: Download<'_>, to: &Path) -> Result<(), Up
     download_within(download, to, STALL_TIMEOUT).await
 }
 
-/// [`download`], failing once no byte arrives for `stall`.
+/// [`download`], failing when the response or the next byte takes longer
+/// than `stall`.
 pub(crate) async fn download_within(
     download: Download<'_>,
     to: &Path,
@@ -218,10 +220,15 @@ async fn fetch(download: Download<'_>, to: &Path, stall: Duration) -> Result<(),
         reason,
     };
     let mut stream = download.verifier.stream().map_err(signature)?;
-    let mut response = gateway_protocol::http_util::streaming_client()
+    // The streaming client bounds only the connect, so a peer that holds
+    // the connection open and stops sending, before the headers or within
+    // the body, would hold the update forever.
+    let request = gateway_protocol::http_util::streaming_client()
         .get(download.url)
-        .send()
+        .send();
+    let mut response = tokio::time::timeout(stall, request)
         .await
+        .map_err(|_| failed(format!("no response arrived within {stall:?}")))?
         .map_err(|error| failed(transport(error)))?;
     let status = response.status();
     if !status.is_success() {
@@ -241,8 +248,6 @@ async fn fetch(download: Download<'_>, to: &Path, stall: Duration) -> Result<(),
     let mut writer = io::BufWriter::new(file);
     let mut received: u64 = 0;
     let mut shown = None;
-    // The streaming client bounds only the connect, so a peer that holds
-    // the connection open and stops sending would hold the update forever.
     while let Some(chunk) = tokio::time::timeout(stall, response.chunk())
         .await
         .map_err(|_| {

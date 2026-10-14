@@ -38,7 +38,7 @@ pub enum UpdateOutcome {
     WorkshopOwned,
     /// Another update is already running.
     Busy,
-    /// The update failed; the Gateway keeps running its current version.
+    /// The update failed or was refused, and nothing was installed.
     Failed,
 }
 

@@ -12,7 +12,7 @@ use std::thread::JoinHandle;
 
 use super::UpdateError;
 use super::stage::{Download, download, remove_item};
-use crate::shutdown::UpdateTicket;
+use crate::shutdown::{ShutdownSignal, UpdateTicket};
 
 /// The setup's arguments: passive, update mode. Never `/R`, which would
 /// launch a Workshop that is not installed.
@@ -88,11 +88,20 @@ pub(crate) async fn download_setup(setup: Download<'_>) -> Result<PathBuf, Updat
 
 /// Starts the verified setup detached, outside the gateway's job object,
 /// so it outlives the gateway it stops, and holds the update `ticket`
-/// until the setup exits.
+/// until the setup exits. Once `shutdown` has fired it starts nothing: the
+/// setup relaunches the gateway, and a quit must not come back.
 ///
 /// # Errors
-/// Returns [`UpdateError::Setup`] when it cannot start.
-pub(crate) fn start_setup(path: &Path, ticket: UpdateTicket) -> Result<(), UpdateError> {
+/// Returns [`UpdateError::ShuttingDown`] once `shutdown` has fired, and
+/// [`UpdateError::Setup`] when the setup cannot start.
+pub(crate) fn start_setup(
+    path: &Path,
+    ticket: UpdateTicket,
+    shutdown: &ShutdownSignal,
+) -> Result<(), UpdateError> {
+    if shutdown.is_fired() {
+        return Err(UpdateError::ShuttingDown);
+    }
     let mut command = std::process::Command::new(path);
     command.args(SETUP_ARGUMENTS);
     let setup = gateway_api_discovery::spawn_detached(&mut command).map_err(|source| {

@@ -310,7 +310,7 @@ async fn update(
     };
     if route == windows::Route::Setup {
         let setup = windows::download_setup(download).await?;
-        windows::start_setup(&setup, ticket)?;
+        windows::start_setup(&setup, ticket, &state.shutdown)?;
         tracing::info!(
             "started the PromptForge {version} setup {}; it restarts this gateway",
             setup.display()

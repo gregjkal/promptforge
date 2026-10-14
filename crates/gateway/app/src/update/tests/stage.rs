@@ -276,8 +276,9 @@ async fn a_failed_download_names_its_cause() {
     );
 }
 
-#[tokio::test]
-async fn a_download_that_stops_arriving_fails() {
+/// Runs a download against a peer that answers with `sent`, then holds
+/// the connection open and sends nothing more, and returns its error.
+async fn stalled_download(sent: &'static [u8]) -> (UpdateError, bool) {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -287,10 +288,7 @@ async fn a_download_that_stops_arriving_fails() {
         let (mut socket, _) = listener.accept().await.expect("accept");
         let mut request = [0_u8; 1024];
         let _ = socket.read(&mut request).await;
-        let _ = socket
-            .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 100\r\n\r\n0123456789")
-            .await;
-        // Holds the connection open and sends nothing more.
+        let _ = socket.write_all(sent).await;
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         drop(socket);
     });
@@ -314,11 +312,29 @@ async fn a_download_that_stops_arriving_fails() {
     )
     .await
     .expect_err("a stalled download");
+    (error, to.exists())
+}
+
+#[tokio::test]
+async fn a_download_that_stops_arriving_fails() {
+    let (error, left) =
+        stalled_download(b"HTTP/1.1 200 OK\r\ncontent-length: 100\r\n\r\n0123456789").await;
     assert!(
         error
             .to_string()
             .contains("nothing arrived for 200ms after 10 bytes"),
         "{error}"
     );
-    assert!(!to.exists(), "the partial download is removed");
+    assert!(!left, "the partial download is removed");
+}
+
+#[tokio::test]
+async fn a_download_whose_response_never_comes_fails() {
+    let (error, _) = stalled_download(b"").await;
+    assert!(
+        error
+            .to_string()
+            .contains("no response arrived within 200ms"),
+        "{error}"
+    );
 }

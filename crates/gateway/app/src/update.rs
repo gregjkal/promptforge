@@ -102,8 +102,8 @@ pub(crate) enum Applied {
     Busy,
 }
 
-/// Why an update failed. Every failure leaves the running gateway and its
-/// install as they were.
+/// Why an update failed. Every failure but [`UpdateError::Stranded`]
+/// leaves the running gateway and its install as they were.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub(crate) enum UpdateError {
@@ -265,7 +265,7 @@ impl Environment {
 ///
 /// # Errors
 /// Returns [`UpdateError`] naming what failed; the running gateway and its
-/// install are left as they were.
+/// install are left as they were, except after [`UpdateError::Stranded`].
 pub(crate) async fn apply(state: &AppState) -> Result<Applied, UpdateError> {
     apply_with(state, &Environment::current()).await
 }
@@ -338,7 +338,15 @@ async fn update(
     let staging = {
         let (install, version, shutdown) =
             (install.clone(), version.clone(), state.shutdown.clone());
-        run_blocking(move || install_staged(staging, &install, &version, key, &shutdown)).await?
+        match run_blocking(move || install_staged(staging, &install, &version, key, &shutdown))
+            .await
+        {
+            Ok(staging) => staging,
+            Err(error) => {
+                end_failed_install(ticket, &error);
+                return Err(error);
+            }
+        }
     };
     drop(activity);
     tracing::info!(
@@ -379,6 +387,15 @@ fn install_staged(
     }
     swap::swap(install.item(), &staged)?;
     Ok(staging)
+}
+
+/// Ends `ticket`'s update after a failed install, unless the install is
+/// stranded: this process then runs from the moved-aside copy, which a
+/// later update would locate and swap in place of the install.
+fn end_failed_install(ticket: UpdateTicket, error: &UpdateError) {
+    if matches!(error, UpdateError::Stranded { .. }) {
+        ticket.keep();
+    }
 }
 
 /// Runs file work off the runtime's worker threads.

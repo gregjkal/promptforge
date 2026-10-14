@@ -70,45 +70,57 @@ fn fixture_gateway(expected_key: &'static str) -> u16 {
 }
 
 #[test]
-fn a_marking_gateway_is_known_by_its_name_or_its_superseded_name() {
+fn a_gateway_is_known_by_its_name_or_its_superseded_name() {
     let expected = "promptforge-gateway";
     for image in [
         "/opt/promptforge/promptforge-gateway",
         "/opt/promptforge/promptforge-gateway.previous",
     ] {
-        assert!(marking_image_matches(Path::new(image), expected), "{image}");
+        assert!(image_name_matches(Path::new(image), expected), "{image}");
     }
     for image in [
         "/opt/promptforge/promptforge-gateway.old",
         "/opt/promptforge/sleep",
     ] {
-        assert!(
-            !marking_image_matches(Path::new(image), expected),
-            "{image}"
-        );
+        assert!(!image_name_matches(Path::new(image), expected), "{image}");
     }
 }
 
-/// A self-update renames the running executable aside before the
-/// successor publishes; the marking process must still count as alive.
+/// A self-update renames the running executable aside before it marks the
+/// record; the gateway must still count as alive, marked or not.
 #[cfg(unix)]
 #[test]
-fn a_marking_gateway_moved_aside_by_its_update_still_holds_its_mark() {
+fn a_gateway_moved_aside_by_its_update_still_holds_its_record() {
     let dir = tempfile::TempDir::new().expect("tempdir");
     let installed = dir.path().join("promptforge-gateway");
-    std::fs::copy("/bin/sleep", &installed).expect("copy a stand-in gateway");
+    // `cp` writes the stand-in, so no descriptor for it is ever open in this
+    // process, where a sibling test's fork could inherit it and make the
+    // exec below fail with ETXTBSY.
+    let copied = std::process::Command::new("cp")
+        .arg("/bin/sleep")
+        .arg(&installed)
+        .status()
+        .expect("run cp");
+    assert!(copied.success(), "copy a stand-in gateway");
     let mut child = std::process::Command::new(&installed)
         .arg("30")
         .spawn()
         .expect("start the stand-in");
     std::fs::rename(&installed, dir.path().join("promptforge-gateway.previous"))
         .expect("move it aside");
+    #[cfg(target_os = "linux")]
+    let image = crate::sys::process_identity(child.id()).map(|identity| identity.image);
     let mut file = connection(1, "key");
     file.pid = child.id();
     file.restarting = true;
     let lives = marking_process_lives(&file, "promptforge-gateway");
     let _ = child.kill();
     let _ = child.wait();
+    #[cfg(target_os = "linux")]
+    assert!(
+        image.is_some_and(|image| image.ends_with("promptforge-gateway.previous")),
+        "Linux reports the moved name, so the superseded branch is the one tested"
+    );
     assert_eq!(lives, Ok(()));
 }
 

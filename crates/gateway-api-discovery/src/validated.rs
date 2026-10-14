@@ -360,25 +360,22 @@ pub(crate) fn marking_process_lives(
     let Some(identity) = process_identity(file.pid) else {
         return Err(StaleReason::ProcessDead);
     };
-    if !marking_image_matches(&identity.image, image_name) {
+    if !image_name_matches(&identity.image, image_name) {
         return Err(StaleReason::ImageMismatch);
     }
     Ok(())
 }
 
-/// Whether a marking process's `image` is the gateway's: its own name, or
-/// that name with [`SUPERSEDED_SUFFIX`] once its self-update moved it
-/// aside, which Linux reports through `/proc/<pid>/exe`.
-fn marking_image_matches(image: &Path, expected: &str) -> bool {
-    image_name_matches(image, expected)
-        || image_name_matches(image, &format!("{expected}{SUPERSEDED_SUFFIX}"))
-}
-
+/// Whether a process's `image` is the gateway's: its own name, or that name
+/// with [`SUPERSEDED_SUFFIX`] once its self-update moved it aside. Linux
+/// reports the moved name through `/proc/<pid>/exe` from the swap on, both
+/// before the record is marked and while it is.
 fn image_name_matches(image: &Path, expected: &str) -> bool {
     let Some(name) = image.file_name() else {
         return false;
     };
     image_file_name_matches(name, expected)
+        || image_file_name_matches(name, &format!("{expected}{SUPERSEDED_SUFFIX}"))
 }
 
 #[cfg(windows)]

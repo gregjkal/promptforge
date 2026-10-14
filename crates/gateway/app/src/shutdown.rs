@@ -135,9 +135,8 @@ impl ShutdownSignal {
 mod tests {
     use super::*;
 
-    /// The tray's status tick reads `is_fired` synchronously to tell a
-    /// requested shutdown apart from a serve-loop failure, and the update
-    /// reads it before it swaps or starts the setup.
+    /// `is_fired` is a synchronous peek: it reads true as soon as `fire`
+    /// returns, before any waiter wakes.
     #[test]
     fn fire_sets_the_synchronous_peek() {
         let signal = ShutdownSignal::default();

@@ -9,7 +9,9 @@ use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use gateway_api_discovery::{GatewayDiscoveryFile, GatewayInstanceLease, ValidatedConnection};
+use gateway_api_discovery::{
+    GatewayDiscoveryFile, GatewayInstanceLease, SUPERSEDED_SUFFIX, ValidatedConnection,
+};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const OLD_VERSION: &str = "0.0.1";
@@ -239,7 +241,11 @@ fn an_update_hands_the_lease_to_the_swapped_in_gateway() {
         format!("promptforge-gateway {VERSION}")
     );
     let install = release.installed.parent().unwrap();
-    assert!(!install.join("promptforge-gateway.previous").exists());
+    assert!(
+        !install
+            .join(format!("promptforge-gateway{SUPERSEDED_SUFFIX}"))
+            .exists()
+    );
     assert!(!install.join(".promptforge-gateway-update").exists());
 }
 
@@ -275,7 +281,11 @@ fn a_release_signed_by_another_key_leaves_the_gateway_serving_and_untouched() {
     assert!(!still.restarting);
     assert_eq!(std::fs::read(&release.installed).unwrap(), before);
     let install = release.installed.parent().unwrap();
-    assert!(!install.join("promptforge-gateway.previous").exists());
+    assert!(
+        !install
+            .join(format!("promptforge-gateway{SUPERSEDED_SUFFIX}"))
+            .exists()
+    );
     assert!(!install.join(".promptforge-gateway-update").exists());
     let _ = old.kill();
     let _ = old.wait();

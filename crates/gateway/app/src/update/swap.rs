@@ -48,10 +48,15 @@ pub(crate) fn swap_with(
     rename(installed, &previous).map_err(failed)?;
     if let Err(error) = rename(staged, installed) {
         if let Err(restore) = rename(&previous, installed) {
+            tracing::error!(
+                "nothing is installed at {}; the previous gateway waits at {}",
+                installed.display(),
+                previous.display()
+            );
             return Err(UpdateError::Stranded {
                 installed: installed.to_path_buf(),
                 previous,
-                reason: format!("{error}; moving it back: {restore}"),
+                reason: format!("swap: {error}; restore: {restore}"),
             });
         }
         return Err(failed(error));

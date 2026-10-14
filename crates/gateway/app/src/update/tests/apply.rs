@@ -8,7 +8,7 @@ use gateway_config::Config;
 use crate::update::stage::Install;
 #[cfg(unix)]
 use crate::update::stage::{STAGING_DIR_NAME, Staging};
-use crate::update::{Applied, Environment, UpdateError, apply_with};
+use crate::update::{Applied, Environment, UpdateError, apply_with, end_failed_install};
 #[cfg(unix)]
 use crate::update::{install_staged, windows::release_on_exit};
 
@@ -124,6 +124,27 @@ fn a_running_setup_holds_the_claim_until_it_exits() {
         state.shutdown.begin_update().is_some(),
         "a setup that exited without installing frees the claim"
     );
+}
+
+#[test]
+fn only_a_stranded_install_keeps_the_claim_after_failing() {
+    let stranded = UpdateError::Stranded {
+        installed: "/opt/promptforge/promptforge-gateway".into(),
+        previous: "/opt/promptforge/promptforge-gateway.previous".into(),
+        reason: "swap: injected; restore: injected".to_owned(),
+    };
+    let held = state();
+    end_failed_install(held.shutdown.begin_update().expect("claim"), &stranded);
+    assert!(
+        held.shutdown.begin_update().is_none(),
+        "this process runs from the moved-aside copy and refuses another update"
+    );
+    let freed = state();
+    end_failed_install(
+        freed.shutdown.begin_update().expect("claim"),
+        &UpdateError::ShuttingDown,
+    );
+    assert!(freed.shutdown.begin_update().is_some());
 }
 
 #[test]

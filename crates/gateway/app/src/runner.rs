@@ -78,6 +78,10 @@ pub struct ServeOptions {
     /// Run the gateway as the child of a supervisor that handles restarting logic.
     /// `POST /admin/restart` is available.
     pub supervised: bool,
+    /// Checks for a newer gateway release at startup and every 24 hours,
+    /// or an hour after a failed check, for the tray's update notice. [`crate::run_with_tray`] sets it;
+    /// headless runs leave it `false` and never check.
+    pub update_notice: bool,
 }
 
 impl ServeOptions {
@@ -93,6 +97,7 @@ impl ServeOptions {
             run_dir: None,
             browser: false,
             supervised: false,
+            update_notice: false,
         }
     }
 

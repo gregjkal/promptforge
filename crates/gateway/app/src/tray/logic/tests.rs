@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// The notice before any check: no update text in the label.
+const UNCHECKED: NoticeState = NoticeState::Unchecked;
+
 #[test]
 fn a_serving_poll_shows_running_and_a_stopped_poll_shows_error() {
     assert_eq!(next_phase(Poll::Serving), TrayPhase::Running);
@@ -10,28 +13,31 @@ fn a_serving_poll_shows_running_and_a_stopped_poll_shows_error() {
 
 #[test]
 fn the_status_label_follows_the_tray_idiom() {
-    assert_eq!(status_label(TrayPhase::Starting, None, 0, 0.0), "Starting");
     assert_eq!(
-        status_label(TrayPhase::Running, None, 2, 4.1),
+        status_label(TrayPhase::Starting, None, 0, 0.0, &UNCHECKED),
+        "Starting"
+    );
+    assert_eq!(
+        status_label(TrayPhase::Running, None, 2, 4.1, &UNCHECKED),
         "Running - 2 models, 4.1 GB"
     );
     assert_eq!(
-        status_label(TrayPhase::Running, None, 1, 1.0),
+        status_label(TrayPhase::Running, None, 1, 1.0, &UNCHECKED),
         "Running - 1 model, 1.0 GB",
         "a single model is singular"
     );
     assert_eq!(
-        status_label(TrayPhase::Running, None, 2, 0.0),
+        status_label(TrayPhase::Running, None, 2, 0.0, &UNCHECKED),
         "Running - 2 models",
         "a gateway serving only remote models declares no VRAM"
     );
     assert_eq!(
-        status_label(TrayPhase::Running, None, 0, 0.0),
+        status_label(TrayPhase::Running, None, 0, 0.0, &UNCHECKED),
         "Running - 0 models",
         "an idle queue with nothing loaded says so"
     );
     assert_eq!(
-        status_label(TrayPhase::Error, None, 0, 0.0),
+        status_label(TrayPhase::Error, None, 0, 0.0, &UNCHECKED),
         "Error - serving stopped"
     );
 }
@@ -39,11 +45,23 @@ fn the_status_label_follows_the_tray_idiom() {
 #[test]
 fn a_busy_hub_drives_the_label_with_its_text() {
     assert_eq!(
-        status_label(TrayPhase::Running, Some("Downloading qwen 34%"), 0, 0.0),
+        status_label(
+            TrayPhase::Running,
+            Some("Downloading qwen 34%"),
+            0,
+            0.0,
+            &UNCHECKED
+        ),
         "Running - Downloading qwen 34%"
     );
     assert_eq!(
-        status_label(TrayPhase::Running, Some("load-profile: main"), 2, 4.1),
+        status_label(
+            TrayPhase::Running,
+            Some("load-profile: main"),
+            2,
+            4.1,
+            &UNCHECKED
+        ),
         "Running - load-profile: main",
         "the activity text outranks the model count and the percent"
     );
@@ -52,12 +70,24 @@ fn a_busy_hub_drives_the_label_with_its_text() {
 #[test]
 fn the_starting_and_error_phases_ignore_the_hub() {
     assert_eq!(
-        status_label(TrayPhase::Starting, Some("load-profile: main"), 0, 0.0),
+        status_label(
+            TrayPhase::Starting,
+            Some("load-profile: main"),
+            0,
+            0.0,
+            &UNCHECKED
+        ),
         "Starting",
         "no poll has reported yet, so the activity readout waits"
     );
     assert_eq!(
-        status_label(TrayPhase::Error, Some("load-profile: main"), 3, 2.0),
+        status_label(
+            TrayPhase::Error,
+            Some("load-profile: main"),
+            3,
+            2.0,
+            &UNCHECKED
+        ),
         "Error - serving stopped",
         "a stopped gateway reports the error, not a stale activity"
     );
@@ -65,13 +95,17 @@ fn the_starting_and_error_phases_ignore_the_hub() {
 
 #[test]
 fn the_menu_layout_puts_status_first_and_quit_last() {
-    let spec = menu_spec("Running - 2 models, 4.1 GB", true, true, false);
+    let spec = menu_spec("Running - 2 models, 4.1 GB", true, true, false, &UNCHECKED);
     assert_eq!(
         spec,
         vec![
             MenuItemSpec::Status("Running - 2 models, 4.1 GB".to_owned()),
             MenuItemSpec::Workshop { enabled: true },
             MenuItemSpec::Settings,
+            MenuItemSpec::Update {
+                label: "Check for Updates".to_owned(),
+                enabled: true
+            },
             MenuItemSpec::Separator,
             MenuItemSpec::LaunchAtLogin {
                 enabled: true,
@@ -85,14 +119,14 @@ fn the_menu_layout_puts_status_first_and_quit_last() {
 
 #[test]
 fn the_menu_spec_sets_the_workshop_and_login_states() {
-    let spec = menu_spec("Running", false, true, true);
+    let spec = menu_spec("Running", false, true, true, &UNCHECKED);
     assert!(
         matches!(spec[1], MenuItemSpec::Workshop { enabled: false }),
         "a Gateway-only install disables Workshop: {spec:?}"
     );
     assert!(
         matches!(
-            spec[4],
+            spec[5],
             MenuItemSpec::LaunchAtLogin {
                 enabled: true,
                 checked: true
@@ -104,10 +138,10 @@ fn the_menu_spec_sets_the_workshop_and_login_states() {
 
 #[test]
 fn the_menu_spec_disables_login_when_the_os_store_is_unavailable() {
-    let spec = menu_spec("Running", true, false, false);
+    let spec = menu_spec("Running", true, false, false, &UNCHECKED);
     assert!(
         matches!(
-            spec[4],
+            spec[5],
             MenuItemSpec::LaunchAtLogin {
                 enabled: false,
                 checked: false

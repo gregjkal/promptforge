@@ -143,6 +143,12 @@ impl ShutdownSignal {
             })
     }
 
+    /// Whether an update holds the claim: a read-only peek, so the tray's
+    /// update notice shows an update the route started.
+    pub(crate) fn is_updating(&self) -> bool {
+        self.succession.updating.load(Ordering::Acquire)
+    }
+
     /// Leaves `plan` for the end of serving, then fires the signal with a
     /// stop: the pending succession, not the reason, tells `main` what
     /// runs next.
@@ -256,12 +262,15 @@ mod tests {
     #[test]
     fn one_update_runs_at_a_time_until_its_ticket_drops() {
         let signal = Arc::new(ShutdownSignal::default());
+        assert!(!signal.is_updating(), "a fresh signal holds no claim");
         let ticket = signal.begin_update().expect("the first update claims");
+        assert!(signal.is_updating(), "the peek sees the claim");
         assert!(
             signal.begin_update().is_none(),
             "a second update is refused while one runs"
         );
         drop(ticket);
+        assert!(!signal.is_updating(), "a dropped ticket frees the claim");
         let ticket = signal
             .begin_update()
             .expect("a finished update frees the claim");

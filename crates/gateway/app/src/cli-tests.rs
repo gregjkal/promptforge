@@ -142,6 +142,21 @@ fn no_tray_selects_the_headless_loop() {
 }
 
 #[test]
+fn the_systemd_unit_runs_headless() {
+    let unit = include_str!("../packaging/gateway.service");
+    let exec = unit
+        .lines()
+        .find_map(|line| line.strip_prefix("ExecStart="))
+        .expect("the unit has an ExecStart line");
+    let rest: Vec<&str> = exec.split_whitespace().skip(1).collect();
+    let invocation = AppOptions::from_args(args(&rest)).expect("the unit's command line parses");
+    assert!(
+        !invocation.tray,
+        "a system service has no tray, so it must not start the tray's update checks"
+    );
+}
+
+#[test]
 fn the_autostart_command_line_parses() {
     // The Run-key entry is `"<exe>" --login`; a login launch must
     // never fail on its own command line.

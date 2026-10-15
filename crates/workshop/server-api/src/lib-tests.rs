@@ -32,6 +32,7 @@ fn the_desktop_app_facing_surface_names_every_re_export() {
         short_name::<GatewayPublicationError>(),
         "GatewayPublicationError"
     );
+    assert_eq!(short_name::<GatewayUpdateOutcome>(), "GatewayUpdateOutcome");
 }
 
 #[test]

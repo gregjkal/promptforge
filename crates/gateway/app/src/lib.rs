@@ -276,10 +276,11 @@ struct AppState {
     /// The process-shutdown signal fired by `POST /shutdown`; the serve
     /// loop selects on it alongside the caller-owned shutdown future.
     shutdown: Arc<shutdown::ShutdownSignal>,
-    /// This gateway runs under a supervisor that relaunches it if it exits with
-    /// [`RESTART_REQUESTED`](crate::RESTART_REQUESTED).
-    /// Makes `POST /admin/restart`available.
+    /// This gateway runs under a supervisor that relaunches it if it exits
+    /// with [`RESTART_REQUESTED`](crate::RESTART_REQUESTED); `POST /admin/restart` is available.
     supervised: bool,
+    /// The tray's update notice, which a tray run's worker fills.
+    update_notice: update::notice::Notice,
     /// Process-lifetime random salt for the `/auth` handoff's session
     /// proof; a restart or key rotation invalidates every minted cookie.
     handoff_salt: [u8; 32],
@@ -329,6 +330,7 @@ impl AppState {
         let started = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |duration| duration.as_nanos());
+        let shutdown = Arc::new(shutdown::ShutdownSignal::default());
         AppState {
             live: Arc::new(RwLock::new(LiveState {
                 routing,
@@ -357,7 +359,8 @@ impl AppState {
             hf: Arc::new(hf::HfProxy::from_env()),
             cloud_models: cloud_models::CloudModels::default(),
             reveal: Arc::new(reveal::SpawnLauncher),
-            shutdown: Arc::new(shutdown::ShutdownSignal::default()),
+            update_notice: update::notice::Notice::new(Arc::clone(&shutdown)),
+            shutdown,
             supervised: false,
             handoff_salt: {
                 // The OS-seeded CSPRNG, as for the generated bearer key:

@@ -5,7 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/runvil-gateway --config /etc/runvil/gateway.toml --profile main
+# A system service has no desktop session for a tray, and a headless
+# gateway never checks for updates; the server updates by rebuilding.
+ExecStart=/usr/local/bin/runvil-gateway --config /etc/runvil/gateway.toml --profile main --no-tray
 Restart=on-failure
 RestartSec=5
 # The gateway holds vendor credentials; run it as a dedicated user.

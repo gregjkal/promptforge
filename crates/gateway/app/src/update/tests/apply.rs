@@ -29,6 +29,7 @@ fn environment(manifest_url: String) -> Environment {
         version: "0.3.1".to_owned(),
         os: "linux",
         arch: "x86_64",
+        development: false,
     }
 }
 
@@ -43,6 +44,24 @@ async fn a_second_update_while_one_runs_is_busy() {
     .await
     .expect("busy is an answer");
     assert_eq!(applied, Applied::Busy);
+}
+
+#[tokio::test]
+async fn a_development_build_fetches_nothing_and_frees_the_claim() {
+    let state = state();
+    // A fetch of this address would fail as `Fetch`, not `Development`.
+    let environment = Environment {
+        development: true,
+        ..environment("http://127.0.0.1:1/latest.json".to_owned())
+    };
+    let error = apply_with(&state, &environment)
+        .await
+        .expect_err("a development build refuses");
+    assert!(matches!(error, UpdateError::Development), "{error}");
+    assert!(
+        state.shutdown.begin_update().is_some(),
+        "the refusal frees the claim"
+    );
 }
 
 #[tokio::test]

@@ -37,7 +37,9 @@ mod resolve;
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod test_gateway;
 
-pub use binding::{GatewayBinding, GatewayPublicationError, GatewaySnapshot, GatewayUpdater};
+pub use binding::{
+    GatewayBinding, GatewayPublicationError, GatewaySnapshot, GatewayUpdateOutcome, GatewayUpdater,
+};
 pub use client::{
     ForwardedResponse, GatewayClient, GatewayError, GatewayRealtimeSocket, GatewayResponse,
     REQUEST_TIMEOUT, SwitchProfileBody, SwitchResponse,

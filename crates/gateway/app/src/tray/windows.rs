@@ -188,6 +188,8 @@ struct Tray {
     workshop_item: MenuItem,
     /// Opens the config SPA.
     settings_item: MenuItem,
+    /// Checks for and installs a gateway update.
+    update_item: MenuItem,
     /// The launch-at-login check item.
     login_item: CheckMenuItem,
     /// Quits the gateway.
@@ -248,9 +250,10 @@ impl Tray {
         let auth_url = crate::auth::primitives::auth_url(handle.url(), handle.tray_key());
         let workshop_exe = probe_workshop();
         let login_checked = logic::launch_at_login(&WindowsRunKey);
-        let label = logic::status_label(TrayPhase::Starting, None, 0, 0.0);
+        let notice = handle.tray_state().update_notice.state();
+        let label = logic::status_label(TrayPhase::Starting, None, 0, 0.0, &notice);
         // The HKCU Run key is always available, so the item is always enabled.
-        let spec = logic::menu_spec(&label, workshop_exe.is_some(), true, login_checked);
+        let spec = logic::menu_spec(&label, workshop_exe.is_some(), true, login_checked, &notice);
         let menu = BuiltMenu::from_spec(&spec)?;
         let (events, rx) = mpsc::channel();
         let hwnd = create_window()?;
@@ -284,6 +287,7 @@ impl Tray {
             status_item: menu.status,
             workshop_item: menu.workshop,
             settings_item: menu.settings,
+            update_item: menu.update,
             login_item: menu.login,
             quit_item: menu.quit,
             handle: None,

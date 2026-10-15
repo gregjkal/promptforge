@@ -55,8 +55,11 @@ function updateButton() {
   return window.document.querySelector(".ws-about-dialog__check");
 }
 
-function closeDialog() {
-  window.document.querySelector(".ws-about-dialog-overlay")?.remove();
+// Dismisses through the Close button, as a user does, so the dialog's
+// teardown runs and the next open is not a no-op.
+function closeDialog(name) {
+  window.document.querySelector(".ws-about-dialog__close")?.click();
+  check(name, window.document.querySelector(".ws-about-dialog-overlay") === null);
 }
 
 // No service registered: the dialog still opens, with updates unavailable.
@@ -65,7 +68,7 @@ check(
   "without an update service the button reads unavailable",
   updateButton()?.textContent === "Desktop updates unavailable" && updateButton()?.disabled === true,
 );
-closeDialog();
+closeDialog("Close dismisses the dialog without an update service");
 
 // The desktop app's registered service: the button offers the check.
 let checks = 0;
@@ -78,21 +81,20 @@ const updates = new UpdateService({
     return null;
   },
   relaunch: async () => undefined,
-  updateGateway: async () => ({ outcome: "current" }),
 });
 const registration = registerService(UPDATES, () => updates);
 await Commands.execute(ABOUT);
 const button = updateButton();
 check(
   "with the desktop update service the button offers the check",
-  button !== null && button.textContent !== "Desktop updates unavailable" && button.disabled === false,
+  button?.textContent === "Check for updates" && button.disabled === false,
 );
 button?.click();
 for (let turn = 0; turn < 10 && checks === 0; turn += 1) {
   await Promise.resolve();
 }
 check("the button runs the update check", checks === 1);
-closeDialog();
+closeDialog("Close dismisses the dialog with the update service");
 registration.dispose();
 updates.dispose();
 

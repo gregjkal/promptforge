@@ -133,7 +133,7 @@ registerService(
 const statusBar = disposables.add(new StatusBar());
 const updates = disposables.add(new UpdateService());
 // Help > About resolves it for its update button.
-disposables.add(registerService(UPDATES, () => updates));
+registerService(UPDATES, () => updates);
 // The shared toast stack shows the update notifications; the workshop
 // keeps it clear of the status bar via --toast-inset-block-end.
 const toasts = createToastStack();

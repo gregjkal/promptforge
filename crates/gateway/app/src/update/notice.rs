@@ -46,9 +46,13 @@ pub(crate) enum NoticeState {
     /// A check or an update is running, the route's included.
     Busy,
     /// The last check or update failed, for this reason. It stays until
-    /// the next check, scheduled or clicked, unless the update stranded
-    /// the install, which no check can repair.
+    /// the next check, scheduled or clicked.
     Failed(String),
+    /// An update this worker ran stranded the install, for this reason.
+    /// The stranded update keeps the claim for the process's life, so this
+    /// outranks the claim, no later check replaces it, and a click could
+    /// only answer busy.
+    Stranded(String),
     /// Workshop, installed beside this gateway on Windows, owns updates.
     WorkshopOwned,
 }
@@ -66,10 +70,6 @@ struct Shared {
     stored: Mutex<NoticeState>,
     /// Whether the worker is running a check or an update.
     working: AtomicBool,
-    /// Whether an update this worker ran stranded the install. The
-    /// stranded update keeps the claim for the process's life, so its
-    /// failure outranks the claim and no later check replaces it.
-    stranded: AtomicBool,
     /// The tray's update requests.
     requests: mpsc::UnboundedSender<()>,
     /// The receiving end, until the worker takes it.
@@ -88,7 +88,6 @@ impl Notice {
             shared: Arc::new(Shared {
                 stored: Mutex::new(NoticeState::Unchecked),
                 working: AtomicBool::new(false),
-                stranded: AtomicBool::new(false),
                 requests,
                 receiver: Mutex::new(Some(receiver)),
                 shutdown,
@@ -100,15 +99,11 @@ impl Notice {
     /// runs or another update holds the claim, else the last result. A
     /// stranded install's failure outranks the claim the install keeps.
     pub(crate) fn state(&self) -> NoticeState {
-        let stored = self
-            .shared
-            .stored
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
-        let claimed =
-            self.shared.shutdown.is_updating() && !self.shared.stranded.load(Ordering::Acquire);
-        if self.shared.working.load(Ordering::Acquire) || claimed {
+        let stored = self.stored();
+        if matches!(stored, NoticeState::Stranded(_)) {
+            return stored;
+        }
+        if self.shared.working.load(Ordering::Acquire) || self.shared.shutdown.is_updating() {
             NoticeState::Busy
         } else {
             stored
@@ -130,6 +125,15 @@ impl Notice {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take()
+    }
+
+    /// The last result, without the derived [`NoticeState::Busy`].
+    fn stored(&self) -> NoticeState {
+        self.shared
+            .stored
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     /// Records the last result.
@@ -252,7 +256,7 @@ where
     C: FnMut() -> CF,
     CF: Future<Output = Result<Check, UpdateError>>,
 {
-    if notice.shared.stranded.load(Ordering::Acquire) {
+    if matches!(notice.stored(), NoticeState::Stranded(_)) {
         return true;
     }
     if windows::route(sources.os, &sources.workshop) == windows::Route::WorkshopOwned {
@@ -302,10 +306,12 @@ where
         Ok(Applied::Busy) => return None,
         Err(error) => {
             tracing::warn!("the update failed: {}", error_chain(&error));
-            if matches!(error, UpdateError::Stranded { .. }) {
-                notice.shared.stranded.store(true, Ordering::Release);
-            }
-            notice.store(NoticeState::Failed(error.to_string()));
+            let reason = error.to_string();
+            notice.store(if matches!(error, UpdateError::Stranded { .. }) {
+                NoticeState::Stranded(reason)
+            } else {
+                NoticeState::Failed(reason)
+            });
             return Some(false);
         }
     }

@@ -7,7 +7,16 @@
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
 use std::path::Path;
 
+use crate::runner::ServeOptions;
 use crate::update::notice::NoticeState;
+
+/// The serve options a tray run uses: the caller's, with the update
+/// notice on, since the tray is what shows and installs an update.
+pub(crate) fn tray_options(options: &ServeOptions) -> ServeOptions {
+    let mut options = options.clone();
+    options.update_notice = true;
+    options
+}
 
 /// The tray icon's visual phases: grayed while starting, steady while
 /// running, distinct on error. The status label and tooltip use the
@@ -70,7 +79,9 @@ pub(crate) fn status_label(
                 NoticeState::Available(version) => {
                     return format!("Running - Update available: {version}");
                 }
-                NoticeState::Failed(reason) => return format!("Running - Update failed: {reason}"),
+                NoticeState::Failed(reason) | NoticeState::Stranded(reason) => {
+                    return format!("Running - Update failed: {reason}");
+                }
                 _ => {}
             }
             let models = match models {
@@ -84,6 +95,32 @@ pub(crate) fn status_label(
             }
         }
     }
+}
+
+/// The status label cut to fit a Windows tray tooltip, which holds at
+/// most 128 UTF-16 units with its terminating null
+/// (<https://learn.microsoft.com/en-us/windows/win32/api/shellapi/ns-shellapi-notifyicondataw>).
+/// A longer label, such as a failed update's full reason, would lose the
+/// terminator; it ends in an ellipsis instead, and the menu's status item
+/// keeps the whole text.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn windows_tooltip(label: &str) -> std::borrow::Cow<'_, str> {
+    const MAX_UNITS: usize = 127;
+    if label.encode_utf16().count() <= MAX_UNITS {
+        return std::borrow::Cow::Borrowed(label);
+    }
+    let mut units = 0;
+    let mut cut = String::new();
+    for character in label.chars() {
+        units += character.len_utf16();
+        // One unit stays free for the ellipsis.
+        if units > MAX_UNITS - 1 {
+            break;
+        }
+        cut.push(character);
+    }
+    cut.push('\u{2026}');
+    std::borrow::Cow::Owned(cut)
 }
 
 /// One tray menu entry, in display order. The backend materializes the
@@ -164,6 +201,7 @@ pub(crate) fn update_item(notice: &NoticeState) -> (String, bool) {
         NoticeState::Current(version) => (format!("Up to date ({version})"), true),
         NoticeState::Available(version) => (format!("Update available: {version}"), true),
         NoticeState::Busy => ("Updating".to_owned(), false),
+        NoticeState::Stranded(_) => ("Update failed".to_owned(), false),
         NoticeState::WorkshopOwned => ("Updates come from PromptForge Workshop".to_owned(), false),
     }
 }

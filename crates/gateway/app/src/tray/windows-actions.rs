@@ -52,7 +52,7 @@ pub(super) fn tick(tray: &mut Tray) {
         if label != tray.label {
             tray.status_item.set_text(&label);
             if let Some(icon) = tray.icon.as_ref()
-                && let Err(error) = icon.set_tooltip(Some(&label))
+                && let Err(error) = icon.set_tooltip(Some(logic::windows_tooltip(&label)))
             {
                 tracing::debug!("could not update the tray tooltip: {error}");
             }

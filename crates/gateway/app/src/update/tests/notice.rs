@@ -391,14 +391,14 @@ async fn a_stranded_install_outranks_its_claim_and_every_later_check() {
     fixture.shutdown.begin_update().expect("claim").keep();
     fixture.notice.request_apply();
     settle(Duration::from_secs(1)).await;
-    let NoticeState::Failed(reason) = fixture.notice.state() else {
+    let NoticeState::Stranded(reason) = fixture.notice.state() else {
         panic!("a stranded install is shown: {:?}", fixture.notice.state());
     };
     assert!(reason.contains("move it to"), "{reason}");
     settle(CHECK_INTERVAL * 2).await;
     assert_eq!(fixture.check.calls(), 1, "no check runs after a strand");
     assert!(
-        matches!(fixture.notice.state(), NoticeState::Failed(_)),
+        matches!(fixture.notice.state(), NoticeState::Stranded(_)),
         "the strand stays shown"
     );
 }

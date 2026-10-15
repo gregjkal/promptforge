@@ -4,6 +4,15 @@
 use super::*;
 
 #[test]
+fn a_tray_run_turns_the_update_notice_on() {
+    let options = ServeOptions::new(None, None::<crate::ProfileName>);
+    assert!(!options.update_notice, "headless runs never check");
+    let tray = tray_options(&options);
+    assert!(tray.update_notice, "a tray run checks for updates");
+    assert_eq!(tray.config_path, options.config_path);
+}
+
+#[test]
 fn the_update_item_follows_every_notice_state() {
     let cases = [
         (NoticeState::Unchecked, "Check for Updates", true),
@@ -23,6 +32,11 @@ fn the_update_item_follows_every_notice_state() {
             true,
         ),
         (NoticeState::Busy, "Updating", false),
+        (
+            NoticeState::Stranded("move it to".to_owned()),
+            "Update failed",
+            false,
+        ),
         (
             NoticeState::WorkshopOwned,
             "Updates come from PromptForge Workshop",
@@ -77,6 +91,10 @@ fn the_status_line_reads_each_notice_state_when_idle() {
         )),
         "Running - Update failed: cannot fetch the release manifest"
     );
+    assert_eq!(
+        label(&NoticeState::Stranded("move it to".to_owned())),
+        "Running - Update failed: move it to"
+    );
     for notice in [
         NoticeState::Unchecked,
         NoticeState::Current("0.3.0".to_owned()),
@@ -89,6 +107,25 @@ fn the_status_line_reads_each_notice_state_when_idle() {
             "{notice:?} keeps the model summary"
         );
     }
+}
+
+#[test]
+fn a_long_status_line_fits_the_windows_tooltip() {
+    let short = "Running - Update failed: cannot fetch the release manifest";
+    assert_eq!(windows_tooltip(short), short);
+    let reason = "é".repeat(200);
+    let label = format!("Running - Update failed: {reason}");
+    let tip = windows_tooltip(&label);
+    assert_eq!(tip.encode_utf16().count(), 127, "{tip}");
+    assert!(tip.ends_with('\u{2026}'), "{tip}");
+    assert!(label.starts_with(tip.trim_end_matches('\u{2026}')));
+    let astral = "😀".repeat(100);
+    let tip = windows_tooltip(&astral);
+    assert_eq!(
+        tip.chars().filter(|c| *c == '😀').count(),
+        63,
+        "63 two-unit characters and the ellipsis fill 127 units: {tip}"
+    );
 }
 
 #[test]

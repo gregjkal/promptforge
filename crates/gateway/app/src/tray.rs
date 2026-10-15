@@ -58,9 +58,7 @@ mod windows;
 /// Returns [`StartupError`] when config loading, provisioning, binding, or
 /// serving fails; classify with [`StartupError::kind`].
 pub fn run_with_tray(options: &ServeOptions) -> Result<Stopped, StartupError> {
-    let mut options = options.clone();
-    options.update_notice = true;
-    run_inner(&options)
+    run_inner(&logic::tray_options(options))
 }
 
 #[cfg(target_os = "windows")]

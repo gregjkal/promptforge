@@ -1,8 +1,9 @@
 // Unit test for Help > About (src/parts/chrome/chrome.contribution.ts and
 // src/parts/chrome/about-dialog.ts): the action resolves the registered
 // update service, so the desktop dialog offers the update check instead of
-// "Desktop updates unavailable", and without a registered service it still
-// opens with the button disabled. Bundles the modules with esbuild and
+// "Desktop updates unavailable", follows the service's phases while open,
+// and without a registered service it still opens with the button
+// disabled. Bundles the modules with esbuild and
 // drives them against jsdom with a stub-backend UpdateService.
 // Run: node test/about-dialog.mjs
 import path from "node:path";
@@ -70,31 +71,100 @@ check(
 );
 closeDialog("Close dismisses the dialog without an update service");
 
-// The desktop app's registered service: the button offers the check.
+// Lets the service's awaits and the dialog's re-render run.
+function settle() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function buttonReads(text, enabled) {
+  const button = updateButton();
+  return button?.textContent === text && button.disabled === !enabled;
+}
+
+// The desktop app's registered service, with each answer scripted per case.
 let checks = 0;
+let gatewayRequests = 0;
+let supported = true;
+let answer = async () => null;
 const updates = new UpdateService({
   desktop: true,
-  supported: async () => true,
+  supported: async () => supported,
   currentVersion: async () => "0.3.0",
-  check: async () => {
+  check: () => {
     checks += 1;
-    return null;
+    return answer();
   },
   relaunch: async () => undefined,
-  updateGateway: async () => ({ outcome: "current" }),
+  updateGateway: async () => {
+    gatewayRequests += 1;
+    return { outcome: "current" };
+  },
 });
 const registration = registerService(UPDATES, () => updates);
+
 await Commands.execute(ABOUT);
-const button = updateButton();
 check(
   "with the desktop update service the button offers the check",
-  button?.textContent === "Check for updates" && button.disabled === false,
+  buttonReads("Check for updates", true),
 );
-button?.click();
-for (let turn = 0; turn < 10 && checks === 0; turn += 1) {
-  await Promise.resolve();
-}
+
+// A click runs one check; the dialog follows its phases while open.
+let finishCheck;
+answer = () =>
+  new Promise((resolve) => {
+    finishCheck = resolve;
+  });
+updateButton()?.click();
+await settle();
 check("the button runs the update check", checks === 1);
+check("a running check disables the button", buttonReads("Checking for updates...", false));
+finishCheck(null);
+await settle();
+check("a finished check offers the check again", buttonReads("Check for updates", true));
+check("the check asks the gateway once", gatewayRequests === 1);
+
+// A failed check offers the retry, which runs the check again.
+answer = async () => {
+  throw new Error("offline");
+};
+updateButton()?.click();
+await settle();
+check("a failed check offers the retry", buttonReads("Retry update check", true));
+answer = async () => null;
+updateButton()?.click();
+await settle();
+check("the retry runs the check", checks === 3);
+check("a passing retry offers the check", buttonReads("Check for updates", true));
+
+// An available update, dismissed elsewhere, is offered again from About,
+// and choosing it closes the dialog.
+answer = async () => ({
+  currentVersion: "0.3.0",
+  version: "0.4.0",
+  body: "",
+  downloadAndInstall: async () => undefined,
+  close: async () => undefined,
+});
+updateButton()?.click();
+await settle();
+check("an available update is offered", buttonReads("Show update 0.4.0", true));
+updates.remindLater();
+check("a dismissed update is still offered", buttonReads("Show update 0.4.0", true));
+updateButton()?.click();
+check("showing the update makes it available", updates.snapshot.phase === "available");
+check(
+  "showing the update closes the dialog",
+  window.document.querySelector(".ws-about-dialog-overlay") === null,
+);
+
+// A package-managed install leaves updates to the package manager.
+supported = false;
+await updates.checkNow();
+await Commands.execute(ABOUT);
+check(
+  "a package-managed install disables the button",
+  buttonReads("Updates are managed by your package manager", false),
+);
 closeDialog("Close dismisses the dialog with the update service");
 registration.dispose();
 updates.dispose();

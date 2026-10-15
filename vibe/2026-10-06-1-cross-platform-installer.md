@@ -25,7 +25,7 @@ todos:
     status: completed
   - id: gateway-update
     content: "Gateway self-update from latest.json (minisign check, swap, lease handoff to a successor with rollback; NSIS on Windows when no Workshop is installed) and the walled POST /update route; end-to-end update test"
-    status: pending
+    status: completed
   - id: update-surfaces
     content: "Tray update notice (startup and every 24 hours) and Update item on each backend; Workshop calls the gateway route through a Tauri command after its own check"
     status: pending
@@ -314,21 +314,27 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
 
 ## Execution Instructions
 
-- Status: steps 1 to 7 (`peer-lookup`, `gateway-init`, `nsis-components`, `build-installer`, `platform-bundles`, `ifw-definition`, `restart-resolution`) completed and merged into the fork's `master`, Step 4 through fork pull request [#5](https://github.com/gregjkal/promptforge/pull/5), Step 5 through [#6](https://github.com/gregjkal/promptforge/pull/6), Step 6 through [#7](https://github.com/gregjkal/promptforge/pull/7), and Step 7 through [#8](https://github.com/gregjkal/promptforge/pull/8), squash-merged as `605eda4e`. Step 8 is implemented and committed locally on `installer/gateway-self-update` (As built in Step 8), waiting for its review loop in a new session; Step 9 is decomposed below and not implemented. The split of `gateway-update` into Steps 7 to 9 was approved on 2026-10-13.
+- Status: steps 1 to 7 (`peer-lookup`, `gateway-init`, `nsis-components`, `build-installer`, `platform-bundles`, `ifw-definition`, `restart-resolution`) completed and merged into the fork's `master`, Step 4 through fork pull request [#5](https://github.com/gregjkal/promptforge/pull/5), Step 5 through [#6](https://github.com/gregjkal/promptforge/pull/6), Step 6 through [#7](https://github.com/gregjkal/promptforge/pull/7), Step 7 through [#8](https://github.com/gregjkal/promptforge/pull/8), and Step 8 (`gateway-update`) through [#9](https://github.com/gregjkal/promptforge/pull/9) after six review rounds, squash-merged as `a7c84c34`. Step 9 is decomposed below and handed to an implementing agent (Handoff below). The split of `gateway-update` into Steps 7 to 9 was approved on 2026-10-13.
 - Expected order: `peer-lookup`, `gateway-init`, `nsis-components`, `build-installer`, `platform-bundles`, `ifw-definition`, `restart-resolution`, `gateway-update`, `update-surfaces`, `installers-workflow`, `docs`, `verify`. The first four change no published output. `platform-bundles` changes what `release-workshop.yml` and `nightly.yml` produce (their macOS `.app` and Linux AppImage no longer carry the gateway, Tauri builds no DMG, and Linux builds no `.deb`), and it is merged into the fork's `master` ahead of `installers-workflow` (Decision Record). So until `installers-workflow` deletes those two workflows:
   - The fork's `master` goes upstream only together with `installers-workflow`.
   - Every push to the fork's `master` triggers `nightly.yml`, whose publish job deletes and recreates the fork's `nightly` prerelease. Cancel that run right after each merge (`gh run list --repo gregjkal/promptforge --workflow nightly.yml --limit 1`, then `gh run cancel <id> --repo gregjkal/promptforge`), so the prerelease keeps a build that carries the gateway.
 - Writing: plain English, single dashes only, never em dashes or double dashes.
 - Review loop (maintainer's rule, 2026-10-13): the session that implements a step never runs its review loop. It ends at a local commit with the gates run, and the maintainer starts the review loop in a new agent session: a fresh read-only reviewer each round, fixes committed locally, one push and a draft fork pull request (`GH_REPO=gregjkal/promptforge gh pr create --draft`) once a round finds only low and nit items, then green CI.
-- Handoff (2026-10-13, after Step 7's merge), for the next session:
-  - Next: implement Step 8, `gateway-update`, on branch `installer/gateway-self-update`, checked out in the worktree `.claude/worktrees/ifw-definition` (the directory name is historical). The branch starts at the fork's `master` (`605eda4e`, Step 7 merged) plus this handoff commit; it is local, with no upstream set and no pull request. Push it to the fork under its own name, never to `master`.
-  - Per the review-loop rule above, the implementing session ends at a local commit with Step 8's gates run, and the maintainer starts the review loop in a new session. Step 9 follows the same way after Step 8 merges. After every merge, cancel the `nightly.yml` run it triggers (above).
-  - Step 8's anchors were checked against `605eda4e`. Step 7 moved only the ones in `crates/workshop/desktop/src/gateway/boot.rs` and `crates/gateway/app/src/relaunch.rs`, now corrected in Step 8; the rest still hold.
-  - What Step 7 left for Step 8 (Step 7, As built): `mark_restarting` marks the caller's own record; `remove_if_mine` leaves a marked file, so Step 8 adds `remove_marked_if_mine` for its rollback and watchdog; readers wait on a mark with no timeout of their own, so the watchdog is what bounds a stuck succession.
-  - Approved: the split of `gateway-update` into Steps 7 to 9. The maintainer deferred code-level design to the implementer; record such choices in the step as "deferred to the implementer" and ask the maintainer only product or scope questions.
-  - Answered: the Tauri CLI pin fix ships inside Step 8 (Decision Record).
-  - Upstream drift: upstream `master` is 115 commits ahead of the fork's merge base (`4471d381`). None of them touch the files Steps 7 to 9 change. Upstream also bumped `quinn-proto` to 0.11.19, while the fork has 0.11.18 from Step 6; when the fork syncs, `Cargo.lock` and `crates/workspace-hack/Cargo.toml` conflict, and upstream's side wins (then `cargo hakari generate`).
-  - Local tools: `cargo-hakari`, `cargo-deny`, and `cargo-audit` are not on this Mac's `PATH`. Step 8 adds dependencies, so its gates need `cargo install cargo-hakari cargo-deny --locked` first (`cargo hakari generate` after the `Cargo.toml` changes, then `cargo hakari verify` and `cargo deny check`). Qt IFW 4.11.0 is not installed either; Step 8 does not need it.
+- Handoff (2026-10-15, after Step 8's merge), for the agent that implements Step 9:
+  - Next: implement Step 9, `update-surfaces`, on branch `installer/update-surfaces`, checked out in the worktree `.claude/worktrees/ifw-definition` (the directory name is historical). The branch starts at the fork's `master` (`a7c84c34`, Step 8 merged) plus this handoff commit, with no upstream set. Push it to the fork under its own name, never to `master`, and never to `upstream` (`cppalliance/promptforge`).
+  - Ending (maintainer's instruction, 2026-10-15, overriding the review-loop rule's "ends at a local commit" for this step): implement, run Step 9's gates, commit with the step's subject, record the As built notes in Step 9, push, and open a draft fork pull request (`GH_REPO=gregjkal/promptforge gh pr create --draft --base master`). The review loop then runs in a new session, as the rule says. Do not run it.
+  - Step 9's anchors are from `4c43fc51`. Check each against `a7c84c34` before relying on it; Step 8 changed `src/runner/thread.rs`, `src/shutdown.rs`, `src/main.rs`, `src/tray/macos.rs`, `src/tray/macos-actions.rs`, each tray backend's `run`, `src/admin/walled.rs`, and `crates/workshop/desktop/src/gateway/boot.rs`. Correct moved anchors in the step as you go.
+  - What Step 8 left for Step 9 (Step 8, As built and its review rounds):
+    - `update::apply(&AppState) -> Result<Applied, UpdateError>` is the one entry point; `Applied` is `Updating { version }`, `Current { version }`, `WorkshopOwned`, or `Busy`. The route maps it in `admin/walled/update.rs::answer` to `gateway_api_types::UpdateAnswer`.
+    - The check alone is `update::manifest::check(client, url, key, version) -> Result<Check, UpdateError>` with `Check::{Current, Available}`, and `manifest::platform_key(os, arch)`; `manifest` is private to `update`, so `src/update/notice.rs` reaches it as `super::manifest`. `update::Environment::current()` gathers the URL, key, version, OS, and architecture.
+    - The in-progress flag is the update claim on `ShutdownSignal` (`begin_update` returns an `UpdateTicket`). There is no read-only peek yet; the notice's `Busy` state needs one (a small `ShutdownSignal::is_updating`). The claim stays held for the process's life after a succession or a stranded install, and until the Windows setup exits.
+    - Windows routing is `update::windows::route` with `gateway_api_discovery::installed_workshop`.
+    - The macOS tray's `stop_run_loop` (`tray/macos-actions.rs`) ends the run loop from a timer with a wake event; reuse it for any new timer-driven quit.
+  - Approved: the split of `gateway-update` into Steps 7 to 9. The maintainer deferred code-level design to the implementer; record such choices in the step as "deferred to the implementer". The maintainer is away; do not ask questions unless one blocks all work, and otherwise choose and record.
+  - Upstream drift: upstream `master` is 115 or more commits ahead of the fork's merge base (`4471d381`); none touch the files Steps 7 to 9 change. When the fork syncs, `Cargo.lock` and `crates/workspace-hack/Cargo.toml` conflict, and upstream's side wins (then `cargo hakari generate`).
+  - Lockfile quirk: `tempfile` is locked to `getrandom` 0.4.3, and any `cargo update` re-resolves it to 0.3.4 and makes `cargo hakari generate` add `getrandom` 0.3 to `workspace-hack`. Step 9 adds no dependency, so its `Cargo.lock` should not change at all.
+  - Local tools: `cargo-hakari` and `cargo-deny` are installed; `cargo-nextest`, `cargo-audit`, `makensis`, and Qt IFW are not. No Windows Rust target is installed, so Windows code compiles only in CI; Docker is available for Linux runs (`rust:1`, or `ubuntu:26.04`, which matches CI's runner and ships uutils coreutils).
+  - After every merge into the fork's `master`, cancel the `nightly.yml` run it triggers (above).
 
 <step-1>
 
@@ -796,7 +802,7 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
 
 <step-8>
 
-### Step 8: Gateway self-update
+### Step 8: Gateway self-update [completed]
 
 - Component: `gateway` (new `src/update.rs` and `src/update/`, `src/shutdown.rs`, `src/runner.rs`, `src/runner/thread.rs`, `src/tray.rs` and each backend's `run`, `src/main.rs`, `src/admin/walled.rs`, new `src/admin/walled/update.rs`, tests), `gateway-api-discovery` (the detached spawn helper moved in from Workshop), `workshop` (`src/gateway/boot.rs` uses the moved helper), root `Cargo.toml` (`minisign-verify`, `semver`; `minisign` for tests), `crates/workshop/package.json` (Tauri CLI, below).
 

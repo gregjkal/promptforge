@@ -104,6 +104,7 @@ impl ksni::Tray for SniTray {
             self.workshop_exe.is_some(),
             self.login.is_some(),
             self.login_checked,
+            &self.update,
         )
         .into_iter()
         .map(|item| match item {
@@ -123,6 +124,13 @@ impl ksni::Tray for SniTray {
             MenuItemSpec::Settings => StandardItem {
                 label: "Settings".to_owned(),
                 activate: Box::new(|tray: &mut Self| tray.open_settings()),
+                ..Default::default()
+            }
+            .into(),
+            MenuItemSpec::Update { label, enabled } => StandardItem {
+                label,
+                enabled,
+                activate: Box::new(|tray: &mut Self| tray.notice.request_apply()),
                 ..Default::default()
             }
             .into(),

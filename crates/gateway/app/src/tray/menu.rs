@@ -36,6 +36,8 @@ pub(crate) struct BuiltMenu {
     pub(crate) workshop: MenuItem,
     /// Opens the config SPA.
     pub(crate) settings: MenuItem,
+    /// Checks for and installs a gateway update.
+    pub(crate) update: MenuItem,
     /// The launch-at-login check item.
     pub(crate) login: CheckMenuItem,
     /// Quits the gateway.
@@ -49,6 +51,7 @@ impl BuiltMenu {
         let mut status = None;
         let mut workshop = None;
         let mut settings = None;
+        let mut update = None;
         let mut login = None;
         let mut quit = None;
         for item in spec {
@@ -67,6 +70,11 @@ impl BuiltMenu {
                     let item = MenuItem::new("Settings", true, None);
                     menu.append(&item).map_err(MenuBuildError::Menu)?;
                     settings = Some(item);
+                }
+                MenuItemSpec::Update { label, enabled } => {
+                    let item = MenuItem::new(label, *enabled, None);
+                    menu.append(&item).map_err(MenuBuildError::Menu)?;
+                    update = Some(item);
                 }
                 MenuItemSpec::Separator => {
                     menu.append(&PredefinedMenuItem::separator())
@@ -89,6 +97,7 @@ impl BuiltMenu {
             status: status.ok_or(MenuBuildError::Spec)?,
             workshop: workshop.ok_or(MenuBuildError::Spec)?,
             settings: settings.ok_or(MenuBuildError::Spec)?,
+            update: update.ok_or(MenuBuildError::Spec)?,
             login: login.ok_or(MenuBuildError::Spec)?,
             quit: quit.ok_or(MenuBuildError::Spec)?,
         })

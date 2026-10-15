@@ -281,6 +281,9 @@ fn serve_thread(
         None => {}
     }
     gateway.enqueue_boot_load(boot_profile);
+    // Tray runs check for a newer release beside the boot load; the check
+    // is a bounded manifest fetch on the runtime, off the serving path.
+    crate::update::notice::start(runtime.handle(), options, &gateway.state);
     // The cloud provider model sheet loads off the serving path: one
     // bounded background task on the runtime, spawned after boot, with
     // failure contained to the feature. The cache lives in the profile

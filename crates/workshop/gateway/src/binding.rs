@@ -10,6 +10,9 @@
 
 mod publication;
 mod shutdown;
+mod update;
+
+pub use update::GatewayUpdateOutcome;
 
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};

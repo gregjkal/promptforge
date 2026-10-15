@@ -40,6 +40,7 @@ use crate::api_error::StartupError;
 use crate::auth::primitives::auth_url;
 use crate::runner::{GatewayHandle, ServeOptions, Stopped, run_headless, spawn};
 use crate::tray::logic::{self, TrayPhase};
+use crate::update::notice::{Notice, NoticeState};
 
 #[path = "linux-actions.rs"]
 mod actions;
@@ -170,13 +171,17 @@ async fn tick(tray: &ksni::Handle<SniTray>, handle: &GatewayHandle) -> Tick {
     }
     let phase = logic::next_phase(poll);
     let busy = handle.tray_state().tray_busy_text();
+    let notice = handle.tray_state().update_notice.state();
     let label = handle
         .tray_state()
         .tray_model_status()
-        .map(|(models, vram_gb)| logic::status_label(phase, busy.as_deref(), models, vram_gb));
+        .map(|(models, vram_gb)| {
+            logic::status_label(phase, busy.as_deref(), models, vram_gb, &notice)
+        });
     let updated = tray
         .update(|tray| {
             tray.phase = phase;
+            tray.update = notice;
             if let Some(label) = label {
                 tray.label = label;
             }
@@ -359,6 +364,10 @@ struct SniTray {
     login: Option<XdgAutostart>,
     /// The check item's state, read from the entry's presence.
     login_checked: bool,
+    /// The update notice the update item shows, as of the last tick.
+    update: NoticeState,
+    /// Where the update item's click goes.
+    notice: Notice,
     /// Signals the main loop to quit.
     quit: tokio::sync::mpsc::UnboundedSender<()>,
 }
@@ -371,14 +380,18 @@ impl SniTray {
         let login_checked = login
             .as_ref()
             .is_some_and(|store| logic::launch_at_login(store));
+        let notice = handle.tray_state().update_notice.clone();
+        let update = notice.state();
         SniTray {
-            label: logic::status_label(TrayPhase::Starting, None, 0, 0.0),
+            label: logic::status_label(TrayPhase::Starting, None, 0, 0.0, &update),
             phase: TrayPhase::Starting,
             icons: PhaseIcons::load(),
             auth_url: auth_url(handle.url(), handle.tray_key()),
             workshop_exe: probe_workshop(),
             login,
             login_checked,
+            update,
+            notice,
             quit,
         }
     }

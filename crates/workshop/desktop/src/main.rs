@@ -34,6 +34,7 @@ mod bridge;
 mod config;
 mod drops;
 mod gateway;
+mod gateway_update;
 #[cfg(target_os = "linux")]
 mod linux_media;
 mod menu;
@@ -83,6 +84,7 @@ const WINDOW_PERMISSIONS: &[&str] = &[
     "process:allow-restart",
     "allow-desktop-update-supported",
     "allow-quit",
+    "allow-update-gateway",
 ];
 
 fn main() -> ExitCode {
@@ -136,6 +138,7 @@ fn run() -> anyhow::Result<()> {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             desktop_update_supported,
+            gateway_update::update_gateway,
             quit::quit
         ])
         .on_menu_event(menu::handle_event)

@@ -108,6 +108,12 @@ pub(crate) enum Applied {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub(crate) enum UpdateError {
+    /// This gateway is a development build, whose binary lives in a build
+    /// tree; replacing it with a release would discard the build.
+    #[error(
+        "this gateway is a development build and updates by rebuilding; only a release build updates itself"
+    )]
+    Development,
     /// The running executable's path could not be read.
     #[error("cannot locate the running gateway executable")]
     Executable(#[source] std::io::Error),
@@ -243,6 +249,9 @@ pub(crate) struct Environment {
     pub(crate) os: &'static str,
     /// The architecture, as `std::env::consts::ARCH` names it.
     pub(crate) arch: &'static str,
+    /// Whether this is a development build, which never updates itself.
+    /// A `test-fixtures` build is a release stand-in for tests and smokes.
+    pub(crate) development: bool,
 }
 
 impl Environment {
@@ -257,6 +266,7 @@ impl Environment {
             version: version(),
             os: std::env::consts::OS,
             arch: std::env::consts::ARCH,
+            development: cfg!(debug_assertions) && !cfg!(feature = "test-fixtures"),
         }
     }
 }
@@ -286,6 +296,9 @@ async fn update(
     environment: &Environment,
     ticket: UpdateTicket,
 ) -> Result<Applied, UpdateError> {
+    if environment.development {
+        return Err(UpdateError::Development);
+    }
     let exe = std::env::current_exe().map_err(UpdateError::Executable)?;
     let route = windows::route(environment.os, || {
         gateway_api_discovery::installed_workshop(&exe)

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-gateway"
+description = "Enables the update_gateway command without any pre-configured scope."
+commands.allow = ["update_gateway"]
+
+[[permission]]
+identifier = "deny-update-gateway"
+description = "Denies the update_gateway command without any pre-configured scope."
+commands.deny = ["update_gateway"]

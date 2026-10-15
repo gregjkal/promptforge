@@ -51,11 +51,14 @@ mod windows;
 /// without a backend, this falls back to the headless Ctrl-C loop with a
 /// warning.
 ///
+/// The run checks for gateway updates ([`ServeOptions::update_notice`]),
+/// which the tray's `Update` item shows and installs.
+///
 /// # Errors
 /// Returns [`StartupError`] when config loading, provisioning, binding, or
 /// serving fails; classify with [`StartupError::kind`].
 pub fn run_with_tray(options: &ServeOptions) -> Result<Stopped, StartupError> {
-    run_inner(options)
+    run_inner(&logic::tray_options(options))
 }
 
 #[cfg(target_os = "windows")]

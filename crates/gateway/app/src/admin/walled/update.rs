@@ -97,11 +97,12 @@ pub(super) fn answer(result: Result<Applied, UpdateError>) -> (StatusCode, Updat
 }
 
 /// `502` when the release channel served something unusable, `503` when
-/// the gateway began shutting down first, `500` when this machine could not
-/// apply a good release.
+/// the gateway began shutting down first, `409` when this build never
+/// updates itself, `500` when this machine could not apply a good release.
 fn failure_status(error: &UpdateError) -> StatusCode {
     match error {
         UpdateError::ShuttingDown => StatusCode::SERVICE_UNAVAILABLE,
+        UpdateError::Development => StatusCode::CONFLICT,
         UpdateError::Fetch { .. }
         | UpdateError::Manifest { .. }
         | UpdateError::Download { .. }

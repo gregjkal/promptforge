@@ -81,6 +81,7 @@ const updates = new UpdateService({
     return null;
   },
   relaunch: async () => undefined,
+  updateGateway: async () => ({ outcome: "current" }),
 });
 const registration = registerService(UPDATES, () => updates);
 await Commands.execute(ABOUT);

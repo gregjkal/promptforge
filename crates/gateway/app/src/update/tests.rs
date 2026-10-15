@@ -8,6 +8,7 @@ use base64::engine::general_purpose::STANDARD;
 
 mod apply;
 mod manifest;
+mod notice;
 mod stage;
 mod succession;
 mod swap;

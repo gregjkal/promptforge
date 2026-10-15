@@ -10,7 +10,11 @@ import { createProgressBar } from "@workshop/look/progress";
 import type { ToastStack } from "@workshop/look/toast";
 
 import { Disposable, toDisposable } from "@workshop/platform/lifecycle";
-import { UpdateService, type UpdateSnapshot } from "../../services/update-service";
+import {
+  type GatewayUpdate,
+  UpdateService,
+  type UpdateSnapshot,
+} from "../../services/update-service";
 
 function percentage(snapshot: UpdateSnapshot): number | null {
   if (snapshot.total === null || snapshot.total <= 0) {
@@ -24,6 +28,7 @@ export class UpdateView extends Disposable {
   private readonly overlay = document.createElement("div");
   private installing = false;
   private notifiedPhase: UpdateSnapshot["phase"] | null = null;
+  private notifiedGateway: GatewayUpdate | null = null;
 
   constructor(
     private readonly service: UpdateService,
@@ -48,8 +53,16 @@ export class UpdateView extends Disposable {
   /**
    * Toasts the phase transitions a user must notice without watching. A
    * failed startup check stays quiet; the About dialog offers the retry.
+   * A gateway that starts updating toasts once as info, since it restarts
+   * under Workshop; its other answers stay quiet.
    */
   private notify(snapshot: UpdateSnapshot): void {
+    if (snapshot.gateway !== this.notifiedGateway) {
+      this.notifiedGateway = snapshot.gateway;
+      if (snapshot.gateway?.outcome === "updating") {
+        this.toasts.show(`PromptForge Gateway is updating to ${snapshot.gateway.version}`, "info");
+      }
+    }
     if (snapshot.phase === this.notifiedPhase) {
       return;
     }

@@ -13,7 +13,10 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use gateway::{GatewayStartup, run, run_printing_url, run_with_tray, settle_gateway_startup};
+use gateway::{
+    GatewayStartup, Stopped, SuccessorShape, run, run_printing_url, run_with_tray,
+    settle_gateway_startup,
+};
 use gateway_logging::{LogConfig, LogRuntime};
 use tracing_subscriber::Layer as _;
 use tracing_subscriber::layer::SubscriberExt;
@@ -80,6 +83,11 @@ fn main() -> ExitCode {
         );
     }
 
+    // The environment as launched, before the boot folds `<config>.env`
+    // into it: a self-update's successor starts with this snapshot, so
+    // values from that file never shadow edits made to it since.
+    let environment: Vec<_> = std::env::vars_os().collect();
+
     let invocation = match parse_args(std::env::args_os()) {
         Ok(invocation) => invocation,
         Err(ParseError::Help) => {
@@ -87,7 +95,7 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         Err(ParseError::Version) => {
-            println!("promptforge-gateway {}", env!("CARGO_PKG_VERSION"));
+            println!("promptforge-gateway {}", gateway::version());
             return ExitCode::SUCCESS;
         }
         Err(ParseError::Usage(message)) => {
@@ -133,7 +141,7 @@ fn main() -> ExitCode {
     // loser, recovery, bind, or publication. The lease holder re-resolves the
     // connection record; a loser waits only for the holder's validated record
     // and exits through this console-only path.
-    let _instance_lease = match settle_gateway_startup(&invocation.serve, OWNER_PUBLICATION_TIMEOUT)
+    let instance_lease = match settle_gateway_startup(&invocation.serve, OWNER_PUBLICATION_TIMEOUT)
     {
         Ok(GatewayStartup::Boot(lease)) => lease,
         Ok(GatewayStartup::OpenSettings(url)) => {
@@ -171,26 +179,13 @@ fn main() -> ExitCode {
     } else {
         run(&invocation.serve)
     };
-    let exit = match result {
-        Ok(()) => {
-            if logging.is_some() {
-                tracing::info!("gateway exiting");
-            }
-            ExitCode::SUCCESS
-        }
-        Err(error) => {
-            // A fatal error is logged once with its complete source chain;
-            // raw stderr is only the fallback when the logger never
-            // started.
-            if logging.is_some() {
-                log_error_chain(&error);
-                tracing::error!("gateway exiting after a fatal error");
-            } else {
-                print_error_chain(&error);
-            }
-            ExitCode::FAILURE
-        }
-    };
+    let exit = finish(
+        result,
+        logging.is_some(),
+        &invocation,
+        instance_lease,
+        &environment,
+    );
     // The logger shuts down last, so a healthy sink drains the terminal
     // outcome and every admitted record before exit. A stalled sink gets
     // bounded loss accounting and cannot hold process exit forever.
@@ -200,6 +195,56 @@ fn main() -> ExitCode {
         eprintln!("could not shut down the log worker: {error}");
     }
     exit
+}
+
+/// The exit code for how serving ended. A self-update's succession runs
+/// here, once serving has ended: the lease goes to the gateway it swapped
+/// in. A fatal error is logged once with its complete source chain; raw
+/// stderr is only the fallback when the logger never started.
+fn finish(
+    result: Result<Stopped, gateway::StartupError>,
+    logged: bool,
+    invocation: &args::Invocation,
+    lease: gateway_api_discovery::GatewayInstanceLease,
+    environment: &[(std::ffi::OsString, std::ffi::OsString)],
+) -> ExitCode {
+    match result {
+        Ok(Stopped::Succession(succession)) => {
+            let shape = SuccessorShape::new(
+                invocation.serve.profile.clone(),
+                invocation.print_url || !invocation.tray,
+            );
+            match succession.run(lease, &shape, environment) {
+                Ok(version) => {
+                    tracing::info!("gateway exiting; PromptForge Gateway {version} serves");
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    if logged {
+                        log_error_chain(&error);
+                    } else {
+                        print_error_chain(&error);
+                    }
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Ok(_) => {
+            if logged {
+                tracing::info!("gateway exiting");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            if logged {
+                log_error_chain(&error);
+                tracing::error!("gateway exiting after a fatal error");
+            } else {
+                print_error_chain(&error);
+            }
+            ExitCode::FAILURE
+        }
+    }
 }
 
 /// Test-only process rendezvous used by integration tests that must place

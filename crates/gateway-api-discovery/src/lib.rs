@@ -36,7 +36,8 @@
 //!
 //! Before any gateway runs, Workshop finds the installed gateway it launches
 //! with [`installed_gateway`], and the gateway tray finds the Workshop it
-//! opens with [`installed_workshop`].
+//! opens with [`installed_workshop`]. Both Workshop's launch and a
+//! gateway's successor start through [`spawn_detached`].
 //!
 //! URLs normalize to a literal `127.0.0.1`, never `localhost`, and probes
 //! send the bound address as the `Host` header, matching the gateway's
@@ -51,13 +52,16 @@ mod lock;
 mod paths;
 mod peer;
 mod shutdown;
+mod spawn;
 mod stale;
 mod sys;
 mod validated;
 
 pub use crate::cancellation::CancellationToken;
 pub use crate::error::SidecarError;
-pub use crate::file::{GatewayDiscoveryFile, mark_restarting, remove_if_mine};
+pub use crate::file::{
+    GatewayDiscoveryFile, SUPERSEDED_SUFFIX, mark_restarting, remove_if_mine, remove_marked_if_mine,
+};
 pub use crate::health::{HealthError, ProbeError, wait_for_health, wait_for_health_cancellable};
 pub use crate::lock::{
     GatewayInstanceLease, LaunchDecision, LaunchLock, launch_or_attach,
@@ -74,6 +78,7 @@ pub use crate::peer::{
     translocation_remedy,
 };
 pub use crate::shutdown::{ShutdownError, request_shutdown, request_shutdown_before};
+pub use crate::spawn::{spawn_detached, spawn_detached_reaped};
 pub use crate::stale::resolve_cancellable;
 #[cfg(feature = "test-fixtures")]
 #[doc(hidden)]

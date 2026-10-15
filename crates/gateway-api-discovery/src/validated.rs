@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use crate::health::{self, ConnectionProbe};
 use crate::stale::StaleReason;
 use crate::sys::{ProcessIdentity, process_identity};
-use crate::{CancellationToken, GatewayDiscoveryFile};
+use crate::{CancellationToken, GatewayDiscoveryFile, SUPERSEDED_SUFFIX};
 
 /// The image file name a live Gateway process must have: the gateway
 /// executable the installed-peer lookup finds.
@@ -178,7 +178,7 @@ impl ValidatedConnection {
     /// Whether both capabilities name the same validated Gateway boot.
     #[must_use]
     pub fn same_boot(&self, other: &Self) -> bool {
-        self.process_identity == other.process_identity
+        self.process_identity.same_boot(&other.process_identity)
             && self.pid() == other.pid()
             && self.epoch() == other.epoch()
             && self.started_at() == other.started_at()
@@ -274,7 +274,7 @@ fn validate_before_with(
     let Some(after) = observe_process(connection.pid) else {
         return Err(StaleReason::ProcessChanged);
     };
-    if before != after {
+    if !same_process(&before, &after, image_name) {
         return Err(StaleReason::ProcessChanged);
     }
     Ok(ValidatedConnection {
@@ -336,7 +336,7 @@ fn validate_cancellable_with(
     if cancellation.is_cancelled() {
         return Err(ValidationError::Cancelled);
     }
-    if before != after {
+    if !same_process(&before, &after, image_name) {
         return Err(StaleReason::ProcessChanged.into());
     }
     Ok(ValidatedConnection {
@@ -366,11 +366,25 @@ pub(crate) fn marking_process_lives(
     Ok(())
 }
 
+/// Whether the observation `after` the network proof is still the boot
+/// seen `before` it, running the gateway: a reused pid changes the start
+/// marker, and an exec into another program changes the image name. The
+/// image path itself may change between the two, when a self-update
+/// renames the executable aside.
+fn same_process(before: &ProcessIdentity, after: &ProcessIdentity, image_name: &str) -> bool {
+    before.same_boot(after) && image_name_matches(&after.image, image_name)
+}
+
+/// Whether a process's `image` is the gateway's: its own name, or that name
+/// with [`SUPERSEDED_SUFFIX`] once its self-update moved it aside. Linux
+/// reports the moved name through `/proc/<pid>/exe` from the swap on, both
+/// before the record is marked and while it is.
 fn image_name_matches(image: &Path, expected: &str) -> bool {
     let Some(name) = image.file_name() else {
         return false;
     };
     image_file_name_matches(name, expected)
+        || image_file_name_matches(name, &format!("{expected}{SUPERSEDED_SUFFIX}"))
 }
 
 #[cfg(windows)]

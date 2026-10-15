@@ -20,6 +20,14 @@ impl ProcessIdentity {
         Self { image, started }
     }
 
+    /// Whether `other` observes the same process boot: the same start
+    /// marker. The image path is left to the image-name check, because a
+    /// self-update renames the running executable and the path the platform
+    /// reports follows it.
+    pub(crate) fn same_boot(&self, other: &Self) -> bool {
+        self.started == other.started
+    }
+
     /// Assembles a deterministic identity for validation regressions.
     #[cfg(test)]
     pub(crate) const fn for_test(image: PathBuf, started: u128) -> Self {

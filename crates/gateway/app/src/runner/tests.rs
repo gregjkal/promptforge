@@ -242,14 +242,12 @@ fn a_restart_fire_ends_serving_with_the_restart_reason() {
 
     let handle = spawn(&spawn_options).expect("the should gateway boot");
 
-    handle.state.shutdown.fire(ShutdownReason::Restart);
+    handle.state.shutdown.fire(crate::ShutdownReason::Restart);
 
     let actual = handle.join().expect("serving should end cleanly");
-    let expected = ShutdownReason::Restart;
-
-    assert_eq!(
-        actual, expected,
-        "Got `{actual:?}` but expected `{expected:?}`",
+    assert!(
+        matches!(actual, crate::Stopped::Restart),
+        "Got `{actual:?}` but expected `Stopped::Restart`",
     );
 }
 
@@ -262,14 +260,12 @@ fn a_stop_fire_ends_serving_with_the_stop_reason() {
 
     let handle = spawn(&spawn_options).expect("the should gateway boot");
 
-    handle.state.shutdown.fire(ShutdownReason::Stop);
+    handle.state.shutdown.fire(crate::ShutdownReason::Stop);
 
     let actual = handle.join().expect("serving should end cleanly");
-    let expected = ShutdownReason::Stop;
-
-    assert_eq!(
-        actual, expected,
-        "Got `{actual:?}` but expected `{expected:?}`",
+    assert!(
+        matches!(actual, crate::Stopped::Quit),
+        "Got `{actual:?}` but expected `Stopped::Quit`",
     );
 }
 
@@ -283,11 +279,9 @@ fn a_handle_shutdown_ends_serving_with_the_stop_reason() {
     let handle = spawn(&spawn_options).expect("the should gateway boot");
 
     let actual = handle.shutdown().expect("serving should end cleanly");
-    let expected = ShutdownReason::Stop;
-
-    assert_eq!(
-        actual, expected,
-        "Got `{actual:?}` but expected `{expected:?}`",
+    assert!(
+        matches!(actual, crate::Stopped::Quit),
+        "Got `{actual:?}` but expected `Stopped::Quit`",
     );
 }
 

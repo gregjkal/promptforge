@@ -161,6 +161,15 @@ dotenvy = "0.15"
 clap = { version = "4.6", features = ["derive"] }
 tar = { version = "0.4.46", default-features = false }
 zip = { version = "9.0.4", default-features = false, features = ["deflate-flate2"] }
+# The gateway's self-update checks a release's minisign signature; 0.2.5 is
+# the copy tauri-plugin-updater already pulls in.
+minisign-verify = "0.2.5"
+# Release-version comparison for the gateway's self-update; already in the
+# tree through the Tauri updater.
+semver = "1"
+# Signs the gateway self-update test fixtures with a key generated per run.
+# A dev-dependency only: the release key never leaves CI.
+minisign = "0.9"
 # Loads the packaged whisper.cpp runtime without linking it into Cargo builds.
 libloading = "0.8"
 # WAV parsing for STT uploads and transcription test fixtures.
@@ -202,6 +211,10 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
     # setActivationPolicy and NSApplicationActivationPolicy live behind the
     # NSRunningApplication feature (they are declared in its header).
     "NSRunningApplication",
+    # The wake event the tray posts after `stop`; the event constructor is
+    # gated on NSGraphicsContext for its unused context parameter.
+    "NSEvent",
+    "NSGraphicsContext",
 ] }
 objc2-foundation = { version = "0.3", default-features = false, features = [
     "std",
@@ -211,6 +224,8 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
     "block2",
     # NSProcessInfo.operatingSystemVersion gates SMAppService to macOS 13+.
     "NSProcessInfo",
+    # NSPoint, the tray's wake event location.
+    "NSGeometry",
 ] }
 objc2-service-management = { version = "0.3", default-features = false, features = [
     "std",

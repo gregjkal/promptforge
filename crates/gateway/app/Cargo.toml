@@ -78,6 +78,14 @@ open.workspace = true
 toml.workspace = true
 url.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
+# The self-update (src/update/): the release signature check, the version
+# comparison, the standard base64 around both minisign texts, and the
+# .tar.gz extraction of the release archive.
+minisign-verify.workspace = true
+semver.workspace = true
+base64.workspace = true
+flate2.workspace = true
+tar.workspace = true
 thiserror.workspace = true
 # RFC 3339 rendering of the gateway discovery file's started_at.
 time.workspace = true
@@ -150,8 +158,9 @@ anyhow.workspace = true
 # (the boot race jobs) headless; plain `cargo test` still gets the defaults
 # from the command line's own implicit feature request.
 gateway = { path = ".", features = ["test-fixtures"], default-features = false }
-base64.workspace = true
 hound.workspace = true
+# Signs the self-update test fixtures with a per-run key.
+minisign.workspace = true
 # Encodes the generated test image for the live CUDA projector proof.
 png.workspace = true
 # test-util pauses time so the progress heartbeat test runs instantly.

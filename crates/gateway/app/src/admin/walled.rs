@@ -2,8 +2,9 @@
 //! files, or launch processes. `build_router` mounts [`routes`] behind
 //! the shared loopback wall from `shared-loopback` in every build, so a
 //! non-loopback peer is refused with 403 before bearer auth even runs.
-//! `POST /shutdown` kills the process and `GET /auth` mints the key's
-//! ambient cookie, so both sit here with the config surface they serve.
+//! `POST /shutdown` kills the process, `POST /update` replaces its binary,
+//! and `GET /auth` mints the key's ambient cookie, so all three sit here
+//! with the config surface they serve.
 //!
 //! Every bearer-authed handler in this tier extracts
 //! [`crate::auth::LoopbackCaller`] rather than `AuthedCaller`: the wall is
@@ -34,6 +35,7 @@ pub(crate) mod restart;
 pub(crate) mod reveal;
 pub(crate) mod shutdown;
 pub(crate) mod system;
+mod update;
 
 use axum::Router;
 
@@ -48,6 +50,7 @@ pub(crate) fn routes() -> Router<AppState> {
     let router = Router::new()
         .merge(shutdown::routes())
         .merge(restart::routes())
+        .merge(update::routes())
         .merge(system::routes())
         .merge(config::routes())
         .merge(config_pending::routes())
@@ -82,6 +85,7 @@ pub(crate) fn registry() -> Vec<RouteInfo> {
     let mut routes = [
         shutdown::ROUTES,
         restart::ROUTES,
+        update::ROUTES,
         system::ROUTES,
         config::ROUTES,
         config_pending::ROUTES,

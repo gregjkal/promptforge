@@ -11,11 +11,11 @@ use tokio::net::TcpListener;
 use gateway_config::{Config, Secret};
 
 use super::{
-    BootSelectionNotice, Gateway, GatewayHandle, RUNTIME_SHUTDOWN_TIMEOUT, ServeOptions,
+    BootSelectionNotice, Gateway, GatewayHandle, RUNTIME_SHUTDOWN_TIMEOUT, ServeOptions, Stopped,
     boot_selection_notice, load_startup, shutdown_on_send,
 };
+use crate::AppState;
 use crate::api_error::StartupError;
-use crate::{AppState, ShutdownReason};
 
 impl GatewayHandle {
     /// Returns the base URL of the bound gateway address, for example
@@ -57,7 +57,7 @@ impl GatewayHandle {
     /// # Errors
     /// Returns [`StartupError`] when serving failed or the gateway thread
     /// panicked.
-    pub fn shutdown(mut self) -> Result<ShutdownReason, StartupError> {
+    pub fn shutdown(mut self) -> Result<Stopped, StartupError> {
         self.state.commands.cancel_active();
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
@@ -73,26 +73,25 @@ impl GatewayHandle {
     /// # Errors
     /// Returns [`StartupError`] when serving failed or the gateway thread
     /// panicked.
-    pub fn join(mut self) -> Result<ShutdownReason, StartupError> {
+    pub fn join(mut self) -> Result<Stopped, StartupError> {
         self.join_inner()
     }
 
-    fn join_inner(&mut self) -> Result<ShutdownReason, StartupError> {
-        let Some(thread) = self.thread.take() else {
-            return Ok(self.shutdown_reason());
-        };
-        match thread.join() {
-            Ok(result) => result.map(|()| self.shutdown_reason()),
-            Err(_) => Err(StartupError::serve(crate::api_error::ServeError::io(
+    /// Joins the gateway thread, then reads the succession a self-update
+    /// left: only once serving has ended may the caller hand off.
+    fn join_inner(&mut self) -> Result<Stopped, StartupError> {
+        let served = match self.thread.take().map(JoinHandle::join) {
+            None | Some(Ok(Ok(()))) => Ok(()),
+            Some(Ok(Err(error))) => Err(error),
+            Some(Err(_)) => Err(StartupError::serve(crate::api_error::ServeError::io(
                 std::io::Error::other("gateway thread panicked"),
             ))),
-        }
-    }
-
-    /// Why serving ended: the reason the shutdown signal recorded, or a
-    /// stop when serving ended without one.
-    fn shutdown_reason(&self) -> ShutdownReason {
-        self.state.shutdown.reason().unwrap_or(ShutdownReason::Stop)
+        };
+        crate::update::stopped(
+            served,
+            self.state.shutdown.take_succession(),
+            self.state.shutdown.reason(),
+        )
     }
 }
 
@@ -275,7 +274,8 @@ fn serve_thread(
     // The gateway discovery file lands before the readiness signal so a spawned
     // gateway is discoverable the moment `spawn` returns; the guard removes
     // it on every exit path below, graceful shutdown included.
-    let _gateway_discovery_file = gateway_discovery_file_guard(&config, options, address);
+    let _gateway_discovery_file =
+        gateway_discovery_file_guard(&config, options, address, &gateway.state.shutdown);
     // Publication counts as a successful gateway start, so from
     // here the rollback config files become stale and should be removed.
     if let Some(config_path) = &rollback_config_path {
@@ -361,11 +361,13 @@ impl Drop for GatewayDiscoveryFileGuard {
 /// Writes the `gateway.json` gateway discovery file for the just-bound `address`
 /// and returns the guard that removes it on drop. A failure is logged and
 /// tolerated: the gateway keeps serving, and discovery degrades to a
-/// relaunch instead of an attach.
+/// relaunch instead of an attach. The run directory goes to `shutdown`
+/// either way, where a self-update's succession reads it.
 fn gateway_discovery_file_guard(
     config: &Config,
     options: &ServeOptions,
     address: std::net::SocketAddr,
+    shutdown: &crate::shutdown::ShutdownSignal,
 ) -> Option<GatewayDiscoveryFileGuard> {
     let Some(run_dir) = options
         .run_dir
@@ -375,13 +377,14 @@ fn gateway_discovery_file_guard(
         tracing::warn!("no user profile directory found; no gateway discovery file written");
         return None;
     };
+    shutdown.set_record_dir(run_dir.clone());
     let now = time::OffsetDateTime::now_utc();
     let file = gateway_api_discovery::GatewayDiscoveryFile {
         port: address.port(),
         api_key: config.server_key().expose().to_owned(),
         pid: std::process::id(),
         epoch: u64::try_from(now.unix_timestamp()).unwrap_or(0),
-        version: env!("CARGO_PKG_VERSION").to_owned(),
+        version: crate::update::version(),
         // A well-known Rfc3339 format of a valid `now_utc` cannot fail;
         // the fallback keeps the field a plain string.
         started_at: now

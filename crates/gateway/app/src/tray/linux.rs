@@ -36,10 +36,9 @@ use std::time::Duration;
 
 use ksni::TrayMethods as _;
 
-use crate::ShutdownReason;
 use crate::api_error::StartupError;
 use crate::auth::primitives::auth_url;
-use crate::runner::{GatewayHandle, ServeOptions, run_headless, spawn};
+use crate::runner::{GatewayHandle, ServeOptions, Stopped, run_headless, spawn};
 use crate::tray::logic::{self, TrayPhase};
 
 #[path = "linux-actions.rs"]
@@ -63,7 +62,7 @@ const _: () = assert!(BRAND_RGBA.len() == 32 * 32 * 4);
 /// Spawns the gateway, then runs the tray until Quit. A tray that cannot
 /// start degrades to the headless Ctrl-C loop: the gateway is already
 /// serving, and the tray is only its user interface.
-pub(super) fn run(options: &ServeOptions) -> Result<ShutdownReason, StartupError> {
+pub(super) fn run(options: &ServeOptions) -> Result<Stopped, StartupError> {
     let handle = spawn(options)?;
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()

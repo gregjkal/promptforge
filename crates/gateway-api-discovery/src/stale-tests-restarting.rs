@@ -4,7 +4,7 @@
 use super::tests::{dead_pid, fixture_gateway, live_file, own_image_name};
 use super::*;
 
-use crate::file::{mark_restarting, remove_if_mine};
+use crate::file::{mark_restarting, remove_if_mine, remove_marked_if_mine};
 use crate::paths::gateway_discovery_file_path;
 
 /// A marked gateway discovery file naming the test process.
@@ -115,6 +115,25 @@ fn remove_if_mine_leaves_a_marked_file() {
         gateway_discovery_file_path(dir.path()).exists(),
         "the marking gateway's own shutdown keeps its handoff mark"
     );
+}
+
+#[test]
+fn remove_marked_if_mine_removes_only_the_callers_marked_file() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let path = gateway_discovery_file_path(dir.path());
+    let unmarked = live_file(1, "key");
+    unmarked.write_to(dir.path()).expect("write");
+    remove_marked_if_mine(dir.path(), unmarked.pid).expect("remove");
+    assert!(path.exists(), "an unmarked record is a serving gateway's");
+
+    let marked = marked_file(1);
+    marked.write_to(dir.path()).expect("write");
+    remove_marked_if_mine(dir.path(), marked.pid + 1).expect("remove");
+    assert!(path.exists(), "another process's mark is not the caller's");
+
+    remove_marked_if_mine(dir.path(), marked.pid).expect("remove");
+    assert!(!path.exists(), "the caller withdraws its own mark");
+    remove_marked_if_mine(dir.path(), marked.pid).expect("a missing file is not an error");
 }
 
 #[test]

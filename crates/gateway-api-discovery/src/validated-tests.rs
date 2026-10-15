@@ -70,6 +70,67 @@ fn fixture_gateway(expected_key: &'static str) -> u16 {
 }
 
 #[test]
+fn a_gateway_is_known_by_its_name_or_its_superseded_name() {
+    let expected = "promptforge-gateway";
+    for image in [
+        "/opt/promptforge/promptforge-gateway",
+        "/opt/promptforge/promptforge-gateway.previous",
+    ] {
+        assert!(image_name_matches(Path::new(image), expected), "{image}");
+    }
+    for image in [
+        "/opt/promptforge/promptforge-gateway.old",
+        "/opt/promptforge/sleep",
+    ] {
+        assert!(!image_name_matches(Path::new(image), expected), "{image}");
+    }
+}
+
+/// A self-update renames the running executable aside before it marks the
+/// record; the gateway must still count as alive, marked or not. Linux
+/// only: there `/proc/<pid>/exe` follows the rename, while on macOS the
+/// swap renames the bundle and the executable keeps its name.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_gateway_moved_aside_by_its_update_still_holds_its_record() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let installed = dir.path().join("promptforge-gateway");
+    // The stand-in is a shell, which ignores the name it runs under; a
+    // multi-call `sleep` (uutils coreutils, Ubuntu 26.04) refuses to run as
+    // `promptforge-gateway`. `cp` writes it, so no descriptor for it is
+    // ever open in this process, where a sibling test's fork could inherit
+    // it and make the exec below fail with ETXTBSY.
+    let copied = std::process::Command::new("cp")
+        .arg("/bin/sh")
+        .arg(&installed)
+        .status()
+        .expect("run cp");
+    assert!(copied.success(), "copy a stand-in gateway");
+    // It waits on its stdin, which the test closes to end it.
+    let mut child = std::process::Command::new(&installed)
+        .args(["-c", "read _"])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .expect("start the stand-in");
+    std::fs::rename(&installed, dir.path().join("promptforge-gateway.previous"))
+        .expect("move it aside");
+    let image = crate::sys::process_identity(child.id()).map(|identity| identity.image);
+    let mut file = connection(1, "key");
+    file.pid = child.id();
+    file.restarting = true;
+    let lives = marking_process_lives(&file, "promptforge-gateway");
+    drop(child.stdin.take());
+    let _ = child.wait();
+    assert!(
+        image
+            .as_deref()
+            .is_some_and(|image| image.ends_with("promptforge-gateway.previous")),
+        "Linux reports the moved name, so the superseded branch is the one tested: {image:?}"
+    );
+    assert_eq!(lives, Ok(()));
+}
+
+#[test]
 fn a_wrong_process_image_cannot_create_a_capability() {
     let file = connection(1, "key");
 
@@ -227,6 +288,45 @@ fn a_process_boot_change_during_the_network_proof_is_rejected() {
         ),
         Err(StaleReason::ProcessChanged),
         "a reused pid cannot complete a mixed proof"
+    );
+}
+
+/// A self-update renames the executable aside; a proof that straddles the
+/// rename still validates the same boot, while an exec into another
+/// program under the same boot does not.
+#[test]
+fn a_rename_during_the_network_proof_keeps_the_boot_and_an_exec_does_not() {
+    let image = own_image_name();
+    let proof = |after: &str| {
+        let mut observations = [
+            Some(ProcessIdentity::for_test(
+                std::path::PathBuf::from(&image),
+                41,
+            )),
+            Some(ProcessIdentity::for_test(
+                std::path::PathBuf::from(after),
+                41,
+            )),
+        ]
+        .into_iter();
+        validate_with(
+            connection(8081, "key"),
+            &image,
+            |_| observations.next().flatten(),
+            |_, _, _| ConnectionProbe::Accepted,
+        )
+    };
+    let renamed = format!("{image}{SUPERSEDED_SUFFIX}");
+    let validated = proof(&renamed).expect("the same boot, renamed aside");
+    let unrenamed = proof(&image).expect("the same boot");
+    assert!(
+        validated.same_boot(&unrenamed),
+        "a rename does not make a new boot"
+    );
+    assert_eq!(
+        proof("sleep").map(drop),
+        Err(StaleReason::ProcessChanged),
+        "an exec into another program is not the gateway"
     );
 }
 

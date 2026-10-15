@@ -18,8 +18,8 @@ use std::thread::JoinHandle;
 
 use gateway_config::{Config, ProfileName, Secret};
 
+use crate::AppState;
 use crate::api_error::StartupError;
-use crate::{AppState, ShutdownReason};
 
 mod gateway;
 mod thread;
@@ -172,6 +172,21 @@ pub struct GatewayHandle {
     thread: Option<JoinHandle<Result<(), StartupError>>>,
 }
 
+/// How serving ended.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum Stopped {
+    /// Serving ended for good; the process exits.
+    Quit,
+    /// A self-update swapped in a newer gateway. The caller hands it the
+    /// instance lease with [`Succession::run`](crate::Succession::run).
+    Succession(crate::Succession),
+    /// A restart was requested; a supervised process exits with
+    /// [`RESTART_REQUESTED`](crate::RESTART_REQUESTED) so its supervisor
+    /// starts it again.
+    Restart,
+}
+
 /// Resolves only on an explicit shutdown send. A sender dropped without
 /// sending - the Ctrl-C handler thread or its runtime failed on the [`run`]
 /// path - must keep the server up, never stop it.
@@ -192,7 +207,7 @@ async fn shutdown_on_send(shutdown: tokio::sync::oneshot::Receiver<()>) {
 /// # Errors
 /// Returns [`StartupError`] when config loading, provisioning, binding, or
 /// serving fails; classify with [`StartupError::kind`].
-pub fn run(options: &ServeOptions) -> Result<ShutdownReason, StartupError> {
+pub fn run(options: &ServeOptions) -> Result<Stopped, StartupError> {
     run_headless(spawn(options)?)
 }
 
@@ -207,7 +222,7 @@ pub fn run(options: &ServeOptions) -> Result<ShutdownReason, StartupError> {
 /// # Errors
 /// Returns [`StartupError`] when config loading, provisioning, binding, or
 /// serving fails; classify with [`StartupError::kind`].
-pub fn run_printing_url(options: &ServeOptions) -> Result<ShutdownReason, StartupError> {
+pub fn run_printing_url(options: &ServeOptions) -> Result<Stopped, StartupError> {
     let handle = spawn(options)?;
     // The URL is the machine-readable output of the `--print-url`
     // affordance, so it goes to stdout itself, not through the log.
@@ -227,7 +242,7 @@ pub fn run_printing_url(options: &ServeOptions) -> Result<ShutdownReason, Startu
 /// # Errors
 /// Returns [`StartupError`] when serving fails or the gateway thread
 /// panicked.
-pub(crate) fn run_headless(mut handle: GatewayHandle) -> Result<ShutdownReason, StartupError> {
+pub(crate) fn run_headless(mut handle: GatewayHandle) -> Result<Stopped, StartupError> {
     if let Some(shutdown) = handle.shutdown.take() {
         install_ctrl_c_handler(shutdown);
     }

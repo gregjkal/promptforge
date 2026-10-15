@@ -15,18 +15,6 @@ use super::supervisor::{
     RECOVERY_POLL_INTERVAL, RecoveryCandidate, RecoveryOwnership, launch_and_attach_cancellable,
 };
 
-#[cfg(windows)]
-const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
-#[cfg(windows)]
-const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-#[cfg(windows)]
-const DETACHED_PROCESS: u32 = 0x0000_0008;
-#[cfg(windows)]
-const WINDOWS_DETACHED_CREATION_FLAGS: u32 = CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS;
-#[cfg(windows)]
-const WINDOWS_BREAKAWAY_CREATION_FLAGS: u32 =
-    CREATE_BREAKAWAY_FROM_JOB | WINDOWS_DETACHED_CREATION_FLAGS;
-
 /// What the boot decision concluded.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum GatewayPlan {
@@ -262,55 +250,9 @@ pub(super) fn no_gateway_error(install: &WorkshopInstall) -> anyhow::Error {
     )
 }
 
-#[cfg(windows)]
-pub(super) fn spawn_detached_windows_with<T, Spawn>(mut spawn: Spawn) -> std::io::Result<T>
-where
-    Spawn: FnMut(u32) -> std::io::Result<T>,
-{
-    match spawn(WINDOWS_BREAKAWAY_CREATION_FLAGS) {
-        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
-            // Hosted runners can forbid breakaway from their job object.
-            // https://github.com/actions/runner/issues/595
-            spawn(WINDOWS_DETACHED_CREATION_FLAGS)
-        }
-        result => result,
-    }
-}
-
-fn detached_command(exe: &Path) -> std::process::Command {
-    let mut command = std::process::Command::new(exe);
-    command
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    command
-}
-
 /// Spawns the Gateway detached from the desktop app's lifetime. The reaper
 /// thread records the child's exit status in `exit`, so a launch wait can
 /// stop as soon as the child dies instead of running out its budget.
 pub(super) fn spawn_detached(exe: &Path, exit: Arc<OnceLock<ExitStatus>>) -> std::io::Result<u32> {
-    #[cfg(windows)]
-    let mut child = spawn_detached_windows_with(|flags| {
-        use std::os::windows::process::CommandExt as _;
-        detached_command(exe).creation_flags(flags).spawn()
-    })?;
-    #[cfg(unix)]
-    let mut child = {
-        use std::os::unix::process::CommandExt as _;
-        let mut command = detached_command(exe);
-        command.process_group(0);
-        command.spawn()?
-    };
-    #[cfg(not(any(windows, unix)))]
-    let mut child = detached_command(exe).spawn()?;
-    let child_pid = child.id();
-    if let Err(error) = std::thread::Builder::new().spawn(move || {
-        if let Ok(status) = child.wait() {
-            let _ = exit.set(status);
-        }
-    }) {
-        eprintln!("could not spawn the gateway reaper thread; the child goes unreaped: {error}");
-    }
-    Ok(child_pid)
+    gateway_api_discovery::spawn_detached_reaped(&mut std::process::Command::new(exe), exit)
 }

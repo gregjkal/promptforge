@@ -15,7 +15,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use gateway::{
-    GatewayStartup, ShutdownReason, run, run_printing_url, run_with_tray, settle_gateway_startup,
+    GatewayStartup, RESTART_REQUESTED, Stopped, SuccessorShape, run, run_printing_url,
+    run_with_tray, settle_gateway_startup,
 };
 use gateway_logging::{LogConfig, LogRuntime};
 use tracing_subscriber::Layer as _;
@@ -60,8 +61,21 @@ fn main() -> ExitCode {
         );
     }
 
+    // The environment as launched, before the boot folds `<config>.env`
+    // into it: a self-update's successor starts with this snapshot, so
+    // values from that file never shadow edits made to it since.
+    let environment: Vec<_> = std::env::vars_os().collect();
+
     let app_options = match AppOptions::from_args(std::env::args_os()) {
         Ok(options) => options,
+
+        // `--version` prints the version the gateway reports everywhere,
+        // which a self-update compares against the release it staged;
+        // clap's own text would print only the package version.
+        Err(error) if error.kind() == clap::error::ErrorKind::DisplayVersion => {
+            println!("runvil-gateway {}", gateway::version());
+            return ExitCode::SUCCESS;
+        }
 
         // clap returns `--help` and `--version` through the error channel.
         // If `exit_code()` is `0` then clap returned `Err(DisplayHelp)` or
@@ -113,10 +127,8 @@ fn main() -> ExitCode {
     // loser, recovery, bind, or publication. The lease holder re-resolves the
     // connection record; a loser waits only for the holder's validated record
     // and exits through this console-only path.
-    let _instance_lease = match settle_gateway_startup(
-        &app_options.serve,
-        OWNER_PUBLICATION_TIMEOUT,
-    ) {
+    let instance_lease = match settle_gateway_startup(&app_options.serve, OWNER_PUBLICATION_TIMEOUT)
+    {
         Ok(GatewayStartup::Boot(lease)) => lease,
         Ok(GatewayStartup::OpenSettings(url)) => {
             if app_options.print_url {
@@ -155,33 +167,13 @@ fn main() -> ExitCode {
     } else {
         run(&app_options.serve)
     };
-    let exit = match result {
-        Ok(shutdown_reason) => {
-            if logging.is_some() {
-                let log_message = match shutdown_reason {
-                    ShutdownReason::Stop => "gateway exiting",
-                    ShutdownReason::Restart => "gateway restarting",
-                };
-
-                tracing::info!(log_message);
-            }
-
-            shutdown_reason.exit_code()
-        }
-
-        Err(error) => {
-            // A fatal error is logged once with its complete source chain;
-            // raw stderr is only the fallback when the logger never
-            // started.
-            if logging.is_some() {
-                log_error_chain(&error);
-                tracing::error!("gateway exiting after a fatal error");
-            } else {
-                print_error_chain(&error);
-            }
-            ExitCode::FAILURE
-        }
-    };
+    let exit = finish(
+        result,
+        logging.is_some(),
+        &app_options,
+        instance_lease,
+        &environment,
+    );
     // The logger shuts down last, so a healthy sink drains the terminal
     // outcome and every admitted record before exit. A stalled sink gets
     // bounded loss accounting and cannot hold process exit forever.
@@ -191,6 +183,62 @@ fn main() -> ExitCode {
         eprintln!("could not shut down the log worker: {error}");
     }
     exit
+}
+
+/// The exit code for how serving ended. A self-update's succession runs
+/// here, once serving has ended: the lease goes to the gateway it swapped
+/// in. A fatal error is logged once with its complete source chain; raw
+/// stderr is only the fallback when the logger never started.
+fn finish(
+    result: Result<Stopped, gateway::StartupError>,
+    logged: bool,
+    app_options: &AppOptions,
+    lease: gateway_api_discovery::GatewayInstanceLease,
+    environment: &[(std::ffi::OsString, std::ffi::OsString)],
+) -> ExitCode {
+    match result {
+        Ok(Stopped::Succession(succession)) => {
+            let shape = SuccessorShape::new(
+                app_options.serve.profile.clone(),
+                app_options.print_url || !app_options.tray,
+            );
+            match succession.run(lease, &shape, environment) {
+                Ok(version) => {
+                    tracing::info!("gateway exiting; PromptForge Gateway {version} serves");
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    if logged {
+                        log_error_chain(&error);
+                    } else {
+                        print_error_chain(&error);
+                    }
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Ok(Stopped::Restart) => {
+            if logged {
+                tracing::info!("gateway restarting");
+            }
+            ExitCode::from(RESTART_REQUESTED)
+        }
+        Ok(_) => {
+            if logged {
+                tracing::info!("gateway exiting");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            if logged {
+                log_error_chain(&error);
+                tracing::error!("gateway exiting after a fatal error");
+            } else {
+                print_error_chain(&error);
+            }
+            ExitCode::FAILURE
+        }
+    }
 }
 
 /// Test-only process rendezvous used by integration tests that must place

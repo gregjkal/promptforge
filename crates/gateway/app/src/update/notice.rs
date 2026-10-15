@@ -26,8 +26,8 @@ use crate::runner::ServeOptions;
 use crate::shutdown::ShutdownSignal;
 
 /// How long the worker waits between scheduled checks. The timer is the
-/// monotonic clock, which stops while the machine sleeps, so this is
-/// awake time.
+/// monotonic clock, which on macOS and Linux stops while the machine
+/// sleeps, so there this is awake time.
 pub(crate) const CHECK_INTERVAL: Duration = Duration::from_hours(24);
 
 /// How soon a failed check is tried again, so a check that ran before the

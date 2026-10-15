@@ -76,7 +76,7 @@ pub struct ServeOptions {
     /// installer's first run. Embedders leave this `false`.
     pub browser: bool,
     /// Checks for a newer gateway release at startup and every 24 hours,
-    /// for the tray's update notice. [`crate::run_with_tray`] sets it;
+    /// or an hour after a failed check, for the tray's update notice. [`crate::run_with_tray`] sets it;
     /// headless runs leave it `false` and never check.
     pub update_notice: bool,
 }

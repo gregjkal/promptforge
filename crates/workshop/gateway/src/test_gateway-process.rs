@@ -5,7 +5,8 @@ use std::net::{TcpListener, TcpStream};
 
 use super::{CONTROL_ADDRESS_ENV, EXPECTED_KEY_ENV, INSTANCE_LEASE_RUN_DIR_ENV};
 
-/// Serves health, bearer, and shutdown requests inside the named child.
+/// Serves health, bearer, shutdown, and update requests inside the named
+/// child.
 #[expect(
     clippy::expect_used,
     reason = "the isolated fixture process fails immediately with the failed invariant"

@@ -2,7 +2,9 @@
 // stack fires once when an update becomes available, a re-render in the
 // same phase does not re-toast, a failed install toasts the error, a
 // failed startup check stays quiet while a failed check the user asks for
-// toasts, and the install overlay shows the shared inline progress bar.
+// toasts, the install overlay shows the shared inline progress bar, and a
+// gateway that starts updating toasts once as info while its other answers
+// stay quiet.
 // Bundles the view with esbuild and drives it against jsdom with a
 // stub-backend UpdateService and a recording toast stub.
 // Run: node test/update-view.mjs.
@@ -212,6 +214,38 @@ await assertNoLeaks(lifecycle, async () => {
   );
   installView.dispose();
   installService.dispose();
+
+  // The gateway's answer: updating toasts once as info, and a re-render
+  // with the same answer does not re-toast; a failure stays quiet.
+  const gatewayToasts = toastStub();
+  const gatewayService = new UpdateService({
+    ...backendWith(null),
+    updateGateway: async () => ({ outcome: "updating", version: "0.4.0" }),
+  });
+  const gatewayView = new UpdateView(gatewayService, gatewayToasts);
+  await gatewayService.checkNow();
+  check(
+    "an updating gateway toasts once as info",
+    gatewayToasts.shown.length === 1 &&
+      gatewayToasts.shown[0]?.kind === "info" &&
+      gatewayToasts.shown[0]?.message === "PromptForge Gateway is updating to 0.4.0",
+  );
+  // Every snapshot change re-renders the view; the answer is unchanged.
+  gatewayView.render(gatewayService.snapshot);
+  check("the same gateway answer never re-toasts", gatewayToasts.shown.length === 1);
+  gatewayView.dispose();
+  gatewayService.dispose();
+
+  const quietGatewayToasts = toastStub();
+  const quietGatewayService = new UpdateService({
+    ...backendWith(null),
+    updateGateway: async () => ({ outcome: "failed", message: "offline" }),
+  });
+  const quietGatewayView = new UpdateView(quietGatewayService, quietGatewayToasts);
+  await quietGatewayService.checkNow();
+  check("a failed gateway update shows no toast", quietGatewayToasts.shown.length === 0);
+  quietGatewayView.dispose();
+  quietGatewayService.dispose();
 });
 
 if (failures.length > 0) {

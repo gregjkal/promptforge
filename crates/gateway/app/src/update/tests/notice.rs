@@ -12,7 +12,9 @@ use gateway_config::Config;
 use crate::runner::ServeOptions;
 use crate::shutdown::ShutdownSignal;
 use crate::update::manifest::{Check, Entry};
-use crate::update::notice::{CHECK_INTERVAL, Notice, NoticeState, Sources, run, start};
+use crate::update::notice::{
+    CHECK_INTERVAL, Notice, NoticeState, RETRY_INTERVAL, Sources, run, start,
+};
 use crate::update::{Applied, UpdateError};
 
 /// Counts calls and answers each from a queue, repeating the last answer
@@ -75,20 +77,57 @@ impl CheckAnswer {
     }
 }
 
+/// An update flow answer, rebuilt per call like [`CheckAnswer`].
+#[derive(Clone)]
+enum ApplyAnswer {
+    Applied(Applied),
+    /// The flow answers after a minute of paused time.
+    Slow(Applied),
+    Fails,
+    Strands,
+}
+
+impl From<Applied> for ApplyAnswer {
+    fn from(applied: Applied) -> ApplyAnswer {
+        ApplyAnswer::Applied(applied)
+    }
+}
+
+impl ApplyAnswer {
+    async fn result(self) -> Result<Applied, UpdateError> {
+        match self {
+            ApplyAnswer::Applied(applied) => Ok(applied),
+            ApplyAnswer::Slow(applied) => {
+                tokio::time::sleep(Duration::from_mins(1)).await;
+                Ok(applied)
+            }
+            ApplyAnswer::Fails => Err(UpdateError::Download {
+                url: "http://127.0.0.1:1/gateway.tar.gz".to_owned(),
+                reason: "the server answered 503".to_owned(),
+            }),
+            ApplyAnswer::Strands => Err(UpdateError::Stranded {
+                installed: PathBuf::from("/opt/promptforge/promptforge-gateway"),
+                previous: PathBuf::from("/opt/promptforge/promptforge-gateway.previous"),
+                reason: "permission denied".to_owned(),
+            }),
+        }
+    }
+}
+
 /// The worker's injected parts.
 struct Fixture {
     notice: Notice,
     shutdown: ShutdownSignal,
     workshop: Scripted<Option<PathBuf>>,
     check: Scripted<CheckAnswer>,
-    apply: Scripted<Applied>,
+    apply: Scripted<ApplyAnswer>,
 }
 
 impl Fixture {
     fn new(
         workshop: Option<PathBuf>,
         checks: impl IntoIterator<Item = CheckAnswer>,
-        applied: Applied,
+        applied: impl Into<ApplyAnswer>,
     ) -> Fixture {
         let shutdown = ShutdownSignal::default();
         Fixture {
@@ -96,7 +135,7 @@ impl Fixture {
             shutdown,
             workshop: Scripted::new([workshop]),
             check: Scripted::new(checks),
-            apply: Scripted::new([applied]),
+            apply: Scripted::new([applied.into()]),
         }
     }
 
@@ -115,10 +154,7 @@ impl Fixture {
                 let answer = check.next();
                 async move { answer.result() }
             },
-            apply: move || {
-                let applied = apply.next();
-                async move { Ok(applied) }
-            },
+            apply: move || apply.next().result(),
         };
         tokio::spawn(run(self.notice.clone(), requests, sources))
     }
@@ -199,7 +235,7 @@ async fn a_request_runs_the_flow_once_and_stores_its_outcome() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_failed_check_is_shown_until_the_next_check_clears_it() {
+async fn a_failed_check_is_shown_until_the_retry_within_the_hour_clears_it() {
     let fixture = Fixture::new(
         None,
         [CheckAnswer::Unreachable, CheckAnswer::Current("0.3.0")],
@@ -211,11 +247,123 @@ async fn a_failed_check_is_shown_until_the_next_check_clears_it() {
         panic!("a failed check is shown: {:?}", fixture.notice.state());
     };
     assert!(reason.contains("latest.json"), "{reason}");
-    settle(CHECK_INTERVAL).await;
+    settle(RETRY_INTERVAL.saturating_sub(Duration::from_secs(2))).await;
+    assert_eq!(fixture.check.calls(), 1, "no retry before the hour");
+    settle(Duration::from_secs(2)).await;
+    assert_eq!(fixture.check.calls(), 2, "the failed check is retried");
     assert_eq!(
         fixture.notice.state(),
         NoticeState::Current("0.3.0".to_owned()),
-        "the next check replaces the failure"
+        "the retry replaces the failure"
+    );
+    settle(CHECK_INTERVAL.saturating_sub(Duration::from_secs(2))).await;
+    assert_eq!(
+        fixture.check.calls(),
+        2,
+        "a passing check returns to the daily schedule"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_notice_is_busy_while_a_requested_update_runs() {
+    let fixture = Fixture::new(
+        None,
+        [CheckAnswer::Available("0.4.0")],
+        ApplyAnswer::Slow(Applied::Current {
+            version: "0.4.0".to_owned(),
+        }),
+    );
+    let _worker = fixture.start("macos");
+    settle(Duration::from_secs(1)).await;
+    fixture.notice.request_apply();
+    settle(Duration::from_secs(1)).await;
+    assert_eq!(fixture.notice.state(), NoticeState::Busy);
+    settle(Duration::from_mins(1)).await;
+    assert_eq!(
+        fixture.notice.state(),
+        NoticeState::Current("0.4.0".to_owned())
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_started_update_shows_its_release_until_its_claim_shows_busy() {
+    let fixture = Fixture::new(
+        None,
+        [CheckAnswer::Current("0.3.0")],
+        Applied::Updating {
+            version: "0.4.0".to_owned(),
+        },
+    );
+    let _worker = fixture.start("linux");
+    settle(Duration::from_secs(1)).await;
+    fixture.notice.request_apply();
+    settle(Duration::from_secs(1)).await;
+    assert_eq!(
+        fixture.notice.state(),
+        NoticeState::Available("0.4.0".to_owned()),
+        "a setup that ends without installing leaves the release clickable"
+    );
+    // The flow keeps its claim until the process hands off.
+    fixture.shutdown.begin_update().expect("claim").keep();
+    assert_eq!(fixture.notice.state(), NoticeState::Busy);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_busy_answer_leaves_the_last_result() {
+    let fixture = Fixture::new(None, [CheckAnswer::Current("0.3.0")], Applied::Busy);
+    let _worker = fixture.start("linux");
+    settle(Duration::from_secs(1)).await;
+    fixture.notice.request_apply();
+    settle(Duration::from_secs(1)).await;
+    assert_eq!(fixture.apply.calls(), 1);
+    assert_eq!(
+        fixture.notice.state(),
+        NoticeState::Current("0.3.0".to_owned())
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_failed_update_is_shown_and_a_later_route_update_shows_busy() {
+    let fixture = Fixture::new(None, [CheckAnswer::Available("0.4.0")], ApplyAnswer::Fails);
+    let _worker = fixture.start("linux");
+    settle(Duration::from_secs(1)).await;
+    fixture.notice.request_apply();
+    settle(Duration::from_secs(1)).await;
+    let NoticeState::Failed(reason) = fixture.notice.state() else {
+        panic!("a failed update is shown: {:?}", fixture.notice.state());
+    };
+    assert!(reason.contains("gateway.tar.gz"), "{reason}");
+    let route = fixture.shutdown.begin_update().expect("claim");
+    assert_eq!(
+        fixture.notice.state(),
+        NoticeState::Busy,
+        "an update the route starts after a failure shows"
+    );
+    drop(route);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stranded_install_outranks_its_claim_and_every_later_check() {
+    let fixture = Fixture::new(
+        None,
+        [CheckAnswer::Available("0.4.0")],
+        ApplyAnswer::Strands,
+    );
+    let _worker = fixture.start("linux");
+    settle(Duration::from_secs(1)).await;
+    // The stranded flow keeps its claim for the process's life.
+    fixture.shutdown.begin_update().expect("claim").keep();
+    fixture.notice.request_apply();
+    settle(Duration::from_secs(1)).await;
+    let NoticeState::Failed(reason) = fixture.notice.state() else {
+        panic!("a stranded install is shown: {:?}", fixture.notice.state());
+    };
+    assert!(reason.contains("move it to"), "{reason}");
+    settle(CHECK_INTERVAL * 2).await;
+    assert_eq!(fixture.check.calls(), 1, "no check runs after a strand");
+    assert!(
+        matches!(fixture.notice.state(), NoticeState::Failed(_)),
+        "the strand stays shown"
     );
 }
 
@@ -254,7 +402,7 @@ async fn a_windows_gateway_without_workshop_checks() {
 }
 
 #[test]
-fn an_update_holding_the_claim_shows_busy_unless_the_last_result_failed() {
+fn an_update_holding_the_claim_shows_busy_over_the_last_result() {
     let shutdown = ShutdownSignal::default();
     let notice = Notice::new(shutdown.clone());
     assert_eq!(notice.state(), NoticeState::Unchecked);
@@ -267,14 +415,16 @@ fn an_update_holding_the_claim_shows_busy_unless_the_last_result_failed() {
     drop(ticket);
     assert_eq!(notice.state(), NoticeState::Unchecked);
 
-    let failed = NoticeState::Failed("the previous gateway waits at x.previous".to_owned());
+    let failed = NoticeState::Failed("cannot fetch the release manifest".to_owned());
     notice.store(failed.clone());
-    shutdown.begin_update().expect("claim").keep();
+    let ticket = shutdown.begin_update().expect("claim");
     assert_eq!(
         notice.state(),
-        failed,
-        "a stranded install keeps the claim and still shows its error"
+        NoticeState::Busy,
+        "a failed check does not hide an update the route started"
     );
+    drop(ticket);
+    assert_eq!(notice.state(), failed);
 }
 
 #[test]

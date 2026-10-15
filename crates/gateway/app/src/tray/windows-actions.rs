@@ -8,6 +8,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::PostQuitMessage;
 
 use super::{MENU_OPEN, Tray, TrayEvent, WindowsRunKey};
 use crate::tray::logic;
+use crate::update::notice::NoticeState;
 
 /// The status refresh: recomputes the phase from the gateway thread's
 /// liveness and the label from the gateway's in-process state, and keeps
@@ -45,9 +46,7 @@ pub(super) fn tick(tray: &mut Tray) {
     }
     let busy = handle.tray_state().tray_busy_text();
     let notice = handle.tray_state().update_notice.state();
-    let (update_label, update_enabled) = logic::update_item(&notice);
-    tray.update_item.set_text(&update_label);
-    tray.update_item.set_enabled(update_enabled);
+    refresh_update_item(tray, &notice);
     if let Some((models, vram_gb)) = handle.tray_state().tray_model_status() {
         let label = logic::status_label(phase, busy.as_deref(), models, vram_gb, &notice);
         if label != tray.label {
@@ -89,14 +88,24 @@ pub(super) fn act(tray: &mut Tray, event: TrayEvent) {
     }
 }
 
+/// Sets the update item's text and enabled bit from `notice`.
+fn refresh_update_item(tray: &Tray, notice: &NoticeState) {
+    let (label, enabled) = logic::update_item(notice);
+    tray.update_item.set_text(&label);
+    tray.update_item.set_enabled(enabled);
+}
+
 /// Opens the menu after re-probing the installed Workshop and re-reading
-/// the login state, so a displayed menu never shows a stale enabled bit
-/// or check mark. The crate's automatic shows are disabled because muda's
-/// items are `!Send` and the re-probe cannot run inside the event
-/// callback ahead of them.
+/// the update notice and the login state, so a displayed menu never shows
+/// a stale label, enabled bit, or check mark. The crate's automatic shows
+/// are disabled because muda's items are `!Send` and the re-probe cannot
+/// run inside the event callback ahead of them.
 fn show_menu(tray: &mut Tray) {
     tray.workshop_exe = probe_workshop();
     tray.workshop_item.set_enabled(tray.workshop_exe.is_some());
+    if let Some(handle) = tray.handle.as_ref() {
+        refresh_update_item(tray, &handle.tray_state().update_notice.state());
+    }
     tray.login_item
         .set_checked(logic::launch_at_login(&WindowsRunKey));
     if let Some(icon) = tray.icon.as_ref() {

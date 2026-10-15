@@ -25,8 +25,14 @@ use crate::error::error_chain;
 use crate::runner::ServeOptions;
 use crate::shutdown::ShutdownSignal;
 
-/// How long the worker waits between scheduled checks.
+/// How long the worker waits between scheduled checks. The timer is the
+/// monotonic clock, which stops while the machine sleeps, so this is
+/// awake time.
 pub(crate) const CHECK_INTERVAL: Duration = Duration::from_hours(24);
+
+/// How soon a failed check is tried again, so a check that ran before the
+/// network came up does not hold the status line for a day.
+pub(crate) const RETRY_INTERVAL: Duration = Duration::from_hours(1);
 
 /// What the tray shows about updates.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,7 +46,8 @@ pub(crate) enum NoticeState {
     /// A check or an update is running, the route's included.
     Busy,
     /// The last check or update failed, for this reason. It stays until
-    /// the next check, scheduled or clicked.
+    /// the next check, scheduled or clicked, unless the update stranded
+    /// the install, which no check can repair.
     Failed(String),
     /// Workshop, installed beside this gateway on Windows, owns updates.
     WorkshopOwned,
@@ -59,6 +66,10 @@ struct Shared {
     stored: Mutex<NoticeState>,
     /// Whether the worker is running a check or an update.
     working: AtomicBool,
+    /// Whether an update this worker ran stranded the install. The
+    /// stranded update keeps the claim for the process's life, so its
+    /// failure outranks the claim and no later check replaces it.
+    stranded: AtomicBool,
     /// The tray's update requests.
     requests: mpsc::UnboundedSender<()>,
     /// The receiving end, until the worker takes it.
@@ -77,6 +88,7 @@ impl Notice {
             shared: Arc::new(Shared {
                 stored: Mutex::new(NoticeState::Unchecked),
                 working: AtomicBool::new(false),
+                stranded: AtomicBool::new(false),
                 requests,
                 receiver: Mutex::new(Some(receiver)),
                 shutdown,
@@ -86,8 +98,7 @@ impl Notice {
 
     /// What the tray shows now: [`NoticeState::Busy`] while the worker
     /// runs or another update holds the claim, else the last result. A
-    /// failure outranks the claim, so a stranded install, which keeps the
-    /// claim, still shows its error.
+    /// stranded install's failure outranks the claim the install keeps.
     pub(crate) fn state(&self) -> NoticeState {
         let stored = self
             .shared
@@ -96,7 +107,7 @@ impl Notice {
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
         let claimed =
-            self.shared.shutdown.is_updating() && !matches!(stored, NoticeState::Failed(_));
+            self.shared.shutdown.is_updating() && !self.shared.stranded.load(Ordering::Acquire);
         if self.shared.working.load(Ordering::Acquire) || claimed {
             NoticeState::Busy
         } else {
@@ -183,9 +194,10 @@ pub(crate) struct Sources<W, C, A> {
     pub(crate) apply: A,
 }
 
-/// The worker: checks at once, then every [`CHECK_INTERVAL`], and runs
-/// the update flow once per burst of requests, until the gateway shuts
-/// down. The timer is `tokio::time`, so tests drive it with paused time.
+/// The worker: checks at once, then every [`CHECK_INTERVAL`], or after
+/// [`RETRY_INTERVAL`] when the check failed, and runs the update flow once
+/// per burst of requests, until the gateway shuts down. The timer is
+/// `tokio::time`, so tests drive it with paused time.
 pub(crate) async fn run<W, C, CF, A, AF>(
     notice: Notice,
     mut requests: mpsc::UnboundedReceiver<()>,
@@ -203,8 +215,12 @@ pub(crate) async fn run<W, C, CF, A, AF>(
         tokio::select! {
             () = shutdown.fired() => return,
             () = tokio::time::sleep_until(next) => {
-                check_once(&notice, &mut sources).await;
-                next = tokio::time::Instant::now() + CHECK_INTERVAL;
+                let wait = if check_once(&notice, &mut sources).await {
+                    CHECK_INTERVAL
+                } else {
+                    RETRY_INTERVAL
+                };
+                next = tokio::time::Instant::now() + wait;
             }
             request = requests.recv() => {
                 if request.is_none() {
@@ -219,16 +235,20 @@ pub(crate) async fn run<W, C, CF, A, AF>(
     }
 }
 
-/// One scheduled check, skipped on Windows when Workshop owns updates.
-async fn check_once<W, C, CF, A>(notice: &Notice, sources: &mut Sources<W, C, A>)
+/// One scheduled check, skipped on Windows when Workshop owns updates and
+/// after a stranded install. Returns whether the check did not fail.
+async fn check_once<W, C, CF, A>(notice: &Notice, sources: &mut Sources<W, C, A>) -> bool
 where
     W: Fn() -> Option<PathBuf>,
     C: FnMut() -> CF,
     CF: Future<Output = Result<Check, UpdateError>>,
 {
+    if notice.shared.stranded.load(Ordering::Acquire) {
+        return true;
+    }
     if windows::route(sources.os, &sources.workshop) == windows::Route::WorkshopOwned {
         notice.store(NoticeState::WorkshopOwned);
-        return;
+        return true;
     }
     let _working = notice.working();
     let state = match (sources.check)().await {
@@ -247,7 +267,9 @@ where
             NoticeState::Failed(error.to_string())
         }
     };
+    let succeeded = !matches!(state, NoticeState::Failed(_));
     notice.store(state);
+    succeeded
 }
 
 /// One requested update, the flow `POST /update` runs.
@@ -269,6 +291,9 @@ where
         Ok(Applied::Busy) => {}
         Err(error) => {
             tracing::warn!("the update failed: {}", error_chain(&error));
+            if matches!(error, UpdateError::Stranded { .. }) {
+                notice.shared.stranded.store(true, Ordering::Release);
+            }
             notice.store(NoticeState::Failed(error.to_string()));
         }
     }

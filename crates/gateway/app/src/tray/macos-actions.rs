@@ -32,9 +32,6 @@ pub(super) fn tick(tray: &mut Tray) {
     tray.phase = logic::next_phase(poll);
     let busy = handle.tray_state().tray_busy_text();
     let notice = handle.tray_state().update_notice.state();
-    let (update_label, update_enabled) = logic::update_item(&notice);
-    tray.update_item.set_text(&update_label);
-    tray.update_item.set_enabled(update_enabled);
     if let Some((models, vram_gb)) = handle.tray_state().tray_model_status() {
         let label = logic::status_label(tray.phase, busy.as_deref(), models, vram_gb, &notice);
         if label != tray.label {
@@ -72,12 +69,18 @@ pub(super) fn act(tray: &mut Tray, event: TrayEvent) {
     }
 }
 
-/// Re-reads the states the menu shows - the installed-Workshop lookup and
-/// the login check - so a displayed menu never shows a stale enabled bit
-/// or check mark. Called on the pre-display mouse-down and on every tick.
+/// Re-reads the states the menu shows - the installed-Workshop lookup,
+/// the update notice, and the login check - so a displayed menu never
+/// shows a stale label, enabled bit, or check mark. Called on the
+/// pre-display mouse-down and on every tick.
 fn refresh_menu_state(tray: &mut Tray) {
     tray.workshop_exe = probe_workshop();
     tray.workshop_item.set_enabled(tray.workshop_exe.is_some());
+    if let Some(handle) = tray.handle.as_ref() {
+        let (label, enabled) = logic::update_item(&handle.tray_state().update_notice.state());
+        tray.update_item.set_text(&label);
+        tray.update_item.set_enabled(enabled);
+    }
     if let Some(login) = tray.login.as_ref() {
         tray.login_item.set_checked(logic::launch_at_login(login));
     }

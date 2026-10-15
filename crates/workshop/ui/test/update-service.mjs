@@ -198,6 +198,43 @@ await assertNoLeaks(lifecycle, async () => {
     check("the browser records no gateway answer", browser.snapshot.gateway === null);
     browser.dispose();
   }
+
+  {
+    // The gateway answers only after its download, so a manual check while
+    // it downloads still runs Workshop's check, and joins the request.
+    let answerGateway;
+    let workshopChecks = 0;
+    const { service: slow, calls } = gatewayService(
+      async () => {
+        workshopChecks += 1;
+        return null;
+      },
+      () => new Promise((resolve) => (answerGateway = resolve)),
+    );
+    const first = slow.checkNow();
+    for (let turn = 0; turn < 10 && answerGateway === undefined; turn += 1) {
+      await Promise.resolve();
+    }
+    check("the gateway request is in flight", answerGateway !== undefined);
+    const phases = [];
+    const listener = slow.onDidChange((snapshot) => phases.push(snapshot.phase));
+    const second = slow.checkNow();
+    for (let turn = 0; turn < 10 && phases.at(-1) !== "current"; turn += 1) {
+      await Promise.resolve();
+    }
+    check("a check during the gateway request runs Workshop's check", workshopChecks === 2);
+    check("a check during the gateway request shows its progress", phases.join(",") === "checking,current");
+    check("a check during the gateway request sends no second request", calls.gateway === 1);
+    answerGateway({ outcome: "updating", version: "0.4.0" });
+    await Promise.all([first, second]);
+    check("both checks settle with the gateway's answer", slow.snapshot.gateway?.outcome === "updating");
+    check(
+      "the joined request logs once",
+      slow.snapshot.log.join("|") === "PromptForge Gateway is updating to 0.4.0.",
+    );
+    listener.dispose();
+    slow.dispose();
+  }
 });
 
 if (failures.length) {

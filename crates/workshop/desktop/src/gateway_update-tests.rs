@@ -35,21 +35,6 @@ fn a_debug_build_never_asks() {
 }
 
 #[test]
-fn the_command_reports_development_exactly_in_debug_builds() {
-    // The command passes `cfg!(debug_assertions)`; this test binary is
-    // built with the same setting the command is.
-    let reported = update_with(
-        cfg!(debug_assertions),
-        None::<fn(Instant) -> Result<Option<GatewayUpdateOutcome>, std::io::Error>>,
-    );
-    if cfg!(debug_assertions) {
-        assert_eq!(reported, GatewayUpdate::Development);
-    } else {
-        assert_eq!(reported, GatewayUpdate::NoLocalGateway);
-    }
-}
-
-#[test]
 fn no_server_is_no_local_gateway() {
     assert_eq!(
         update_with(
@@ -121,6 +106,24 @@ fn an_unreachable_gateway_fails_naming_the_cause() {
             message: "cannot reach the gateway's update route: connection refused".to_owned()
         }
     );
+}
+
+#[test]
+fn a_request_past_its_deadline_says_the_update_continues() {
+    for kind in [std::io::ErrorKind::TimedOut, std::io::ErrorKind::WouldBlock] {
+        let calls = Cell::new(0);
+        let reported = update_with(
+            false,
+            Some(answering(&calls, Err(std::io::Error::from(kind)))),
+        );
+        assert_eq!(
+            reported,
+            GatewayUpdate::Failed {
+                message: "the gateway's update route did not answer within 5 minutes; an update it started continues and restarts the gateway when done".to_owned()
+            },
+            "{kind:?}"
+        );
+    }
 }
 
 #[test]

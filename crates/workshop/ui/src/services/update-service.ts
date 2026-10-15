@@ -116,7 +116,8 @@ export class UpdateService extends Disposable {
   private readonly changes = this._register(new Emitter<UpdateSnapshot>());
   private state: UpdateSnapshot = EMPTY;
   private update: DesktopUpdate | null = null;
-  private checking: Promise<void> | null = null;
+  private checking: Promise<boolean> | null = null;
+  private gatewayRequest: Promise<void> | null = null;
   private disposed = false;
 
   readonly onDidChange: Event<UpdateSnapshot> = this.changes.event;
@@ -153,13 +154,18 @@ export class UpdateService extends Disposable {
       return;
     }
     if (this.checking !== null) {
-      return this.checking;
-    }
-    this.checking = this.runCheck(background);
-    try {
       await this.checking;
+      return;
+    }
+    this.checking = this.checkWorkshop(background);
+    let askGateway: boolean;
+    try {
+      askGateway = await this.checking;
     } finally {
       this.checking = null;
+    }
+    if (askGateway && !this.disposed) {
+      await this.askGateway();
     }
   }
 
@@ -230,10 +236,19 @@ export class UpdateService extends Disposable {
     super.dispose();
   }
 
-  private async runCheck(background: boolean): Promise<void> {
-    if ((await this.checkWorkshop(background)) && !this.disposed) {
-      await this.updateGateway();
+  /**
+   * The gateway's update request, which can take minutes while the gateway
+   * downloads, so it has its own guard: a check during it runs Workshop's
+   * check again and then joins the request in flight instead of sending a
+   * second one, which the gateway would only answer busy.
+   */
+  private askGateway(): Promise<void> {
+    if (this.gatewayRequest === null) {
+      this.gatewayRequest = this.updateGateway().finally(() => {
+        this.gatewayRequest = null;
+      });
     }
+    return this.gatewayRequest;
   }
 
   /**

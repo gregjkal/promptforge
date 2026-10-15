@@ -100,7 +100,7 @@ pub(crate) async fn update_gateway(app: AppHandle<Wry>) -> GatewayUpdate {
 fn update_with<R, E>(development: bool, request: Option<R>) -> GatewayUpdate
 where
     R: FnOnce(Instant) -> Result<Option<GatewayUpdateOutcome>, E>,
-    E: std::error::Error,
+    E: std::error::Error + 'static,
 {
     if development {
         return GatewayUpdate::Development;
@@ -111,6 +111,12 @@ where
     match request(Instant::now() + UPDATE_DEADLINE) {
         Ok(Some(outcome)) => outcome.into(),
         Ok(None) => GatewayUpdate::NoLocalGateway,
+        Err(error) if timed_out(&error) => GatewayUpdate::Failed {
+            message: format!(
+                "the gateway's update route did not answer within {} minutes; an update it started continues and restarts the gateway when done",
+                UPDATE_DEADLINE.as_secs() / 60
+            ),
+        },
         Err(error) => GatewayUpdate::Failed {
             message: format!(
                 "cannot reach the gateway's update route: {}",
@@ -118,6 +124,24 @@ where
             ),
         },
     }
+}
+
+/// Whether `error` or one of its sources is an I/O timeout: a read past
+/// the deadline, which on Unix reports `WouldBlock`.
+fn timed_out(error: &(dyn std::error::Error + 'static)) -> bool {
+    let mut current = Some(error);
+    while let Some(error) = current {
+        if let Some(io) = error.downcast_ref::<std::io::Error>()
+            && matches!(
+                io.kind(),
+                std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+            )
+        {
+            return true;
+        }
+        current = error.source();
+    }
+    false
 }
 
 /// `error` and its sources, colon-separated.

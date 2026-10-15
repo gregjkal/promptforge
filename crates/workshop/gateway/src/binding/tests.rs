@@ -5,6 +5,7 @@ use super::*;
 mod atomic;
 mod publication;
 mod shutdown;
+mod update;
 
 fn validated_connection(
     gateway: &crate::test_gateway::ValidatedGateway,

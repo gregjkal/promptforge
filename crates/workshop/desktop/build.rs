@@ -23,7 +23,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     build_ceiling::check()?;
     refresh_gateway_sidecar()?;
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
-        tauri_build::AppManifest::new().commands(&["desktop_update_supported", "quit"]),
+        tauri_build::AppManifest::new().commands(&[
+            "desktop_update_supported",
+            "quit",
+            "update_gateway",
+        ]),
     ))?;
     Ok(())
 }

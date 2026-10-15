@@ -55,6 +55,7 @@ await assertNoLeaks(lifecycle, async () => {
     relaunch: async () => {
       relaunched += 1;
     },
+    updateGateway: async () => ({ outcome: "current" }),
   });
   await service.checkNow();
   check("a newer release becomes available", service.snapshot.phase === "available");
@@ -82,11 +83,121 @@ await assertNoLeaks(lifecycle, async () => {
       return null;
     },
     relaunch: async () => undefined,
+    updateGateway: async () => {
+      checked += 1;
+      return { outcome: "current" };
+    },
   });
   await deb.checkNow();
   check("package-managed Linux disables in-app updates", deb.snapshot.phase === "unsupported");
   check("an unsupported package never checks the updater endpoint", checked === 0);
   deb.dispose();
+
+  // The gateway's update follows every Workshop check result, once.
+  const gatewayService = (check, gateway) => {
+    const calls = { gateway: 0 };
+    const service = new UpdateService({
+      desktop: true,
+      supported: async () => true,
+      currentVersion: async () => "0.2.0",
+      check,
+      relaunch: async () => undefined,
+      updateGateway: async () => {
+        calls.gateway += 1;
+        return gateway();
+      },
+    });
+    return { service, calls };
+  };
+  const results = {
+    current: async () => null,
+    available: async () => ({ ...update, async close() {} }),
+    failed: async () => {
+      throw new Error("offline");
+    },
+  };
+  for (const [result, workshopCheck] of Object.entries(results)) {
+    const { service: after, calls } = gatewayService(workshopCheck, () => ({ outcome: "current" }));
+    await after.checkNow();
+    check(`the gateway updates once after a ${result} check`, calls.gateway === 1);
+    check(
+      `the gateway's answer is recorded after a ${result} check`,
+      after.snapshot.gateway?.outcome === "current",
+    );
+    after.dispose();
+  }
+
+  {
+    const { service: quiet } = gatewayService(results.failed, () => ({ outcome: "predates" }));
+    await quiet.checkNow();
+    check("a predating gateway is recorded", quiet.snapshot.gateway?.outcome === "predates");
+    check("a predating gateway leaves Workshop's phase", quiet.snapshot.phase === "error");
+    check("a predating gateway leaves Workshop's error", quiet.snapshot.error === "offline");
+    check(
+      "a predating gateway adds nothing to the log",
+      quiet.snapshot.log.join("|") === "Update check failed: offline",
+    );
+    quiet.dispose();
+  }
+
+  {
+    const { service: updating } = gatewayService(results.current, () => ({
+      outcome: "updating",
+      version: "0.4.0",
+    }));
+    await updating.checkNow();
+    check("an updating gateway leaves Workshop's phase", updating.snapshot.phase === "current");
+    check(
+      "an updating gateway adds its log line",
+      updating.snapshot.log.join("|") === "PromptForge Gateway is updating to 0.4.0.",
+    );
+    updating.dispose();
+  }
+
+  {
+    const { service: rejected } = gatewayService(results.current, () => {
+      throw new Error("command update_gateway not allowed");
+    });
+    let thrown = false;
+    try {
+      await rejected.checkNow();
+    } catch {
+      thrown = true;
+    }
+    check("a rejected gateway update never throws", !thrown);
+    check(
+      "a rejected gateway update is recorded as failed",
+      rejected.snapshot.gateway?.outcome === "failed" &&
+        rejected.snapshot.gateway.message === "command update_gateway not allowed",
+    );
+    check("a rejected gateway update leaves Workshop's phase", rejected.snapshot.phase === "current");
+    check("a rejected gateway update leaves Workshop's error", rejected.snapshot.error === "");
+    check(
+      "a rejected gateway update logs its failure",
+      rejected.snapshot.log.join("|") ===
+        "PromptForge Gateway update failed: command update_gateway not allowed",
+    );
+    rejected.dispose();
+  }
+
+  {
+    let gatewayCalls = 0;
+    const browser = new UpdateService({
+      desktop: false,
+      supported: async () => true,
+      currentVersion: async () => "0.2.0",
+      check: async () => null,
+      relaunch: async () => undefined,
+      updateGateway: async () => {
+        gatewayCalls += 1;
+        return { outcome: "current" };
+      },
+    });
+    await browser.checkNow();
+    check("the browser never asks the gateway to update", gatewayCalls === 0);
+    check("the browser records no gateway answer", browser.snapshot.gateway === null);
+    browser.dispose();
+  }
 });
 
 if (failures.length) {

@@ -75,6 +75,10 @@ pub struct ServeOptions {
     /// listener is bound - the binary's `--browser`, used by the
     /// installer's first run. Embedders leave this `false`.
     pub browser: bool,
+    /// Checks for a newer gateway release at startup and every 24 hours,
+    /// for the tray's update notice. [`crate::run_with_tray`] sets it;
+    /// headless runs leave it `false` and never check.
+    pub update_notice: bool,
 }
 
 impl ServeOptions {
@@ -89,6 +93,7 @@ impl ServeOptions {
             profile: profile.into(),
             run_dir: None,
             browser: false,
+            update_notice: false,
         }
     }
 

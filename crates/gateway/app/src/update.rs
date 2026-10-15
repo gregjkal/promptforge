@@ -21,6 +21,7 @@ use crate::AppState;
 use crate::shutdown::{ShutdownSignal, UpdateTicket};
 
 mod manifest;
+pub(crate) mod notice;
 mod stage;
 mod succession;
 mod swap;

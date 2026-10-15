@@ -69,6 +69,7 @@ function backendWith(update) {
     currentVersion: async () => "0.2.0",
     check: async () => update,
     relaunch: async () => undefined,
+    updateGateway: async () => ({ outcome: "current" }),
   };
 }
 

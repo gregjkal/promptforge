@@ -23,6 +23,23 @@ export type UpdatePhase =
   | "unsupported"
   | "browser";
 
+/**
+ * What PromptForge Gateway did when Workshop asked it to update itself after
+ * Workshop's own check: the desktop app's `update_gateway` command answer.
+ */
+export type GatewayUpdate =
+  | { readonly outcome: "updating"; readonly version: string }
+  | { readonly outcome: "failed"; readonly message: string }
+  | {
+      readonly outcome:
+        | "current"
+        | "workshop_owned"
+        | "busy"
+        | "predates"
+        | "no_local_gateway"
+        | "development";
+    };
+
 export interface UpdateSnapshot {
   readonly phase: UpdatePhase;
   readonly currentVersion: string;
@@ -34,6 +51,8 @@ export interface UpdateSnapshot {
   readonly log: readonly string[];
   /** The startup check produced this state, not a check or install the user asked for. */
   readonly background: boolean;
+  /** The gateway's answer after the last check; `null` until one arrives. */
+  readonly gateway: GatewayUpdate | null;
 }
 
 interface DesktopUpdate {
@@ -50,6 +69,8 @@ export interface UpdateBackend {
   currentVersion(): Promise<string>;
   check(): Promise<DesktopUpdate | null>;
   relaunch(): Promise<void>;
+  /** Asks the local gateway to update itself; desktop only. */
+  updateGateway(): Promise<GatewayUpdate>;
 }
 
 function defaultBackend(): UpdateBackend {
@@ -59,6 +80,7 @@ function defaultBackend(): UpdateBackend {
     currentVersion: getVersion,
     check: async (): Promise<Update | null> => check({ timeout: 30_000 }),
     relaunch,
+    updateGateway: async (): Promise<GatewayUpdate> => invoke<GatewayUpdate>("update_gateway"),
   };
 }
 
@@ -72,10 +94,22 @@ const EMPTY: UpdateSnapshot = {
   error: "",
   log: [],
   background: false,
+  gateway: null,
 };
 
 function oneLine(text: string | undefined): string {
   return (text ?? "").split(/\r?\n/, 1)[0]?.trim() ?? "";
+}
+
+/** The log line a gateway answer adds; most outcomes add none. */
+function gatewayLogLine(gateway: GatewayUpdate): string | null {
+  if (gateway.outcome === "updating") {
+    return `PromptForge Gateway is updating to ${gateway.version}.`;
+  }
+  if (gateway.outcome === "failed") {
+    return `PromptForge Gateway update failed: ${gateway.message}`;
+  }
+  return null;
 }
 
 export class UpdateService extends Disposable {
@@ -197,17 +231,29 @@ export class UpdateService extends Disposable {
   }
 
   private async runCheck(background: boolean): Promise<void> {
+    if ((await this.checkWorkshop(background)) && !this.disposed) {
+      await this.updateGateway();
+    }
+  }
+
+  /**
+   * Workshop's own check. Resolves whether the gateway's update follows: it
+   * does after a current, an available, and a failed check, and not on a
+   * package-managed install, where the package manager owns updates, or
+   * once the service is disposed.
+   */
+  private async checkWorkshop(background: boolean): Promise<boolean> {
     this.publish({ phase: "checking", error: "", background });
     try {
       const currentVersion = await this.backend.currentVersion();
       if (!(await this.backend.supported())) {
         this.publish({ phase: "unsupported", currentVersion, error: "" });
-        return;
+        return false;
       }
       const update = await this.backend.check();
       if (this.disposed) {
         await update?.close();
-        return;
+        return false;
       }
       if (this.update !== null && this.update !== update) {
         await this.update.close();
@@ -223,7 +269,7 @@ export class UpdateService extends Disposable {
           total: null,
           log: [],
         });
-        return;
+        return true;
       }
       this.publish({
         phase: "available",
@@ -242,6 +288,23 @@ export class UpdateService extends Disposable {
         log: [`Update check failed: ${message}`],
       });
     }
+    return true;
+  }
+
+  /**
+   * Asks the local gateway to update itself and records its answer. It never
+   * changes Workshop's phase or error, so no toast fires, and a rejected
+   * invoke is recorded as a failure rather than thrown.
+   */
+  private async updateGateway(): Promise<void> {
+    let gateway: GatewayUpdate;
+    try {
+      gateway = await this.backend.updateGateway();
+    } catch (error) {
+      gateway = { outcome: "failed", message: errorText(error) };
+    }
+    const line = gatewayLogLine(gateway);
+    this.publish(line === null ? { gateway } : { gateway, log: [...this.state.log, line] });
   }
 
   private publish(change: Partial<UpdateSnapshot>): void {

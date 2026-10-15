@@ -26,7 +26,9 @@ pub(crate) struct AdminPaths {
 /// root, so every walled handler has something to answer with once past
 /// the wall. The Hugging Face proxy points at a dead loopback port, so a
 /// sweep that reaches the HF routes fails its connection rather than
-/// calling the real hub.
+/// calling the real hub, and the fixture holds the update claim, so a sweep
+/// that reaches `POST /update` gets `409` rather than fetching the real
+/// release manifest and swapping out the test binary.
 pub(crate) fn walled_fixture() -> (tempfile::TempDir, AppState) {
     let temp = tempfile::TempDir::new().expect("tempdir");
     let models = temp.path().join("cache").join("models");
@@ -59,6 +61,11 @@ cache_dir = '{cache}'
         "http://127.0.0.1:9".to_owned(),
         None,
     ));
+    state
+        .shutdown
+        .begin_update()
+        .expect("a fresh state has no update running")
+        .keep();
     (temp, state)
 }
 

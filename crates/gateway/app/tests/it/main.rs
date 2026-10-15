@@ -41,5 +41,7 @@ mod rerank;
 mod sidecar;
 mod speech;
 mod surface;
+#[cfg(all(unix, feature = "test-fixtures"))]
+mod update;
 #[cfg(feature = "web-search")]
 mod web_search;

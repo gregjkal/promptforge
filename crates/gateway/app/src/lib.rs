@@ -275,6 +275,8 @@ struct AppState {
     /// The process-shutdown signal fired by `POST /shutdown`; the serve
     /// loop selects on it alongside the caller-owned shutdown future.
     shutdown: shutdown::ShutdownSignal,
+    /// The tray's update notice, which a tray run's worker fills.
+    update_notice: update::notice::Notice,
     /// Process-lifetime random salt for the `/auth` handoff's session
     /// proof; a restart or key rotation invalidates every minted cookie.
     handoff_salt: [u8; 32],
@@ -324,6 +326,7 @@ impl AppState {
         let started = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |duration| duration.as_nanos());
+        let shutdown = shutdown::ShutdownSignal::default();
         AppState {
             live: Arc::new(RwLock::new(LiveState {
                 routing,
@@ -352,7 +355,8 @@ impl AppState {
             hf: Arc::new(hf::HfProxy::from_env()),
             cloud_models: cloud_models::CloudModels::default(),
             reveal: Arc::new(reveal::SpawnLauncher),
-            shutdown: shutdown::ShutdownSignal::default(),
+            update_notice: update::notice::Notice::new(shutdown.clone()),
+            shutdown,
             handoff_salt: {
                 // The OS-seeded CSPRNG, as for the generated bearer key:
                 // the salt keeps a harvested handoff cookie from ever

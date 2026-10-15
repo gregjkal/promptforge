@@ -1,6 +1,6 @@
 //! Readiness and key probes: raw loopback HTTP/1.x over
-//! `std::net::TcpStream`, enough to read a status line, with no HTTP
-//! client dependency.
+//! `std::net::TcpStream`, enough to read a status line or a short whole
+//! answer, with no HTTP client dependency.
 //!
 //! The `Host` header is the bound loopback address, matching the gateway's
 //! loopback `Host` allowlist.
@@ -294,6 +294,8 @@ fn request_head_with_timeout(
     request_head_until(address, method, path, bearer, Instant::now() + timeout)
 }
 
+/// One HTTP/1.0 request returning the start of the answer: one read of
+/// at most 256 bytes, enough for the status line.
 pub(crate) fn request_head_until(
     address: &str,
     method: &str,
@@ -301,6 +303,57 @@ pub(crate) fn request_head_until(
     bearer: Option<&str>,
     deadline: Instant,
 ) -> Result<String, ProbeError> {
+    let mut stream = send_request(address, method, path, bearer, deadline)?;
+    let mut buffer = [0u8; 256];
+    configure_stream(&stream, deadline)?;
+    let read = stream.read(&mut buffer).map_err(|source| ProbeError::Io {
+        operation: "read the status line",
+        source,
+    })?;
+    Ok(String::from_utf8_lossy(&buffer[..read]).into_owned())
+}
+
+/// One HTTP/1.0 request returning the whole answer, head and body, read
+/// until the server closes the connection, as an HTTP/1.0 server does
+/// after answering, or until `limit` bytes have arrived. Every read gets
+/// only the time left before `deadline`.
+pub(crate) fn request_until(
+    address: &str,
+    method: &str,
+    path: &str,
+    bearer: Option<&str>,
+    deadline: Instant,
+    limit: usize,
+) -> Result<Vec<u8>, ProbeError> {
+    let mut stream = send_request(address, method, path, bearer, deadline)?;
+    let mut answer = Vec::new();
+    let mut chunk = [0u8; 4096];
+    while answer.len() < limit {
+        configure_stream(&stream, deadline)?;
+        let room = (limit - answer.len()).min(chunk.len());
+        match stream.read(&mut chunk[..room]) {
+            Ok(0) => break,
+            Ok(read) => answer.extend_from_slice(&chunk[..read]),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(source) => {
+                return Err(ProbeError::Io {
+                    operation: "read the answer",
+                    source,
+                });
+            }
+        }
+    }
+    Ok(answer)
+}
+
+/// Connects and writes one HTTP/1.0 request, leaving the answer unread.
+fn send_request(
+    address: &str,
+    method: &str,
+    path: &str,
+    bearer: Option<&str>,
+    deadline: Instant,
+) -> Result<TcpStream, ProbeError> {
     let socket = address
         .parse::<SocketAddr>()
         .map_err(|source| ProbeError::Io {
@@ -322,13 +375,7 @@ pub(crate) fn request_head_until(
             operation: "write the request",
             source,
         })?;
-    let mut buffer = [0u8; 256];
-    configure_stream(&stream, deadline)?;
-    let read = stream.read(&mut buffer).map_err(|source| ProbeError::Io {
-        operation: "read the status line",
-        source,
-    })?;
-    Ok(String::from_utf8_lossy(&buffer[..read]).into_owned())
+    Ok(stream)
 }
 
 #[cfg(test)]

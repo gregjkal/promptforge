@@ -210,6 +210,8 @@ struct Tray {
     workshop_item: MenuItem,
     /// Opens the config SPA.
     settings_item: MenuItem,
+    /// Checks for and installs a gateway update.
+    update_item: MenuItem,
     /// The launch-at-login check item.
     login_item: CheckMenuItem,
     /// Quits the gateway.
@@ -249,12 +251,14 @@ impl Tray {
         let login_checked = login
             .as_ref()
             .is_some_and(|service| logic::launch_at_login(service));
-        let label = logic::status_label(TrayPhase::Starting, None, 0, 0.0);
+        let notice = handle.tray_state().update_notice.state();
+        let label = logic::status_label(TrayPhase::Starting, None, 0, 0.0, &notice);
         let spec = logic::menu_spec(
             &label,
             workshop_exe.is_some(),
             login.is_some(),
             login_checked,
+            &notice,
         );
         let menu = BuiltMenu::from_spec(&spec)?;
         let icon = TrayIconBuilder::new()
@@ -285,6 +289,7 @@ impl Tray {
             status_item: menu.status,
             workshop_item: menu.workshop,
             settings_item: menu.settings,
+            update_item: menu.update,
             login_item: menu.login,
             quit_item: menu.quit,
             login,

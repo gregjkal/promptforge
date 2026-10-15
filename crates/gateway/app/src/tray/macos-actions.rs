@@ -9,9 +9,9 @@ use crate::tray::logic;
 
 /// The status refresh: recomputes the phase from the gateway thread's
 /// liveness and the label from the gateway's in-process state, and keeps
-/// the Workshop enabled bit and the login check honest. Nothing here
-/// blocks: a profile switch holding the live-state lock simply skips the
-/// label update for one tick.
+/// the Workshop enabled bit, the update item, and the login check honest.
+/// Nothing here blocks: a profile switch holding the live-state lock
+/// simply skips the label update for one tick.
 pub(super) fn tick(tray: &mut Tray) {
     let Some(handle) = tray.handle.as_ref() else {
         return;
@@ -31,8 +31,9 @@ pub(super) fn tick(tray: &mut Tray) {
     }
     tray.phase = logic::next_phase(poll);
     let busy = handle.tray_state().tray_busy_text();
+    let notice = handle.tray_state().update_notice.state();
     if let Some((models, vram_gb)) = handle.tray_state().tray_model_status() {
-        let label = logic::status_label(tray.phase, busy.as_deref(), models, vram_gb);
+        let label = logic::status_label(tray.phase, busy.as_deref(), models, vram_gb, &notice);
         if label != tray.label {
             tray.status_item.set_text(&label);
             if let Some(icon) = tray.icon.as_ref()
@@ -59,17 +60,27 @@ pub(super) fn act(tray: &mut Tray, event: TrayEvent) {
                 open_settings(tray);
             } else if id == *tray.login_item.id() {
                 toggle_login(tray);
+            } else if id == *tray.update_item.id()
+                && let Some(handle) = tray.handle.as_ref()
+            {
+                handle.tray_state().update_notice.request_apply();
             }
         }
     }
 }
 
-/// Re-reads the states the menu shows - the installed-Workshop lookup and
-/// the login check - so a displayed menu never shows a stale enabled bit
-/// or check mark. Called on the pre-display mouse-down and on every tick.
+/// Re-reads the states the menu shows - the installed-Workshop lookup,
+/// the update notice, and the login check - so a displayed menu never
+/// shows a stale label, enabled bit, or check mark. Called on the
+/// pre-display mouse-down and on every tick.
 fn refresh_menu_state(tray: &mut Tray) {
     tray.workshop_exe = probe_workshop();
     tray.workshop_item.set_enabled(tray.workshop_exe.is_some());
+    if let Some(handle) = tray.handle.as_ref() {
+        let (label, enabled) = logic::update_item(&handle.tray_state().update_notice.state());
+        tray.update_item.set_text(&label);
+        tray.update_item.set_enabled(enabled);
+    }
     if let Some(login) = tray.login.as_ref() {
         tray.login_item.set_checked(logic::launch_at_login(login));
     }

@@ -5,7 +5,8 @@ use std::net::{TcpListener, TcpStream};
 
 use super::{CONTROL_ADDRESS_ENV, EXPECTED_KEY_ENV, INSTANCE_LEASE_RUN_DIR_ENV};
 
-/// Serves health, bearer, and shutdown requests inside the named child.
+/// Serves health, bearer, shutdown, and update requests inside the named
+/// child.
 #[expect(
     clippy::expect_used,
     reason = "the isolated fixture process fails immediately with the failed invariant"
@@ -59,16 +60,24 @@ fn answer_request(stream: &mut TcpStream, expected_key: &[u8]) -> Option<bool> {
     }
     let request = &buffer[..read];
     let accepted = request.starts_with(b"GET /health ") || has_bearer(request, expected_key);
-    let response = if accepted {
+    let update = accepted && request.starts_with(b"POST /update ");
+    let response = if update {
+        UPDATE_ANSWER
+    } else if accepted {
         "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}"
     } else {
         "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n"
     };
-    stream
-        .write_all(response.as_bytes())
-        .is_ok()
-        .then(|| accepted && request.starts_with(b"POST /shutdown "))
+    let written = stream.write_all(response.as_bytes()).is_ok();
+    // The update answer is read to the end of the stream, which the
+    // gateway's HTTP/1.0 server closes after answering, so the connection
+    // ends here.
+    (written && !update).then(|| accepted && request.starts_with(b"POST /shutdown "))
 }
+
+/// The fixture's answer to an authenticated `POST /update`: the gateway's
+/// answer when it begins installing a newer release.
+const UPDATE_ANSWER: &str = "HTTP/1.1 202 Accepted\r\nContent-Length: 40\r\n\r\n{\"outcome\":\"updating\",\"version\":\"0.4.0\"}";
 
 fn has_bearer(request: &[u8], expected_key: &[u8]) -> bool {
     request.split(|byte| *byte == b'\n').any(|line| {

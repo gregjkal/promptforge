@@ -7,6 +7,17 @@
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
 use std::path::Path;
 
+use crate::runner::ServeOptions;
+use crate::update::notice::NoticeState;
+
+/// The serve options a tray run uses: the caller's, with the update
+/// notice on, since the tray is what shows and installs an update.
+pub(crate) fn tray_options(options: &ServeOptions) -> ServeOptions {
+    let mut options = options.clone();
+    options.update_notice = true;
+    options
+}
+
 /// The tray icon's visual phases: grayed while starting, steady while
 /// running, distinct on error. The status label and tooltip use the
 /// matching word.
@@ -43,17 +54,19 @@ pub(crate) fn next_phase(poll: Poll) -> TrayPhase {
 
 /// The status label at the top of the menu, also used as the tooltip.
 /// While the gateway serves, the label reads the activity hub: a busy hub
-/// reports its text ("Running - Downloading qwen 34%"); an idle hub
-/// reports the loaded models, e.g. "Running - 2 models, 4.1 GB", with the
-/// VRAM total omitted when no local or STT model declares any. The icon
-/// tints stay phase-driven by the serve poll (grayed Starting, steady
-/// Running, red Error): the hub says nothing about a stopped gateway, so
-/// the phase machine keeps the icon.
+/// reports its text ("Running - Downloading qwen 34%"), which includes an
+/// update's download. An idle hub reports a newer release or a failed
+/// update from the update `notice`, else the loaded models, e.g.
+/// "Running - 2 models, 4.1 GB", with the VRAM total omitted when no local
+/// or STT model declares any. The icon tints stay phase-driven by the
+/// serve poll (grayed Starting, steady Running, red Error): the hub says
+/// nothing about a stopped gateway, so the phase machine keeps the icon.
 pub(crate) fn status_label(
     phase: TrayPhase,
     busy_text: Option<&str>,
     models: usize,
     vram_gb: f64,
+    notice: &NoticeState,
 ) -> String {
     match phase {
         TrayPhase::Starting => "Starting".to_owned(),
@@ -61,6 +74,15 @@ pub(crate) fn status_label(
         TrayPhase::Running => {
             if let Some(text) = busy_text {
                 return format!("Running - {text}");
+            }
+            match notice {
+                NoticeState::Available(version) => {
+                    return format!("Running - Update available: {version}");
+                }
+                NoticeState::Failed(reason) | NoticeState::Stranded(reason) => {
+                    return format!("Running - Update failed: {reason}");
+                }
+                _ => {}
             }
             let models = match models {
                 1 => "1 model".to_owned(),
@@ -73,6 +95,32 @@ pub(crate) fn status_label(
             }
         }
     }
+}
+
+/// The status label cut to fit a Windows tray tooltip, which holds at
+/// most 128 UTF-16 units with its terminating null
+/// (<https://learn.microsoft.com/en-us/windows/win32/api/shellapi/ns-shellapi-notifyicondataw>).
+/// A longer label, such as a failed update's full reason, would lose the
+/// terminator; it ends in an ellipsis instead, and the menu's status item
+/// keeps the whole text.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn windows_tooltip(label: &str) -> std::borrow::Cow<'_, str> {
+    const MAX_UNITS: usize = 127;
+    if label.encode_utf16().count() <= MAX_UNITS {
+        return std::borrow::Cow::Borrowed(label);
+    }
+    let mut units = 0;
+    let mut cut = String::new();
+    for character in label.chars() {
+        units += character.len_utf16();
+        // One unit stays free for the ellipsis.
+        if units > MAX_UNITS - 1 {
+            break;
+        }
+        cut.push(character);
+    }
+    cut.push('\u{2026}');
+    std::borrow::Cow::Owned(cut)
 }
 
 /// One tray menu entry, in display order. The backend materializes the
@@ -90,6 +138,14 @@ pub(crate) enum MenuItemSpec {
     },
     /// Opens the config SPA in the browser.
     Settings,
+    /// Checks for and installs a gateway update; its text follows the
+    /// update notice ([`update_item`]).
+    Update {
+        /// The item's text.
+        label: String,
+        /// Whether a click may start the update flow.
+        enabled: bool,
+    },
     /// A separator.
     Separator,
     /// The launch-at-login check item; the checked state is read from the
@@ -108,20 +164,23 @@ pub(crate) enum MenuItemSpec {
     Quit,
 }
 
-/// The tray menu layout: status label on top, then Workshop and Settings,
-/// Launch at Login between separators, Quit last.
+/// The tray menu layout: status label on top, then Workshop, Settings,
+/// and the update item, Launch at Login between separators, Quit last.
 pub(crate) fn menu_spec(
     status: &str,
     workshop_enabled: bool,
     login_enabled: bool,
     login_checked: bool,
+    notice: &NoticeState,
 ) -> Vec<MenuItemSpec> {
+    let (label, enabled) = update_item(notice);
     vec![
         MenuItemSpec::Status(status.to_owned()),
         MenuItemSpec::Workshop {
             enabled: workshop_enabled,
         },
         MenuItemSpec::Settings,
+        MenuItemSpec::Update { label, enabled },
         MenuItemSpec::Separator,
         MenuItemSpec::LaunchAtLogin {
             enabled: login_enabled,
@@ -130,6 +189,21 @@ pub(crate) fn menu_spec(
         MenuItemSpec::Separator,
         MenuItemSpec::Quit,
     ]
+}
+
+/// The update item's text and enabled bit for a notice. The item stays in
+/// the menu and changes text, since a native menu item cannot be hidden
+/// and a displayed menu is never rebuilt. Any enabled click runs the whole
+/// update flow, which installs a newer release at once: the user asked.
+pub(crate) fn update_item(notice: &NoticeState) -> (String, bool) {
+    match notice {
+        NoticeState::Unchecked | NoticeState::Failed(_) => ("Check for Updates".to_owned(), true),
+        NoticeState::Current(version) => (format!("Up to date ({version})"), true),
+        NoticeState::Available(version) => (format!("Update available: {version}"), true),
+        NoticeState::Busy => ("Updating".to_owned(), false),
+        NoticeState::Stranded(_) => ("Update failed".to_owned(), false),
+        NoticeState::WorkshopOwned => ("Updates come from PromptForge Workshop".to_owned(), false),
+    }
 }
 
 /// The OS's launch-at-login store, behind a seam so the toggle logic is
@@ -244,3 +318,6 @@ mod tests;
 
 #[cfg(test)]
 mod status_tests;
+
+#[cfg(test)]
+mod update_tests;

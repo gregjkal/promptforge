@@ -8,6 +8,7 @@ import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updat
 
 import { Emitter, type Event } from "@workshop/platform/event";
 import { Disposable, toDisposable } from "@workshop/platform/lifecycle";
+import { createServiceToken } from "@workshop/platform/service-registry";
 import { errorText } from "./error-catalog";
 
 export type UpdatePhase =
@@ -111,6 +112,9 @@ function gatewayLogLine(gateway: GatewayUpdate): string | null {
   }
   return null;
 }
+
+/** The app's one update service, registered by the composition root. */
+export const UPDATES = createServiceToken<UpdateService>("workshop.updates");
 
 export class UpdateService extends Disposable {
   private readonly changes = this._register(new Emitter<UpdateSnapshot>());

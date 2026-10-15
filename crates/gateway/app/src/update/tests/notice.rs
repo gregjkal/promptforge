@@ -84,6 +84,8 @@ enum ApplyAnswer {
     /// The flow answers after a minute of paused time.
     Slow(Applied),
     Fails,
+    /// The flow fails after a minute of paused time.
+    SlowFails,
     Strands,
 }
 
@@ -100,6 +102,10 @@ impl ApplyAnswer {
             ApplyAnswer::Slow(applied) => {
                 tokio::time::sleep(Duration::from_mins(1)).await;
                 Ok(applied)
+            }
+            ApplyAnswer::SlowFails => {
+                tokio::time::sleep(Duration::from_mins(1)).await;
+                Box::pin(ApplyAnswer::Fails.result()).await
             }
             ApplyAnswer::Fails => Err(UpdateError::Download {
                 url: "http://127.0.0.1:1/gateway.tar.gz".to_owned(),
@@ -261,6 +267,36 @@ async fn a_failed_check_is_shown_until_the_retry_within_the_hour_clears_it() {
         fixture.check.calls(),
         2,
         "a passing check returns to the daily schedule"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_check_due_during_an_update_never_replaces_its_failure() {
+    let fixture = Fixture::new(
+        None,
+        [CheckAnswer::Unreachable, CheckAnswer::Available("0.4.0")],
+        ApplyAnswer::SlowFails,
+    );
+    let _worker = fixture.start("linux");
+    settle(Duration::from_secs(1)).await;
+    // The click lands half a minute before the retry, and the update runs
+    // a minute, past it.
+    settle(RETRY_INTERVAL.saturating_sub(Duration::from_secs(30))).await;
+    fixture.notice.request_apply();
+    settle(Duration::from_secs(61)).await;
+    let NoticeState::Failed(reason) = fixture.notice.state() else {
+        panic!(
+            "the update's failure is shown: {:?}",
+            fixture.notice.state()
+        );
+    };
+    assert!(reason.contains("gateway.tar.gz"), "{reason}");
+    assert_eq!(fixture.check.calls(), 1, "the due retry waits");
+    settle(RETRY_INTERVAL).await;
+    assert_eq!(
+        fixture.check.calls(),
+        2,
+        "the retry comes an hour after the failed update"
     );
 }
 

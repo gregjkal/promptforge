@@ -9,9 +9,9 @@ use crate::tray::logic;
 
 /// The status refresh: recomputes the phase from the gateway thread's
 /// liveness and the label from the gateway's in-process state, and keeps
-/// the Workshop enabled bit, the update item, and the login check honest. Nothing here
-/// blocks: a profile switch holding the live-state lock simply skips the
-/// label update for one tick.
+/// the Workshop enabled bit, the update item, and the login check honest.
+/// Nothing here blocks: a profile switch holding the live-state lock
+/// simply skips the label update for one tick.
 pub(super) fn tick(tray: &mut Tray) {
     let Some(handle) = tray.handle.as_ref() else {
         return;

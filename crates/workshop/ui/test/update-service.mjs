@@ -235,6 +235,63 @@ await assertNoLeaks(lifecycle, async () => {
     listener.dispose();
     slow.dispose();
   }
+
+  {
+    // The gateway answers while the second check's own Workshop check runs:
+    // the answer is joined, not asked for again, and its line survives the
+    // check's fresh log.
+    let answerGateway;
+    let finishWorkshop;
+    let workshopChecks = 0;
+    const { service: racing, calls } = gatewayService(
+      () => {
+        workshopChecks += 1;
+        return workshopChecks === 1 ? Promise.resolve(null) : new Promise((resolve) => (finishWorkshop = resolve));
+      },
+      () => new Promise((resolve) => (answerGateway = resolve)),
+    );
+    const first = racing.checkNow();
+    for (let turn = 0; turn < 10 && answerGateway === undefined; turn += 1) {
+      await Promise.resolve();
+    }
+    const second = racing.checkNow();
+    for (let turn = 0; turn < 10 && finishWorkshop === undefined; turn += 1) {
+      await Promise.resolve();
+    }
+    answerGateway({ outcome: "updating", version: "0.4.0" });
+    await first;
+    finishWorkshop(null);
+    await second;
+    check("a gateway answer during Workshop's check is not asked for again", calls.gateway === 1);
+    check(
+      "a gateway answer during Workshop's check keeps its log line",
+      racing.snapshot.log.join("|") === "PromptForge Gateway is updating to 0.4.0.",
+    );
+    racing.dispose();
+  }
+
+  {
+    // A second caller during Workshop's check also waits for the gateway.
+    let answerGateway;
+    const { service: joining } = gatewayService(
+      async () => null,
+      () => new Promise((resolve) => (answerGateway = resolve)),
+    );
+    let settled = 0;
+    const first = joining.checkNow().then(() => (settled += 1));
+    const second = joining.checkNow().then(() => (settled += 1));
+    for (let turn = 0; turn < 10 && answerGateway === undefined; turn += 1) {
+      await Promise.resolve();
+    }
+    for (let turn = 0; turn < 10; turn += 1) {
+      await Promise.resolve();
+    }
+    check("no caller settles before the gateway answers", settled === 0);
+    answerGateway({ outcome: "current" });
+    await Promise.all([first, second]);
+    check("every caller settles after the gateway answers", settled === 2);
+    joining.dispose();
+  }
 });
 
 if (failures.length) {

@@ -154,9 +154,15 @@ export class UpdateService extends Disposable {
       return;
     }
     if (this.checking !== null) {
+      // The first caller's continuation runs first and starts the
+      // gateway's request, which this caller then waits for too.
       await this.checking;
+      await this.gatewayRequest;
       return;
     }
+    // A request still in flight from an earlier check is joined rather
+    // than repeated, even if it answers while Workshop's check runs.
+    const joined = this.gatewayRequest;
     this.checking = this.checkWorkshop(background);
     let askGateway: boolean;
     try {
@@ -164,8 +170,25 @@ export class UpdateService extends Disposable {
     } finally {
       this.checking = null;
     }
-    if (askGateway && !this.disposed) {
+    if (!askGateway || this.disposed) {
+      return;
+    }
+    if (joined === null) {
       await this.askGateway();
+      return;
+    }
+    await joined;
+    this.restoreGatewayLine();
+  }
+
+  /**
+   * Workshop's check starts a fresh log, which erases the line of a gateway
+   * answer that arrived while it ran; this puts the line back.
+   */
+  private restoreGatewayLine(): void {
+    const line = this.state.gateway === null ? null : gatewayLogLine(this.state.gateway);
+    if (line !== null && !this.state.log.includes(line)) {
+      this.publish({ log: [...this.state.log, line] });
     }
   }
 

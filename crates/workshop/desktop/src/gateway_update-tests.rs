@@ -110,11 +110,30 @@ fn an_unreachable_gateway_fails_naming_the_cause() {
 
 #[test]
 fn a_request_past_its_deadline_says_the_update_continues() {
+    /// The request error's shape: the I/O error is a source, not the top.
+    #[derive(Debug)]
+    struct ReadFailed(std::io::Error);
+
+    impl std::fmt::Display for ReadFailed {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("read the answer")
+        }
+    }
+
+    impl std::error::Error for ReadFailed {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+
     for kind in [std::io::ErrorKind::TimedOut, std::io::ErrorKind::WouldBlock] {
-        let calls = Cell::new(0);
         let reported = update_with(
             false,
-            Some(answering(&calls, Err(std::io::Error::from(kind)))),
+            Some(
+                move |_deadline| -> Result<Option<GatewayUpdateOutcome>, ReadFailed> {
+                    Err(ReadFailed(std::io::Error::from(kind)))
+                },
+            ),
         );
         assert_eq!(
             reported,

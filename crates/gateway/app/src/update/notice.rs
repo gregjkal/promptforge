@@ -196,8 +196,10 @@ pub(crate) struct Sources<W, C, A> {
 
 /// The worker: checks at once, then every [`CHECK_INTERVAL`], or after
 /// [`RETRY_INTERVAL`] when the check failed, and runs the update flow once
-/// per burst of requests, until the gateway shuts down. The timer is
-/// `tokio::time`, so tests drive it with paused time.
+/// per burst of requests, until the gateway shuts down. The flow fetches
+/// the manifest itself, so it counts as a check: the next one is scheduled
+/// from its end, and a check that came due while it ran never replaces its
+/// outcome. The timer is `tokio::time`, so tests drive it with paused time.
 pub(crate) async fn run<W, C, CF, A, AF>(
     notice: Notice,
     mut requests: mpsc::UnboundedReceiver<()>,
@@ -215,24 +217,31 @@ pub(crate) async fn run<W, C, CF, A, AF>(
         tokio::select! {
             () = shutdown.fired() => return,
             () = tokio::time::sleep_until(next) => {
-                let wait = if check_once(&notice, &mut sources).await {
-                    CHECK_INTERVAL
-                } else {
-                    RETRY_INTERVAL
-                };
-                next = tokio::time::Instant::now() + wait;
+                next = after(check_once(&notice, &mut sources).await);
             }
             request = requests.recv() => {
                 if request.is_none() {
                     return;
                 }
-                apply_once(&notice, &mut sources).await;
+                if let Some(succeeded) = apply_once(&notice, &mut sources).await {
+                    next = after(succeeded);
+                }
                 // Clicks queued while the update ran asked for the same
                 // update; one run answers them all.
                 while requests.try_recv().is_ok() {}
             }
         }
     }
+}
+
+/// When the next check is due after one that `succeeded`, or not.
+fn after(succeeded: bool) -> tokio::time::Instant {
+    let wait = if succeeded {
+        CHECK_INTERVAL
+    } else {
+        RETRY_INTERVAL
+    };
+    tokio::time::Instant::now() + wait
 }
 
 /// One scheduled check, skipped on Windows when Workshop owns updates and
@@ -272,8 +281,10 @@ where
     succeeded
 }
 
-/// One requested update, the flow `POST /update` runs.
-async fn apply_once<W, C, A, AF>(notice: &Notice, sources: &mut Sources<W, C, A>)
+/// One requested update, the flow `POST /update` runs. Returns whether it
+/// did not fail, or `None` when another update held the claim and the
+/// flow checked nothing.
+async fn apply_once<W, C, A, AF>(notice: &Notice, sources: &mut Sources<W, C, A>) -> Option<bool>
 where
     A: FnMut() -> AF,
     AF: Future<Output = Result<Applied, UpdateError>>,
@@ -288,15 +299,17 @@ where
         Ok(Applied::WorkshopOwned) => notice.store(NoticeState::WorkshopOwned),
         // Another update holds the claim, and the notice shows it busy;
         // the last result stays for when it ends.
-        Ok(Applied::Busy) => {}
+        Ok(Applied::Busy) => return None,
         Err(error) => {
             tracing::warn!("the update failed: {}", error_chain(&error));
             if matches!(error, UpdateError::Stranded { .. }) {
                 notice.shared.stranded.store(true, Ordering::Release);
             }
             notice.store(NoticeState::Failed(error.to_string()));
+            return Some(false);
         }
     }
+    Some(true)
 }
 
 /// The manifest check for the running process.

@@ -26,7 +26,7 @@ import { STT_STATUS, type SttStatus } from "./services/stt-status";
 import { TEXT_CONTROL_SERVICE } from "@workshop/platform/text-control-service";
 import { TREE_STATE, TreeStateService } from "./services/tree-state-service";
 import { createUiStorage, UI_STORAGE } from "./services/ui-storage";
-import { UpdateService } from "./services/update-service";
+import { UPDATES, UpdateService } from "./services/update-service";
 import { WorkbenchService } from "./services/workbench-service";
 import { WorkshopSocket } from "./services/workshop-socket";
 import { CommandCenter } from "./parts/chrome/command-center";
@@ -132,6 +132,8 @@ registerService(
 // view (@workshop/look) and appends it as the body's full-width footer.
 const statusBar = disposables.add(new StatusBar());
 const updates = disposables.add(new UpdateService());
+// Help > About resolves it for its update button.
+disposables.add(registerService(UPDATES, () => updates));
 // The shared toast stack shows the update notifications; the workshop
 // keeps it clear of the status bar via --toast-inset-block-end.
 const toasts = createToastStack();

@@ -59,7 +59,12 @@ function Invoke-Setup([string[]]$Arguments, [switch]$DeadProxy) {
   }
   try {
     Write-Host "cell: running the setup with $($Arguments -join ' ')$(if ($DeadProxy) { ' behind the dead proxy' })"
-    $process = Start-Process -FilePath $Setup -ArgumentList $Arguments -Wait -PassThru
+    # Not -Wait, which waits for every descendant too, so a process the setup
+    # leaves running would hang the cell without a message. Reading Handle
+    # keeps ExitCode readable after the exit.
+    $process = Start-Process -FilePath $Setup -ArgumentList $Arguments -PassThru
+    $null = $process.Handle
+    if (-not $process.WaitForExit(15 * 60 * 1000)) { Fail "the setup with $($Arguments -join ' ') did not exit within 15 minutes" }
     return $process.ExitCode
   } finally {
     $env:HTTPS_PROXY = $savedHttps
@@ -172,7 +177,7 @@ function Get-InstallState {
   $keys = @(Get-Item -Path 'HKCU:\Software\*\PromptForge\Components' -ErrorAction SilentlyContinue)
   if ($keys.Count -ne 1) { Fail "exactly one HKCU:\Software\*\PromptForge\Components key must hold the persisted selection; found $($keys.Count)" }
   $components = ($keys[0].GetValueNames() | Sort-Object | ForEach-Object { "$_=$($keys[0].GetValue($_))" }) -join ','
-  $models = (Get-ModelFiles | Sort-Object FullName | ForEach-Object { "$($_.FullName):$($_.Length)" }) -join ','
+  $models = (@(Get-ModelFiles) | Sort-Object FullName | ForEach-Object { "$($_.FullName):$($_.Length)" }) -join ','
   [pscustomobject]@{
     Config     = [Convert]::ToBase64String([IO.File]::ReadAllBytes($config))
     Models     = $models
@@ -194,7 +199,7 @@ function Test-Selection($Want) {
   # 2. Exactly the selected components are present.
   Test-Presence 'Workshop' $Want.Workshop $workshopExe
   Test-Presence 'Gateway' $Want.Gateway $gatewayExe
-  $libraries = Get-WhisperLibraries
+  $libraries = @(Get-WhisperLibraries)
   if ($Want.Stt) {
     if ($libraries.Count -ne 1) { Fail "Speech to Text needs exactly one whisper.dll under $profileDir, found $($libraries.Count)" }
     if (-not (Test-Path -LiteralPath $config)) { Fail "Speech to Text was selected, but $config is missing" }
@@ -205,7 +210,7 @@ function Test-Selection($Want) {
     if ((Test-Path -LiteralPath $config) -and (Select-String -LiteralPath $config -Pattern '^\[\[stt_model\]\]' -Quiet)) {
       Fail "Speech to Text was not selected, but $config declares an [[stt_model]]"
     }
-    $downloaded = Get-ModelFiles
+    $downloaded = @(Get-ModelFiles)
     if ($downloaded.Count -ne 0) { Fail "Speech to Text was not selected, but models were downloaded: $($downloaded.FullName -join ', ')" }
   }
 
@@ -349,6 +354,13 @@ try {
       $code = Invoke-Setup @('/P', '/UPDATE') -DeadProxy
       if ($code -ne 0) { Fail "the update install exited $code, required 0" }
       Assert-SameState $before (Get-InstallState) 'the update install'
+      # init --no-stt would also leave the config and the models as they
+      # were, so a second update over a missing config proves init did not
+      # run: init would write the config again.
+      Remove-Item -LiteralPath $config
+      $code = Invoke-Setup @('/P', '/UPDATE') -DeadProxy
+      if ($code -ne 0) { Fail "the second update install exited $code, required 0" }
+      if (Test-Path -LiteralPath $config) { Fail "an update install must not run init, but $config was written again" }
       Write-Host 'cell: the update install ran no init and kept the config, the models, and the selection'
     }
     'gateway' {

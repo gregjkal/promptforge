@@ -278,7 +278,9 @@ EOF
     sleep 1
   done
   [ -n "$workshop_port" ] || fail "Workshop never served <title>PromptForge</title> on a loopback port within 120 seconds"
-  size=$(curl -sf "http://127.0.0.1:$workshop_port/app.js" | wc -c | tr -d ' ')
+  curl -sf --max-time 30 "http://127.0.0.1:$workshop_port/app.js" -o "$logs/app.js" ||
+    fail "http://127.0.0.1:$workshop_port/app.js did not answer"
+  size=$(wc -c <"$logs/app.js" | tr -d ' ')
   # The minified workbench is about 2.5 MB.
   [ "$size" -gt 0 ] && [ "$size" -lt 3000000 ] || fail "app.js must be under 3000000 bytes; it is $size"
   echo "cell: Workshop serves its page on port $workshop_port"
@@ -294,7 +296,7 @@ EOF
         if [ -n "$gateway_pid" ] && kill -0 "$gateway_pid" 2>/dev/null; then
           exe=$(process_exe "$gateway_pid")
           if [ -n "$exe" ] && [ "$(canonical "$exe")" = "$installed" ]; then
-            gateway_port=$(json_field "$discovery" port)
+            gateway_port=$(json_field "$discovery" port) || fail "$discovery names no port"
             started="$started $gateway_pid"
             break
           fi

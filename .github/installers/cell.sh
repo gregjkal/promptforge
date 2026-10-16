@@ -231,6 +231,11 @@ $models
 EOF
 else
   [ "$library_count" = 0 ] || fail "Speech to Text was not selected, but $profile holds $libraries"
+  # Without init the Gateway's first boot would write its default config,
+  # which declares the speech models, so the config must exist already.
+  if [ "$want_gateway" = 1 ] && [ ! -f "$config" ]; then
+    fail "Gateway was selected, so init --no-stt must have written $config; it is missing"
+  fi
   if [ -f "$config" ] && grep -q '^\[\[stt_model\]\]' "$config"; then
     fail "Speech to Text was not selected, but $config declares an [[stt_model]]"
   fi

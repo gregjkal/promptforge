@@ -166,6 +166,7 @@ jobs:
           retention-days: 7
 
   build:
+    name: build (${{ matrix.platform }})
     needs: prepare
     # The slowest build so far took about 20 minutes; a hung one should not
     # hold the run for GitHub's 6-hour default.
@@ -413,8 +414,9 @@ jobs:
           if ($setups.Count -ne 1) { throw "the artifact must hold one setup, found $($setups.Count)" }
           & .github/installers/cell.ps1 $setups[0].FullName '${{ matrix.selection }}' '${{ needs.prepare.outputs.version }}'
 
+      # cancelled() covers the job timeout, so a hung cell keeps its logs.
       - name: Upload the cell's logs
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: cell-${{ matrix.platform }}-${{ matrix.selection }}

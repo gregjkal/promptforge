@@ -61,9 +61,10 @@ function Invoke-Setup([string[]]$Arguments, [switch]$DeadProxy) {
     Write-Host "cell: running the setup with $($Arguments -join ' ')$(if ($DeadProxy) { ' behind the dead proxy' })"
     # Not -Wait, which waits for every descendant too, so a process the setup
     # leaves running would hang the cell without a message. Reading Handle
-    # at once opens the process handle while the setup runs, so ExitCode
-    # stays readable after the exit, the workaround discussed in
-    # https://github.com/PowerShell/PowerShell/issues/20400
+    # at once caches the process handle while the setup runs, so ExitCode
+    # stays readable after the exit; a precaution here, since the reported
+    # cases use -NoNewWindow or -RedirectStandard*:
+    # https://github.com/PowerShell/PowerShell/issues/5421
     $process = Start-Process -FilePath $Setup -ArgumentList $Arguments -PassThru
     $null = $process.Handle
     if (-not $process.WaitForExit(15 * 60 * 1000)) { Fail "the setup with $($Arguments -join ' ') did not exit within 15 minutes" }
@@ -220,6 +221,11 @@ function Test-Selection($Want) {
     }
   } else {
     if ($libraries.Count -ne 0) { Fail "Speech to Text was not selected, but $profileDir holds $($libraries.FullName -join ', ')" }
+    # Without init the Gateway's first boot would write its default config,
+    # which declares the speech models, so the config must exist already.
+    if ($Want.Gateway -and -not (Test-Path -LiteralPath $config)) {
+      Fail "Gateway was selected, so init --no-stt must have written $config; it is missing"
+    }
     if ((Test-Path -LiteralPath $config) -and (Select-String -LiteralPath $config -Pattern '^\[\[stt_model\]\]' -Quiet)) {
       Fail "Speech to Text was not selected, but $config declares an [[stt_model]]"
     }
@@ -251,7 +257,8 @@ api_key = "release-smoke"
     $stdout = Join-Path $logs 'workshop.stdout.log'
     $stderr = Join-Path $logs 'workshop.stderr.log'
     $workshop = Start-Process $workshopExe -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-    # So ExitCode is readable if Workshop exits early, as in Invoke-Setup.
+    # With -RedirectStandard*, ExitCode stays empty unless the handle is
+    # cached first: https://github.com/PowerShell/PowerShell/issues/5421
     $null = $workshop.Handle
     $port = $null
     foreach ($attempt in 1..120) {

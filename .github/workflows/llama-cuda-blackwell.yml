@@ -159,6 +159,8 @@ jobs:
         with:
           tag_name: llama-cuda-blackwell-${{ env.TAG }}
           name: llama-cuda-blackwell-${{ env.TAG }}
+          # Only the PromptForge release is ever the repository's latest.
+          make_latest: false
           files: |
             dist/*.zip
             dist/SHA256SUMS

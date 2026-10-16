@@ -369,7 +369,10 @@ jobs:
 
       # FUSE 2 lets the AppImage mount and set $APPIMAGE as on a user's
       # machine, which the installed-peer lookup reads; the .run embeds
-      # IFW's installerbase, which loads the xcb libraries.
+      # IFW's installerbase, which loads the xcb libraries. The AppImage
+      # leaves EGL, GLES, HarfBuzz, FriBidi, and the Wayland client library
+      # to the system, as every Linux desktop has them; the runner images
+      # lack them.
       - name: Install the Linux test packages
         if: runner.os == 'Linux'
         run: |
@@ -378,6 +381,7 @@ jobs:
           if [ "$VERSION_ID" = 22.04 ]; then fuse=libfuse2; else fuse=libfuse2t64; fi
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends xvfb xauth desktop-file-utils lsof "$fuse" \
+            libegl1 libegl-mesa0 libgles2 libharfbuzz0b libfribidi0 libwayland-client0 \
             libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
             libxcb-render-util0 libxcb-shape0 libxcb-shm0 libxcb-sync1 libxcb-xfixes0 \
             libxcb-xkb1 libxcb-util1 libfontconfig1 libfreetype6 libdbus-1-3

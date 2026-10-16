@@ -1,10 +1,9 @@
-//! The `manifest` mode's arguments, beside `manifest.rs`'s tests since
-//! `tests.rs` holds the other modes' cases at the file ceiling.
+//! The `manifest` mode's arguments, here rather than in `tests.rs`, which
+//! holds the other modes' cases at the file ceiling.
 
 use std::path::PathBuf;
 
-use super::ManifestRequest;
-use crate::args::{Request, parse_arguments};
+use crate::args::{ManifestRequest, Request, parse_arguments};
 
 const BASE_URL: &str = "https://example.invalid/releases/download/v1";
 

@@ -26,7 +26,7 @@ const SIGNATURE_SUFFIX: &str = ".sig";
 const HEX: &[u8; 16] = b"0123456789abcdef";
 
 /// Every platform a release ships an installer for.
-pub(crate) const RELEASE_PLATFORMS: [Platform; 5] = [
+const RELEASE_PLATFORMS: [Platform; 5] = [
     Platform {
         system: System::Windows,
         arch: Arch::X86_64,
@@ -50,16 +50,16 @@ pub(crate) const RELEASE_PLATFORMS: [Platform; 5] = [
 ];
 
 /// One signed updater file and the `latest.json` key it is published under.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct Updater {
-    pub(crate) key: String,
-    pub(crate) file: String,
+#[derive(Debug, Eq, PartialEq)]
+struct Updater {
+    key: String,
+    file: String,
 }
 
 /// The release's nine signed updater files: Workshop's on each platform,
 /// under the Tauri updater's `{os}-{arch}` key, and the Gateway's archive
 /// on macOS and Linux, under the key the Gateway reads its entry by.
-pub(crate) fn updaters() -> Result<Vec<Updater>, String> {
+fn updaters() -> Result<Vec<Updater>, String> {
     let mut updaters = Vec::new();
     for platform in RELEASE_PLATFORMS {
         let arch = arch_name(platform.arch);
@@ -90,7 +90,7 @@ pub(crate) fn updaters() -> Result<Vec<Updater>, String> {
 
 /// The files `SHA256SUMS` lists, sorted: the five installers and the other
 /// updater files. The Windows setup is both.
-pub(crate) fn checksummed_files(updaters: &[Updater]) -> Vec<String> {
+fn checksummed_files(updaters: &[Updater]) -> Vec<String> {
     let files: BTreeSet<String> = RELEASE_PLATFORMS
         .into_iter()
         .map(installer_name)
@@ -100,7 +100,7 @@ pub(crate) fn checksummed_files(updaters: &[Updater]) -> Vec<String> {
 }
 
 /// Every file the release publishes besides the two this mode writes.
-pub(crate) fn release_files(updaters: &[Updater]) -> BTreeSet<String> {
+fn release_files(updaters: &[Updater]) -> BTreeSet<String> {
     checksummed_files(updaters)
         .into_iter()
         .chain(
@@ -192,9 +192,8 @@ fn base_url(value: &str) -> Result<&str, String> {
 }
 
 /// Requires `assets` to hold `expected` as regular files (not symlinks) and
-/// nothing else,
-/// except an earlier run's `latest.json` and `SHA256SUMS`, which this run
-/// rewrites.
+/// nothing else, except an earlier run's `latest.json` and `SHA256SUMS`,
+/// which this run rewrites.
 fn check_file_set(assets: &Path, expected: &BTreeSet<String>) -> Result<(), String> {
     let entries = fs::read_dir(assets).map_err(|error| {
         format!(
@@ -203,6 +202,7 @@ fn check_file_set(assets: &Path, expected: &BTreeSet<String>) -> Result<(), Stri
         )
     })?;
     let mut present = BTreeSet::new();
+    let mut irregular = BTreeSet::new();
     let mut unexpected = BTreeSet::new();
     for entry in entries {
         let entry = entry.map_err(|error| format!("cannot read {}: {error}", assets.display()))?;
@@ -210,19 +210,20 @@ fn check_file_set(assets: &Path, expected: &BTreeSet<String>) -> Result<(), Stri
         if name == MANIFEST || name == CHECKSUMS {
             continue;
         }
-        let regular = entry.file_type().is_ok_and(|kind| kind.is_file());
-        if expected.contains(&name) && regular {
+        if !expected.contains(&name) {
+            unexpected.insert(name);
+        } else if entry.file_type().is_ok_and(|kind| kind.is_file()) {
             present.insert(name);
         } else {
-            unexpected.insert(name);
+            irregular.insert(name);
         }
     }
     let missing: Vec<&str> = expected
         .iter()
-        .filter(|name| !present.contains(*name))
+        .filter(|name| !present.contains(*name) && !irregular.contains(*name))
         .map(String::as_str)
         .collect();
-    if missing.is_empty() && unexpected.is_empty() {
+    if missing.is_empty() && irregular.is_empty() && unexpected.is_empty() {
         return Ok(());
     }
     let mut problems = Vec::new();
@@ -232,6 +233,12 @@ fn check_file_set(assets: &Path, expected: &BTreeSet<String>) -> Result<(), Stri
             missing.len(),
             expected.len(),
             missing.join(", ")
+        ));
+    }
+    if !irregular.is_empty() {
+        problems.push(format!(
+            "not a regular file: {}",
+            irregular.into_iter().collect::<Vec<_>>().join(", ")
         ));
     }
     if !unexpected.is_empty() {
@@ -369,7 +376,7 @@ fn write_file(path: &Path, contents: &str) -> Result<(), String> {
 }
 
 /// RFC 3339 in UTC, to the second, for `seconds` since the Unix epoch.
-pub(crate) fn pub_date(seconds: u64) -> String {
+fn pub_date(seconds: u64) -> String {
     let of_day = seconds % 86_400;
     format!(
         "{}T{:02}:{:02}:{:02}Z",
@@ -383,7 +390,3 @@ pub(crate) fn pub_date(seconds: u64) -> String {
 #[cfg(test)]
 #[path = "tests/manifest.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "tests/manifest-args.rs"]
-mod args_tests;

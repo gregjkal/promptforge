@@ -9,6 +9,9 @@ use tempfile::TempDir;
 
 use super::*;
 
+#[path = "manifest-args.rs"]
+mod args;
+
 const BASE_URL: &str = "https://example.invalid/releases/download/v1";
 
 fn key_pair() -> minisign::KeyPair {
@@ -176,17 +179,26 @@ fn an_extra_file_fails_naming_it() {
 }
 
 #[test]
-fn a_directory_under_a_release_name_fails_naming_it() {
+fn a_release_name_that_is_not_a_regular_file_fails_naming_it() {
     let release = Release::new();
     let dmg = installer_name(RELEASE_PLATFORMS[2]);
     fs::remove_file(release.assets.join(&dmg)).expect("remove");
     fs::create_dir(release.assets.join(&dmg)).expect("directory");
     let error = release.write().expect_err("a directory");
     assert!(
-        error.contains(&format!("missing 1 of 22: {dmg}")),
+        error.contains(&format!("not a regular file: {dmg}")),
         "{error}"
     );
-    assert!(error.contains(&format!("unexpected: {dmg}")), "{error}");
+    assert!(!error.contains("missing"), "{error}");
+    #[cfg(unix)]
+    {
+        let run = installer_name(RELEASE_PLATFORMS[3]);
+        let target = release.workspace.join(&run);
+        fs::rename(release.assets.join(&run), &target).expect("move");
+        std::os::unix::fs::symlink(&target, release.assets.join(&run)).expect("symlink");
+        let error = release.write().expect_err("a symlink");
+        assert!(error.contains(&format!("{run}, {dmg}")), "{error}");
+    }
 }
 
 #[test]

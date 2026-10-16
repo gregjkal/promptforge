@@ -214,7 +214,8 @@ if [ "$want_stt" = 1 ]; then
   [ "$library_count" = 1 ] || fail "Speech to Text needs exactly one $whisper_library under $profile, found $library_count: $libraries"
   [ -f "$config" ] || fail "Speech to Text was selected, but $config is missing"
   models=$(stt_models "$config")
-  [ -n "$models" ] || fail "Speech to Text was selected, but $config declares no [[stt_model]]"
+  model_count=$(printf '%s' "$models" | grep -c . || true)
+  [ "$model_count" = 2 ] || fail "Speech to Text needs both models, so $config must declare two [[stt_model]] entries; it declares $model_count"
   # Checked before anything starts the Gateway, whose boot would download
   # a model the install left out.
   while read -r source digest; do

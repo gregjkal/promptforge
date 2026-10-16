@@ -167,6 +167,9 @@ jobs:
 
   build:
     needs: prepare
+    # The slowest build so far took about 20 minutes; a hung one should not
+    # hold the run for GitHub's 6-hour default.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -370,10 +373,11 @@ jobs:
       # FUSE 2 lets the AppImage mount and set $APPIMAGE as on a user's
       # machine, which the installed-peer lookup reads; the .run embeds
       # IFW's installerbase, which loads the xcb libraries. The AppImage
-      # leaves EGL, GLES, HarfBuzz, FriBidi, and the Wayland client library
-      # to the system, which every GTK desktop has; the runner images lack
-      # EGL, and a bare Ubuntu image the others. The AppImage excludelist:
-      # https://github.com/AppImageCommunity/pkg2appimage/blob/master/excludelist
+      # leaves EGL, HarfBuzz, FriBidi, and the Wayland client library to
+      # the system, as the AppImage excludelist says
+      # (https://github.com/AppImageCommunity/pkg2appimage/blob/master/excludelist),
+      # and Workshop opens GLES at run time; every GTK desktop has all five.
+      # The runner images lack EGL, and a bare Ubuntu image the others.
       - name: Install the Linux test packages
         if: runner.os == 'Linux'
         run: |

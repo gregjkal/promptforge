@@ -61,7 +61,8 @@ function Invoke-Setup([string[]]$Arguments, [switch]$DeadProxy) {
     Write-Host "cell: running the setup with $($Arguments -join ' ')$(if ($DeadProxy) { ' behind the dead proxy' })"
     # Not -Wait, which waits for every descendant too, so a process the setup
     # leaves running would hang the cell without a message. Reading Handle
-    # keeps ExitCode readable after the exit:
+    # at once opens the process handle while the setup runs, so ExitCode
+    # stays readable after the exit, the workaround discussed in
     # https://github.com/PowerShell/PowerShell/issues/20400
     $process = Start-Process -FilePath $Setup -ArgumentList $Arguments -PassThru
     $null = $process.Handle
@@ -206,7 +207,7 @@ function Test-Selection($Want) {
     if ($libraries.Count -ne 1) { Fail "Speech to Text needs exactly one whisper.dll under $profileDir, found $($libraries.Count)" }
     if (-not (Test-Path -LiteralPath $config)) { Fail "Speech to Text was selected, but $config is missing" }
     $models = @(Get-SttModels)
-    if ($models.Count -eq 0) { Fail "Speech to Text was selected, but $config declares no [[stt_model]]" }
+    if ($models.Count -ne 2) { Fail "Speech to Text needs both models, so $config must declare two [[stt_model]] entries; it declares $($models.Count)" }
     # Checked before anything starts the Gateway, whose boot would download
     # a model the install left out.
     foreach ($model in $models) {
@@ -250,6 +251,8 @@ api_key = "release-smoke"
     $stdout = Join-Path $logs 'workshop.stdout.log'
     $stderr = Join-Path $logs 'workshop.stderr.log'
     $workshop = Start-Process $workshopExe -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    # So ExitCode is readable if Workshop exits early, as in Invoke-Setup.
+    $null = $workshop.Handle
     $port = $null
     foreach ($attempt in 1..120) {
       $workshop.Refresh()
@@ -349,7 +352,7 @@ try {
       if ($code -ne 3) { Fail "/COMPONENTS=gateway,stt with every download blocked must exit 3; it exited $code" }
       if (-not (Test-Path -LiteralPath $gatewayExe)) { Fail "a failed init must leave the Gateway installed, but $gatewayExe is missing" }
       if (-not (Test-Path -LiteralPath $config)) { Fail "init must write the config before it downloads, but $config is missing" }
-      # Nothing downloaded, so the exit 3 came from the blocked downloads.
+      # The blocked downloads left no library and no model behind.
       $libraries = @(Get-WhisperLibraries)
       if ($libraries.Count -ne 0) { Fail "every download was blocked, but $profileDir holds $($libraries.FullName -join ', ')" }
       $downloaded = @(Get-ModelFiles)

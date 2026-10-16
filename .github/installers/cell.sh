@@ -180,7 +180,8 @@ if [ -n "$mount" ]; then
   mount=""
 fi
 
-# 2. Exactly the selected components are present.
+# 2. Exactly the selected components are present, with Speech to Text's
+# models at their pinned digests.
 check_presence() {
   local name=$1 wanted=$2 path=$3
   if [ "$wanted" = 1 ] && [ ! -e "$path" ]; then
@@ -214,6 +215,19 @@ if [ "$want_stt" = 1 ]; then
   [ -f "$config" ] || fail "Speech to Text was selected, but $config is missing"
   models=$(stt_models "$config")
   [ -n "$models" ] || fail "Speech to Text was selected, but $config declares no [[stt_model]]"
+  # Checked before anything starts the Gateway, whose boot would download
+  # a model the install left out.
+  while read -r source digest; do
+    name=${source##*/}
+    files=$(find "$profile" -type f -name "$name")
+    count=$(printf '%s' "$files" | grep -c . || true)
+    [ "$count" = 1 ] || fail "the model $name needs exactly one file under $profile, found $count"
+    actual=$(sha256 "$files")
+    [ "$actual" = "$digest" ] || fail "$files has SHA-256 $actual, required $digest"
+    echo "cell: $name matches its pinned digest"
+  done <<EOF
+$models
+EOF
 else
   [ "$library_count" = 0 ] || fail "Speech to Text was not selected, but $profile holds $libraries"
   if [ -f "$config" ] && grep -q '^\[\[stt_model\]\]' "$config"; then
@@ -226,7 +240,10 @@ fi
 # 3. Every present executable prints the version.
 check_version() {
   local exe=$1 expected=$2 output
-  output=$("$exe" --version 2>"$logs/version.stderr.log") || fail "$exe --version failed; see $logs/version.stderr.log"
+  if ! output=$("$exe" --version 2>"$logs/version.stderr.log"); then
+    tail -n 20 "$logs/version.stderr.log" >&2
+    fail "$exe --version failed; full output in $logs/version.stderr.log"
+  fi
   [ "$output" = "$expected" ] || fail "$exe --version printed '$output', required '$expected'"
 }
 [ "$want_workshop" = 0 ] || check_version "$workshop_exe" "promptforge-workshop $version"
@@ -350,20 +367,8 @@ if [ "$want_gateway" = 1 ]; then
   echo "cell: the Gateway serves /config/ at $gateway_origin"
 fi
 
-# 6. Speech to Text: the models match their pinned digests, and the library
-# loads.
+# 6. Speech to Text: the library loads.
 if [ "$want_stt" = 1 ]; then
-  while read -r source digest; do
-    name=${source##*/}
-    files=$(find "$profile" -type f -name "$name")
-    count=$(printf '%s' "$files" | grep -c . || true)
-    [ "$count" = 1 ] || fail "the model $name needs exactly one file under $profile, found $count"
-    actual=$(sha256 "$files")
-    [ "$actual" = "$digest" ] || fail "$files has SHA-256 $actual, required $digest"
-    echo "cell: $name matches its pinned digest"
-  done <<EOF
-$models
-EOF
   LIBRARY="$libraries" python3 - <<'PY' || fail "$libraries does not load"
 import ctypes
 import os

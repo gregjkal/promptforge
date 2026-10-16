@@ -371,8 +371,9 @@ jobs:
       # machine, which the installed-peer lookup reads; the .run embeds
       # IFW's installerbase, which loads the xcb libraries. The AppImage
       # leaves EGL, GLES, HarfBuzz, FriBidi, and the Wayland client library
-      # to the system, as every Linux desktop has them; the runner images
-      # lack them.
+      # to the system, which every GTK desktop has; the runner images lack
+      # EGL, and a bare Ubuntu image the others. The AppImage excludelist:
+      # https://github.com/AppImageCommunity/pkg2appimage/blob/master/excludelist
       - name: Install the Linux test packages
         if: runner.os == 'Linux'
         run: |

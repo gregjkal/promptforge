@@ -61,7 +61,8 @@ function Invoke-Setup([string[]]$Arguments, [switch]$DeadProxy) {
     Write-Host "cell: running the setup with $($Arguments -join ' ')$(if ($DeadProxy) { ' behind the dead proxy' })"
     # Not -Wait, which waits for every descendant too, so a process the setup
     # leaves running would hang the cell without a message. Reading Handle
-    # keeps ExitCode readable after the exit.
+    # keeps ExitCode readable after the exit:
+    # https://github.com/PowerShell/PowerShell/issues/20400
     $process = Start-Process -FilePath $Setup -ArgumentList $Arguments -PassThru
     $null = $process.Handle
     if (-not $process.WaitForExit(15 * 60 * 1000)) { Fail "the setup with $($Arguments -join ' ') did not exit within 15 minutes" }
@@ -196,7 +197,8 @@ function Test-Selection($Want) {
   $code = Invoke-Setup @('/S', "/COMPONENTS=$($Want.List)")
   if ($code -ne 0) { Fail "the setup exited $code, required 0" }
 
-  # 2. Exactly the selected components are present.
+  # 2. Exactly the selected components are present, with Speech to Text's
+  # models at their pinned digests.
   Test-Presence 'Workshop' $Want.Workshop $workshopExe
   Test-Presence 'Gateway' $Want.Gateway $gatewayExe
   $libraries = @(Get-WhisperLibraries)
@@ -205,6 +207,16 @@ function Test-Selection($Want) {
     if (-not (Test-Path -LiteralPath $config)) { Fail "Speech to Text was selected, but $config is missing" }
     $models = @(Get-SttModels)
     if ($models.Count -eq 0) { Fail "Speech to Text was selected, but $config declares no [[stt_model]]" }
+    # Checked before anything starts the Gateway, whose boot would download
+    # a model the install left out.
+    foreach ($model in $models) {
+      $name = $model.Source.Substring($model.Source.LastIndexOf('/') + 1)
+      $files = @(Get-ChildItem -LiteralPath $profileDir -Recurse -File -Filter $name -ErrorAction SilentlyContinue)
+      if ($files.Count -ne 1) { Fail "the model $name needs exactly one file under $profileDir, found $($files.Count)" }
+      $actual = (Get-FileHash -LiteralPath $files[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+      if ($actual -ne $model.Sha256) { Fail "$($files[0].FullName) has SHA-256 $actual, required $($model.Sha256)" }
+      Write-Host "cell: $name matches its pinned digest"
+    }
   } else {
     if ($libraries.Count -ne 0) { Fail "Speech to Text was not selected, but $profileDir holds $($libraries.FullName -join ', ')" }
     if ((Test-Path -LiteralPath $config) -and (Select-String -LiteralPath $config -Pattern '^\[\[stt_model\]\]' -Quiet)) {
@@ -305,17 +317,8 @@ api_key = "release-smoke"
     Test-ConfigPage $origin
   }
 
-  # 6. Speech to Text: the models match their pinned digests, and the
-  # library loads.
+  # 6. Speech to Text: the library loads.
   if ($Want.Stt) {
-    foreach ($model in $models) {
-      $name = $model.Source.Substring($model.Source.LastIndexOf('/') + 1)
-      $files = @(Get-ChildItem -LiteralPath $profileDir -Recurse -File -Filter $name -ErrorAction SilentlyContinue)
-      if ($files.Count -ne 1) { Fail "the model $name needs exactly one file under $profileDir, found $($files.Count)" }
-      $actual = (Get-FileHash -LiteralPath $files[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-      if ($actual -ne $model.Sha256) { Fail "$($files[0].FullName) has SHA-256 $actual, required $($model.Sha256)" }
-      Write-Host "cell: $name matches its pinned digest"
-    }
     $env:CELL_LIBRARY = $libraries[0].FullName
     $env:CELL_SYSTEM32 = Join-Path $env:SystemRoot 'System32'
     @'
@@ -346,6 +349,11 @@ try {
       if ($code -ne 3) { Fail "/COMPONENTS=gateway,stt with every download blocked must exit 3; it exited $code" }
       if (-not (Test-Path -LiteralPath $gatewayExe)) { Fail "a failed init must leave the Gateway installed, but $gatewayExe is missing" }
       if (-not (Test-Path -LiteralPath $config)) { Fail "init must write the config before it downloads, but $config is missing" }
+      # Nothing downloaded, so the exit 3 came from the blocked downloads.
+      $libraries = @(Get-WhisperLibraries)
+      if ($libraries.Count -ne 0) { Fail "every download was blocked, but $profileDir holds $($libraries.FullName -join ', ')" }
+      $downloaded = @(Get-ModelFiles)
+      if ($downloaded.Count -ne 0) { Fail "every download was blocked, but models were downloaded: $($downloaded.FullName -join ', ')" }
     }
     'all' {
       Test-Selection $want

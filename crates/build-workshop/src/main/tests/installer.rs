@@ -70,7 +70,7 @@ pub(super) fn expected_commands(
         bundle,
     ];
     if !sign {
-        tauri.extend(["--config", "tauri.nightly.conf.json"]);
+        tauri.extend(["--config", "tauri.unsigned.conf.json"]);
     }
     // macOS and Linux check Qt IFW once the target is known.
     let ifw = (!target.ends_with("windows-msvc")).then(|| ifw_version_command(environment));

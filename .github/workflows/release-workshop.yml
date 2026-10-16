@@ -189,7 +189,7 @@ jobs:
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         with:
           projectPath: crates/workshop/desktop
-          args: ${{ matrix.args }} --config tauri.nightly.conf.json
+          args: ${{ matrix.args }} --config tauri.unsigned.conf.json
 
       - name: The signed build has the workspace version
         if: github.event_name == 'push'

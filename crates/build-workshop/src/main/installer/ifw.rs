@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use gateway_api_discovery::{GATEWAY_BUNDLE_NAME, WORKSHOP_APPIMAGE_NAME, WORKSHOP_BUNDLE_NAME};
 
-use super::collect::{GATEWAY, arch_name, create_directory, linux_arch};
+use super::collect::{GATEWAY, create_directory, installer_name};
 use super::{Arch, Platform, System, VERSION};
 use crate::{CommandSpec, OutputMode};
 
@@ -319,18 +319,12 @@ fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {
 pub(crate) fn binarycreator_output(platform: Platform, stage: &Path, publish: &Path) -> PathBuf {
     match platform.system {
         System::MacOs => stage.join("dmg").join(INSTALLER_APP),
-        System::Linux | System::Windows => publish.join(format!(
-            "PromptForge_{VERSION}_{}-setup.run",
-            linux_arch(platform.arch)
-        )),
+        System::Linux | System::Windows => publish.join(installer_name(platform)),
     }
 }
 
 pub(crate) fn dmg_path(platform: Platform, publish: &Path) -> PathBuf {
-    publish.join(format!(
-        "PromptForge_{VERSION}_{}-setup.dmg",
-        arch_name(platform.arch)
-    ))
+    publish.join(installer_name(platform))
 }
 
 /// binarycreator can write a DMG itself, but it ignores `hdiutil`'s exit

@@ -6,6 +6,9 @@
 //! answers once it knows the outcome, before any restart. Raw HTTP/1.0 over
 //! `TcpStream` like the shutdown request, and the whole answer is returned
 //! as it arrived: the caller reads the body as the gateway's update answer.
+//!
+//! [`update_platform_key`] names the release manifest entry each
+//! platform's gateway updates from.
 
 use crate::ValidatedConnection;
 use crate::health::{self, ProbeError};
@@ -17,6 +20,26 @@ const UPDATE_PATH: &str = "/update";
 /// The most of the answer read, head included. The gateway's answer is a
 /// short JSON object; anything longer is cut here.
 const ANSWER_LIMIT: usize = 16 * 1024;
+
+/// The key of the `latest.json` entry that updates a gateway running on
+/// `os` and `arch` (spelled as [`std::env::consts`] spells them), or
+/// `None` for a platform no release serves. macOS and Linux read the
+/// gateway's own archive; Windows reads Workshop's setup, which carries
+/// the gateway as a component. The `-gateway` suffix never collides with
+/// the Tauri updater's `{os}-{arch}-{installer}` keys. The gateway reads
+/// its entry by this key and the release build writes the entries under
+/// it, so the two cannot drift apart.
+#[must_use]
+pub fn update_platform_key(os: &str, arch: &str) -> Option<&'static str> {
+    match (os, arch) {
+        ("macos", "aarch64") => Some("darwin-aarch64-gateway"),
+        ("macos", "x86_64") => Some("darwin-x86_64-gateway"),
+        ("linux", "x86_64") => Some("linux-x86_64-gateway"),
+        ("linux", "aarch64") => Some("linux-aarch64-gateway"),
+        ("windows", "x86_64") => Some("windows-x86_64"),
+        _ => None,
+    }
+}
 
 /// The gateway's answer to `POST /update`.
 #[derive(Debug, Clone, PartialEq, Eq)]

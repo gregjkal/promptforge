@@ -4,7 +4,9 @@
 //! carry the Gateway beside Workshop, and Qt IFW packages them into one
 //! installer.
 //! The `sidecar` mode stages or removes it on its own, for CI jobs that build
-//! the Gateway themselves.
+//! the Gateway themselves. The `manifest` mode verifies every platform's
+//! published files as one release and writes its `latest.json` and
+//! `SHA256SUMS`.
 
 use std::ffi::OsString;
 use std::fmt;
@@ -19,6 +21,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod args;
 #[path = "main/installer.rs"]
 mod installer;
+#[path = "main/manifest.rs"]
+mod manifest;
 #[path = "main/pipeline.rs"]
 mod pipeline;
 #[path = "main/runner.rs"]
@@ -279,6 +283,7 @@ fn main() -> ExitCode {
         Request::Installer(request) => {
             with_process_runner(|runner| build_installer(request, &environment, runner))
         }
+        Request::Manifest(request) => run_manifest(request, &environment),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -294,6 +299,23 @@ fn with_process_runner(
 ) -> Result<(), String> {
     let interrupt = install_interrupt_handler().map_err(|error| error.to_string())?;
     build(&mut ProcessRunner::new(interrupt)).map_err(|error| error.to_string())
+}
+
+fn run_manifest(
+    request: &args::ManifestRequest,
+    environment: &BuildEnvironment,
+) -> Result<(), String> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("the system clock is before 1970: {error}"))?;
+    manifest::write(request, &environment.workspace_root, now.as_secs())?;
+    println!(
+        "wrote {} and {} in {}",
+        manifest::MANIFEST,
+        manifest::CHECKSUMS,
+        request.assets.display()
+    );
+    Ok(())
 }
 
 fn run_sidecar(request: &SidecarRequest, environment: &BuildEnvironment) -> Result<(), String> {

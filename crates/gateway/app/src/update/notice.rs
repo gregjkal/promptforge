@@ -321,7 +321,7 @@ where
 /// The manifest check for the running process.
 async fn check_release() -> Result<Check, UpdateError> {
     let environment = Environment::current();
-    let key = manifest::platform_key(environment.os, environment.arch).ok_or(
+    let key = gateway_api_discovery::update_platform_key(environment.os, environment.arch).ok_or(
         UpdateError::NoPlatform {
             os: environment.os,
             arch: environment.arch,

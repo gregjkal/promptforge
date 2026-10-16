@@ -43,21 +43,6 @@ struct Manifest {
     platforms: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
-/// The manifest key whose entry updates this gateway. macOS and Linux read
-/// the gateway's own archive; Windows reads Workshop's setup, which carries
-/// the gateway as a component. The `-gateway` suffix never collides with
-/// the Tauri updater's `{os}-{arch}-{installer}` keys.
-pub(crate) fn platform_key(os: &str, arch: &str) -> Option<&'static str> {
-    match (os, arch) {
-        ("macos", "aarch64") => Some("darwin-aarch64-gateway"),
-        ("macos", "x86_64") => Some("darwin-x86_64-gateway"),
-        ("linux", "x86_64") => Some("linux-x86_64-gateway"),
-        ("linux", "aarch64") => Some("linux-aarch64-gateway"),
-        ("windows", "x86_64") => Some("windows-x86_64"),
-        _ => None,
-    }
-}
-
 /// `text` without the leading `v` a release tag may carry, as the Tauri
 /// updater reads it.
 pub(crate) fn bare_version(text: &str) -> &str {

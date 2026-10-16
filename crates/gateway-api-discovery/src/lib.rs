@@ -33,7 +33,9 @@
 //! 5. A reader holding a [`ValidatedConnection`] asks the gateway to exit
 //!    with [`request_shutdown`], which posts its bearer key to
 //!    `POST /shutdown`, and asks it to update itself with
-//!    [`request_update`], which posts the key to `POST /update`.
+//!    [`request_update`], which posts the key to `POST /update`. The
+//!    release manifest entry each platform's gateway updates from is named
+//!    by [`update_platform_key`].
 //!
 //! Before any gateway runs, Workshop finds the installed gateway it launches
 //! with [`installed_gateway`], and the gateway tray finds the Workshop it
@@ -86,5 +88,5 @@ pub use crate::stale::resolve_cancellable;
 #[doc(hidden)]
 pub use crate::stale::resolve_for_test;
 pub use crate::stale::{Resolution, StaleReason, is_running, resolve};
-pub use crate::update::{UpdateRequestError, UpdateResponse, request_update};
+pub use crate::update::{UpdateRequestError, UpdateResponse, request_update, update_platform_key};
 pub use crate::validated::{ValidatedConnection, ValidationError};

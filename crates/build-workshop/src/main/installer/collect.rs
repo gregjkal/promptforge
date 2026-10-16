@@ -44,7 +44,7 @@ pub(crate) fn collect(
     match platform.system {
         System::Windows => {
             let setup = single_file(&bundle, "-setup.exe")?;
-            let published = windows_setup(&publish, platform.arch);
+            let published = publish.join(installer_name(platform));
             if sign {
                 move_path(&signature_path(&setup), &signature_path(&published))?;
             }
@@ -58,10 +58,7 @@ pub(crate) fn collect(
             create_directory(&payload)?;
             if sign {
                 let archive = bundle.join(format!("{PRODUCT}.app.tar.gz"));
-                let published = publish.join(format!(
-                    "{PRODUCT}_{VERSION}_{}.app.tar.gz",
-                    arch_name(platform.arch)
-                ));
+                let published = publish.join(workshop_updater_name(platform));
                 move_path(&signature_path(&archive), &signature_path(&published))?;
                 move_path(&archive, &published)?;
             }
@@ -82,10 +79,7 @@ pub(crate) fn collect(
             create_directory(&payload)?;
             let appimage = single_file(&bundle, ".AppImage")?;
             if sign {
-                let published = publish.join(format!(
-                    "{PRODUCT}_{VERSION}_{}.AppImage",
-                    linux_arch(platform.arch)
-                ));
+                let published = publish.join(workshop_updater_name(platform));
                 move_path(&signature_path(&appimage), &signature_path(&published))?;
                 copy_file(&appimage, &published)?;
             }
@@ -97,11 +91,41 @@ pub(crate) fn collect(
     }
 }
 
-/// The published Windows setup, that platform's installer.
-pub(crate) fn windows_setup(publish: &Path, arch: Arch) -> PathBuf {
-    publish.join(format!(
-        "{PRODUCT}_{VERSION}_{}-setup.exe",
-        windows_arch(arch)
+/// The platform's installer as published: Tauri's NSIS setup on Windows,
+/// the Qt IFW installer elsewhere, which a DMG wraps on macOS. The
+/// collection, the IFW stage, and `cargo workshop manifest` all read the
+/// release's names from this function and the two below.
+pub(crate) fn installer_name(platform: Platform) -> String {
+    let arch = platform.arch;
+    match platform.system {
+        System::Windows => format!("{PRODUCT}_{VERSION}_{}-setup.exe", windows_arch(arch)),
+        System::MacOs => format!("{PRODUCT}_{VERSION}_{}-setup.dmg", arch_name(arch)),
+        System::Linux => format!("{PRODUCT}_{VERSION}_{}-setup.run", linux_arch(arch)),
+    }
+}
+
+/// The file the Tauri updater replaces Workshop from, which on Windows is
+/// the setup itself.
+pub(crate) fn workshop_updater_name(platform: Platform) -> String {
+    let arch = platform.arch;
+    match platform.system {
+        System::Windows => installer_name(platform),
+        System::MacOs => format!("{PRODUCT}_{VERSION}_{}.app.tar.gz", arch_name(arch)),
+        System::Linux => format!("{PRODUCT}_{VERSION}_{}.AppImage", linux_arch(arch)),
+    }
+}
+
+/// The Gateway updater archive, or `None` on Windows, whose setup carries
+/// the Gateway.
+pub(crate) fn gateway_archive_name(platform: Platform) -> Option<String> {
+    let os = match platform.system {
+        System::MacOs => "darwin",
+        System::Linux => "linux",
+        System::Windows => return None,
+    };
+    Some(format!(
+        "{GATEWAY}_{VERSION}_{os}-{}.tar.gz",
+        arch_name(platform.arch)
     ))
 }
 
@@ -124,15 +148,10 @@ fn archive_gateway(
             gateway_archive: None,
         });
     }
-    let os = match platform.system {
-        System::MacOs => "darwin",
-        System::Linux => "linux",
-        System::Windows => "windows",
-    };
-    let archive = publish.join(format!(
-        "{GATEWAY}_{VERSION}_{os}-{}.tar.gz",
-        arch_name(platform.arch)
-    ));
+    let name = gateway_archive_name(platform).ok_or_else(|| {
+        "a Windows setup carries the Gateway; it has no updater archive".to_owned()
+    })?;
+    let archive = publish.join(name);
     write_archive(gateway, &archive)
         .map_err(|error| format!("cannot write {}: {error}", archive.display()))?;
     Ok(Collected {
@@ -235,7 +254,7 @@ fn windows_arch(arch: Arch) -> &'static str {
     }
 }
 
-pub(crate) fn linux_arch(arch: Arch) -> &'static str {
+fn linux_arch(arch: Arch) -> &'static str {
     match arch {
         Arch::X86_64 => "amd64",
         Arch::Aarch64 => "aarch64",

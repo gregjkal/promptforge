@@ -1,4 +1,5 @@
-//! Command-line parsing for the build, installer, and sidecar modes.
+//! Command-line parsing for the build, installer, manifest, and sidecar
+//! modes.
 
 use std::path::PathBuf;
 
@@ -7,14 +8,15 @@ use super::{BuildRequest, Profile};
 
 pub(super) const USAGE: &str = "\
 Build PromptForge Gateway and Workshop together, build a platform installer,
-or stage the Gateway sidecar on its own. Workshop bundles the Gateway as a
-sidecar only for Windows targets. On macOS and Linux, `installer` needs
-Qt IFW 4.11.0, found through QTIFWDIR (the directory holding bin/) or else
-binarycreator on PATH.
+write a release's latest.json and SHA256SUMS, or stage the Gateway sidecar on
+its own. Workshop bundles the Gateway as a sidecar only for Windows targets.
+On macOS and Linux, `installer` needs Qt IFW 4.11.0, found through QTIFWDIR
+(the directory holding bin/) or else binarycreator on PATH.
 
 USAGE:
     cargo workshop [--release] [--target <triple>]
     cargo workshop installer [--target <triple>] [--sign]
+    cargo workshop manifest --assets <dir> --base-url <url> [--public-key <file>]
     cargo workshop sidecar stage --target <windows-triple> --source <path>
     cargo workshop sidecar remove --target <windows-triple>
 
@@ -27,6 +29,12 @@ OPTIONS:
                         path, with TAURI_SIGNING_PRIVATE_KEY_PATH and
                         TAURI_PRIVATE_KEY_PATH unset
     --source <path>     The built Gateway binary to stage
+    --assets <dir>      The directory holding every platform's published
+                        files, exactly one release's; latest.json and
+                        SHA256SUMS are written into it
+    --base-url <url>    The URL the release's files are downloaded from
+    --public-key <file> The updater public key to verify against, instead
+                        of plugins.updater.pubkey in tauri.conf.json
     -h, --help          Print this help
 ";
 
@@ -34,6 +42,7 @@ OPTIONS:
 pub(super) enum Request {
     Build(BuildRequest),
     Installer(InstallerRequest),
+    Manifest(ManifestRequest),
     Sidecar(SidecarRequest),
 }
 
@@ -41,6 +50,13 @@ pub(super) enum Request {
 pub(super) struct InstallerRequest {
     pub(super) target: Option<String>,
     pub(super) sign: bool,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub(super) struct ManifestRequest {
+    pub(super) assets: PathBuf,
+    pub(super) base_url: String,
+    pub(super) public_key: Option<PathBuf>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -55,10 +71,21 @@ enum Flag {
     Target,
     Sign,
     Source,
+    Assets,
+    BaseUrl,
+    PublicKey,
 }
 
 impl Flag {
-    const ALL: [Self; 4] = [Self::Release, Self::Target, Self::Sign, Self::Source];
+    const ALL: [Self; 7] = [
+        Self::Release,
+        Self::Target,
+        Self::Sign,
+        Self::Source,
+        Self::Assets,
+        Self::BaseUrl,
+        Self::PublicKey,
+    ];
 
     fn name(self) -> &'static str {
         match self {
@@ -66,6 +93,9 @@ impl Flag {
             Self::Target => "--target",
             Self::Sign => "--sign",
             Self::Source => "--source",
+            Self::Assets => "--assets",
+            Self::BaseUrl => "--base-url",
+            Self::PublicKey => "--public-key",
         }
     }
 }
@@ -76,6 +106,9 @@ struct Options {
     target: Option<String>,
     sign: bool,
     source: Option<String>,
+    assets: Option<String>,
+    base_url: Option<String>,
+    public_key: Option<String>,
 }
 
 impl Options {
@@ -108,6 +141,18 @@ impl Options {
                     options.source = Some(value_after(args, index, "a path")?.to_owned());
                     index += 1;
                 }
+                Flag::Assets => {
+                    options.assets = Some(value_after(args, index, "a directory")?.to_owned());
+                    index += 1;
+                }
+                Flag::BaseUrl => {
+                    options.base_url = Some(value_after(args, index, "a URL")?.to_owned());
+                    index += 1;
+                }
+                Flag::PublicKey => {
+                    options.public_key = Some(value_after(args, index, "a path")?.to_owned());
+                    index += 1;
+                }
             }
             index += 1;
         }
@@ -120,6 +165,9 @@ impl Options {
             Flag::Target => self.target.is_some(),
             Flag::Sign => self.sign,
             Flag::Source => self.source.is_some(),
+            Flag::Assets => self.assets.is_some(),
+            Flag::BaseUrl => self.base_url.is_some(),
+            Flag::PublicKey => self.public_key.is_some(),
         }
     }
 }
@@ -138,6 +186,7 @@ pub(super) fn parse_arguments(args: &[String]) -> Result<Request, anyhow::Error>
                 sign: options.sign,
             }))
         }
+        Some("manifest") => parse_manifest(&args[1..]),
         Some("sidecar") => parse_sidecar(&args[1..]),
         _ => {
             let options = Options::parse(args, &[Flag::Release, Flag::Target])?;
@@ -151,6 +200,21 @@ pub(super) fn parse_arguments(args: &[String]) -> Result<Request, anyhow::Error>
             }))
         }
     }
+}
+
+fn parse_manifest(args: &[String]) -> Result<Request, anyhow::Error> {
+    let options = Options::parse(args, &[Flag::Assets, Flag::BaseUrl, Flag::PublicKey])?;
+    let assets = options
+        .assets
+        .ok_or_else(|| usage_error("`manifest` needs `--assets <dir>`"))?;
+    let base_url = options
+        .base_url
+        .ok_or_else(|| usage_error("`manifest` needs `--base-url <url>`"))?;
+    Ok(Request::Manifest(ManifestRequest {
+        assets: PathBuf::from(assets),
+        base_url,
+        public_key: options.public_key.map(PathBuf::from),
+    }))
 }
 
 fn parse_sidecar(args: &[String]) -> Result<Request, anyhow::Error> {

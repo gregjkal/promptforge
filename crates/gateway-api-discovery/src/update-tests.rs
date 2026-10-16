@@ -1,5 +1,6 @@
 //! The update request against a fixture listener: the request it sends,
-//! the status and body it returns, the answer cap, and its failures.
+//! the status and body it returns, the answer cap, and its failures; and
+//! the manifest key each platform's gateway updates from.
 
 use super::*;
 
@@ -135,4 +136,19 @@ fn a_reflected_bearer_is_absent_from_update_errors() {
         !format!("{error:?} {error}").contains(secret),
         "bearer values never enter error diagnostics"
     );
+}
+
+#[test]
+fn each_published_target_reads_its_own_key() {
+    for (os, arch, key) in [
+        ("macos", "aarch64", Some("darwin-aarch64-gateway")),
+        ("macos", "x86_64", Some("darwin-x86_64-gateway")),
+        ("linux", "x86_64", Some("linux-x86_64-gateway")),
+        ("linux", "aarch64", Some("linux-aarch64-gateway")),
+        ("windows", "x86_64", Some("windows-x86_64")),
+        ("windows", "aarch64", None),
+        ("freebsd", "x86_64", None),
+    ] {
+        assert_eq!(update_platform_key(os, arch), key, "{os} on {arch}");
+    }
 }

@@ -86,5 +86,5 @@ pub use crate::stale::resolve_cancellable;
 #[doc(hidden)]
 pub use crate::stale::resolve_for_test;
 pub use crate::stale::{Resolution, StaleReason, is_running, resolve};
-pub use crate::update::{UpdateRequestError, UpdateResponse, request_update};
+pub use crate::update::{UpdateRequestError, UpdateResponse, request_update, update_platform_key};
 pub use crate::validated::{ValidatedConnection, ValidationError};

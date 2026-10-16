@@ -25,10 +25,10 @@ pub(super) mod collect;
 #[path = "installer/ifw.rs"]
 pub(super) mod ifw;
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub(super) const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Applied to unsigned builds: it turns off `createUpdaterArtifacts`, which
 /// would otherwise demand the release key.
-const UNSIGNED_CONFIG: &str = "tauri.nightly.conf.json";
+const UNSIGNED_CONFIG: &str = "tauri.unsigned.conf.json";
 /// The Tauri CLI first runs after the release Gateway build, so a missing
 /// `node` is found up front instead.
 const NODE_CHECK: &str = "`node --version` (the Tauri CLI runs on `node` from PATH)";
@@ -165,7 +165,9 @@ pub(super) fn build_installer(
     }
     let installer = match &ifw {
         Some(ifw) => build_ifw_installer(ifw, environment, platform, &output, runner)?,
-        None => collect::windows_setup(&output.join("publish"), platform.arch),
+        None => output
+            .join("publish")
+            .join(collect::installer_name(platform)),
     };
     println!("installer: {}", installer.display());
     Ok(())

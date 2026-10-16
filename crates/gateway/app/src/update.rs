@@ -306,7 +306,7 @@ async fn update(
     if route == windows::Route::WorkshopOwned {
         return Ok(Applied::WorkshopOwned);
     }
-    let key = manifest::platform_key(environment.os, environment.arch).ok_or(
+    let key = gateway_api_discovery::update_platform_key(environment.os, environment.arch).ok_or(
         UpdateError::NoPlatform {
             os: environment.os,
             arch: environment.arch,

@@ -653,11 +653,15 @@ name = "build-workshop"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "build-ceiling",
  "ctrlc",
  "flate2",
  "gateway-api-discovery",
+ "minisign",
+ "minisign-verify",
  "serde_json",
+ "sha2 0.11.0",
  "tar",
  "tempfile",
 ]

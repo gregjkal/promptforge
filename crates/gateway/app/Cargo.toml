@@ -174,9 +174,3 @@ tower.workspace = true
 
 [lints]
 workspace = true
-
-# Release packaging through cargo-dist (see dist-workspace.toml): the
-# sample systemd unit is included in the archive.
-[package.metadata.dist]
-dist = true
-include = ["packaging/gateway.service"]

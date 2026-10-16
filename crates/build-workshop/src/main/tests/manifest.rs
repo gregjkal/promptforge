@@ -1,5 +1,6 @@
-//! The `manifest` mode: its arguments, the release file set, the
-//! signature checks, `latest.json`, `SHA256SUMS`, and the date.
+//! The `manifest` mode: the release file set, the signature checks,
+//! `latest.json`, `SHA256SUMS`, and the date. Its arguments are tested in
+//! `manifest-args.rs`.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -7,7 +8,6 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 use super::*;
-use crate::args::{Request, parse_arguments};
 
 const BASE_URL: &str = "https://example.invalid/releases/download/v1";
 
@@ -65,6 +65,11 @@ impl Release {
                 &release.pair,
             );
         }
+        // One `.sig` ends in a newline, as an editor may leave it; both forms
+        // are trimmed.
+        let first = release.assets.join(format!("{}.sig", updaters[0].file));
+        let text = fs::read_to_string(&first).expect("signature");
+        fs::write(&first, text + "\n").expect("signature");
         release
     }
 
@@ -76,11 +81,11 @@ impl Release {
         fs::write(desktop.join("tauri.conf.json"), config.to_string()).expect("config");
     }
 
-    /// Signs `file` with `trusted` as the trusted comment; the trailing
-    /// newline matches what the Tauri CLI leaves.
+    /// Signs `file` with `trusted` as the trusted comment, with no trailing
+    /// newline, as the Tauri CLI's `sign_file` writes it.
     fn resign(&self, file: &str, trusted: &str, pair: &minisign::KeyPair) {
         let data = fs::read(self.assets.join(file)).expect("read file");
-        let signature = format!("{}\n", sign(pair, &data, trusted));
+        let signature = sign(pair, &data, trusted);
         fs::write(self.assets.join(format!("{file}.sig")), signature).expect("signature");
     }
 
@@ -117,11 +122,33 @@ fn the_complete_set_for_the_workspace_version_passes() {
 }
 
 #[test]
-fn the_release_is_twenty_two_files() {
+fn the_release_is_the_twenty_two_planned_files() {
     let updaters = updaters().expect("updaters");
     assert_eq!(updaters.len(), 9);
     assert_eq!(checksummed_files(&updaters).len(), 13);
-    assert_eq!(release_files(&updaters).len(), 22);
+    let mut planned = BTreeSet::new();
+    for name in [
+        "PromptForge_{v}_x64-setup.exe",
+        "PromptForge_{v}_aarch64-setup.dmg",
+        "PromptForge_{v}_x86_64-setup.dmg",
+        "PromptForge_{v}_amd64-setup.run",
+        "PromptForge_{v}_aarch64-setup.run",
+        "PromptForge_{v}_aarch64.app.tar.gz",
+        "PromptForge_{v}_x86_64.app.tar.gz",
+        "PromptForge_{v}_amd64.AppImage",
+        "PromptForge_{v}_aarch64.AppImage",
+        "promptforge-gateway_{v}_darwin-aarch64.tar.gz",
+        "promptforge-gateway_{v}_darwin-x86_64.tar.gz",
+        "promptforge-gateway_{v}_linux-x86_64.tar.gz",
+        "promptforge-gateway_{v}_linux-aarch64.tar.gz",
+    ] {
+        let name = name.replace("{v}", VERSION);
+        if !name.ends_with("-setup.dmg") && !name.ends_with("-setup.run") {
+            planned.insert(format!("{name}.sig"));
+        }
+        planned.insert(name);
+    }
+    assert_eq!(release_files(&updaters), planned);
 }
 
 #[test]
@@ -149,6 +176,35 @@ fn an_extra_file_fails_naming_it() {
 }
 
 #[test]
+fn a_directory_under_a_release_name_fails_naming_it() {
+    let release = Release::new();
+    let dmg = installer_name(RELEASE_PLATFORMS[2]);
+    fs::remove_file(release.assets.join(&dmg)).expect("remove");
+    fs::create_dir(release.assets.join(&dmg)).expect("directory");
+    let error = release.write().expect_err("a directory");
+    assert!(
+        error.contains(&format!("missing 1 of 22: {dmg}")),
+        "{error}"
+    );
+    assert!(error.contains(&format!("unexpected: {dmg}")), "{error}");
+}
+
+#[test]
+fn a_missing_release_directory_fails_naming_it() {
+    let release = Release::new();
+    let request = ManifestRequest {
+        assets: release.workspace.join("absent"),
+        ..release.request()
+    };
+    let error = write(&request, &release.workspace, 0).expect_err("no directory");
+    assert!(
+        error.contains("cannot read the release directory"),
+        "{error}"
+    );
+    assert!(error.contains("absent"), "{error}");
+}
+
+#[test]
 fn a_file_named_for_another_version_fails_naming_it() {
     let release = Release::new();
     let setup = installer_name(RELEASE_PLATFORMS[0]);
@@ -168,6 +224,14 @@ fn a_wrong_key_fails_naming_every_platform_key_and_file() {
     release.trust(&public(&key_pair()));
     let error = release.write().expect_err("signed with another key");
     assert!(error.contains("9 of 9 updater signatures fail"), "{error}");
+    assert!(
+        error.contains("which every installed copy trusts"),
+        "{error}"
+    );
+    assert!(
+        !release.assets.join(MANIFEST).exists() && !release.assets.join(CHECKSUMS).exists(),
+        "nothing is written"
+    );
     for updater in updaters().expect("updaters") {
         assert!(
             error.contains(&format!(
@@ -192,6 +256,27 @@ fn a_tampered_file_fails_naming_its_platform_key() {
         )),
         "{error}"
     );
+}
+
+#[test]
+fn a_signature_that_is_not_base64_minisign_text_fails_naming_its_platform_key() {
+    let release = Release::new();
+    let setup = installer_name(RELEASE_PLATFORMS[0]);
+    let raw = minisign::sign(None, &release.pair.sk, &b"x"[..], None, None).expect("sign");
+    for (contents, reason) in [
+        (raw.into_string(), "the signature is not standard base64"),
+        (
+            STANDARD.encode("junk"),
+            "the signature is not a minisign signature",
+        ),
+    ] {
+        fs::write(release.assets.join(format!("{setup}.sig")), contents).expect("signature");
+        let error = release.write().expect_err("an unusable signature");
+        assert!(
+            error.contains(&format!("windows-x86_64 ({setup}): {reason}")),
+            "{error}"
+        );
+    }
 }
 
 #[test]
@@ -252,6 +337,28 @@ fn the_public_key_option_replaces_the_tauri_config_key() {
     };
     let error = write(&request, &release.workspace, 0).expect_err("the file's key is used");
     assert!(error.contains(&other.display().to_string()), "{error}");
+    assert!(!error.contains("every installed copy"), "{error}");
+
+    let request = ManifestRequest {
+        public_key: Some(release.workspace.join("absent.key.pub")),
+        ..release.request()
+    };
+    let error = write(&request, &release.workspace, 0).expect_err("no key file");
+    assert!(error.contains("cannot read the public key"), "{error}");
+}
+
+#[test]
+fn a_tauri_config_without_a_key_fails_naming_the_field() {
+    let release = Release::new();
+    let config = release
+        .workspace
+        .join("crates/workshop/desktop/tauri.conf.json");
+    fs::write(&config, r#"{"plugins":{}}"#).expect("config");
+    let error = release.write().expect_err("no key in the config");
+    assert!(
+        error.contains("has no string at plugins.updater.pubkey"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -352,17 +459,22 @@ fn every_release_name_is_url_safe() {
 }
 
 #[test]
-fn a_base_url_without_a_host_is_refused() {
-    let release = Release::new();
-    let request = ManifestRequest {
-        base_url: "releases/v1".to_owned(),
-        ..release.request()
-    };
-    let error = write(&request, &release.workspace, 0).expect_err("no scheme");
-    assert!(
-        error.contains("`--base-url` must be an http or https URL"),
-        "{error}"
-    );
+fn a_base_url_that_cannot_take_a_file_name_is_refused() {
+    for value in [
+        "releases/v1",
+        "https://",
+        "https:///v1",
+        "https://h/v1?x=1",
+        "https://h/v1#x",
+        "https://h/a b",
+    ] {
+        let error = base_url(value).expect_err(value);
+        assert!(
+            error.contains("must be an http or https URL"),
+            "{value}: {error}"
+        );
+    }
+    assert_eq!(base_url("http://host/"), Ok("http://host"));
 }
 
 #[test]
@@ -371,95 +483,4 @@ fn pub_date_is_rfc_3339_in_utc() {
     assert_eq!(pub_date(1_709_210_096), "2024-02-29T12:34:56Z");
     assert_eq!(pub_date(1_767_225_599), "2025-12-31T23:59:59Z");
     assert_eq!(pub_date(1_767_225_600), "2026-01-01T00:00:00Z");
-}
-
-fn arguments(values: &[&str]) -> Vec<String> {
-    values.iter().map(|value| (*value).to_owned()).collect()
-}
-
-#[test]
-fn the_manifest_mode_parses() {
-    let request = parse_arguments(&arguments(&[
-        "manifest",
-        "--assets",
-        "dist",
-        "--base-url",
-        BASE_URL,
-        "--public-key",
-        "run.key.pub",
-    ]))
-    .expect("parses");
-    assert_eq!(
-        request,
-        Request::Manifest(ManifestRequest {
-            assets: PathBuf::from("dist"),
-            base_url: BASE_URL.to_owned(),
-            public_key: Some(PathBuf::from("run.key.pub")),
-        })
-    );
-    let request = parse_arguments(&arguments(&[
-        "manifest",
-        "--base-url",
-        BASE_URL,
-        "--assets",
-        "dist",
-    ]))
-    .expect("parses without a key file");
-    assert!(
-        matches!(
-            request,
-            Request::Manifest(ManifestRequest {
-                public_key: None,
-                ..
-            })
-        ),
-        "{request:?}"
-    );
-}
-
-#[test]
-fn manifest_argument_errors_are_usage_errors() {
-    for (args, message) in [
-        (
-            &["manifest", "--base-url", BASE_URL][..],
-            "`manifest` needs `--assets <dir>`",
-        ),
-        (
-            &["manifest", "--assets", "dist"][..],
-            "`manifest` needs `--base-url <url>`",
-        ),
-        (
-            &[
-                "manifest",
-                "--assets",
-                "a",
-                "--assets",
-                "b",
-                "--base-url",
-                BASE_URL,
-            ][..],
-            "duplicate argument `--assets`",
-        ),
-        (
-            &[
-                "manifest",
-                "--assets",
-                "dist",
-                "--base-url",
-                BASE_URL,
-                "--sign",
-            ][..],
-            "unsupported argument `--sign`",
-        ),
-        (
-            &["manifest", "--assets", "--base-url", BASE_URL][..],
-            "argument `--assets` needs a directory",
-        ),
-    ] {
-        let error = parse_arguments(&arguments(args))
-            .expect_err("a usage error")
-            .to_string();
-        assert!(error.contains(message), "{args:?}: {error}");
-        assert!(error.contains("USAGE:"), "{args:?}: {error}");
-    }
 }

@@ -123,7 +123,7 @@ pub(crate) fn write(
     let base_url = base_url(&request.base_url)?;
     let updaters = updaters()?;
     check_file_set(&request.assets, &release_files(&updaters))?;
-    let (public_key, key_source) = public_key(request, workspace_root)?;
+    let (public_key, against) = public_key(request, workspace_root)?;
     let mut platforms = serde_json::Map::new();
     let mut failures = Vec::new();
     for updater in &updaters {
@@ -142,9 +142,8 @@ pub(crate) fn write(
     }
     if !failures.is_empty() {
         return Err(format!(
-            "{} of {} updater signatures fail against the public key in {key_source}, \
-             which every installed copy trusts; each must verify and carry \
-             \"version:{VERSION}\":\n  {}",
+            "{} of {} updater signatures fail against {against}; each must verify and \
+             carry \"version:{VERSION}\":\n  {}",
             failures.len(),
             updaters.len(),
             failures.join("\n  ")
@@ -168,23 +167,32 @@ pub(crate) fn write(
     write_file(&request.assets.join(CHECKSUMS), &checksums.concat())
 }
 
+/// `value` without a trailing `/`, once it is an http or https URL with a
+/// host and nothing a file name appended after it would break: no query,
+/// fragment, or whitespace.
 fn base_url(value: &str) -> Result<&str, String> {
     let trimmed = value.trim_end_matches('/');
     let has_host = ["https://", "http://"].iter().any(|scheme| {
         trimmed
             .strip_prefix(scheme)
-            .is_some_and(|rest| !rest.is_empty())
+            .and_then(|rest| rest.split('/').next())
+            .is_some_and(|host| !host.is_empty())
     });
-    if has_host {
+    let appendable = !trimmed
+        .chars()
+        .any(|character| character.is_whitespace() || character == '?' || character == '#');
+    if has_host && appendable {
         Ok(trimmed)
     } else {
         Err(format!(
-            "`--base-url` must be an http or https URL with a host, got `{value}`"
+            "`--base-url` must be an http or https URL with a host and no query, fragment, \
+             or whitespace; got `{value}`"
         ))
     }
 }
 
-/// Requires `assets` to hold `expected` as regular files and nothing else,
+/// Requires `assets` to hold `expected` as regular files (not symlinks) and
+/// nothing else,
 /// except an earlier run's `latest.json` and `SHA256SUMS`, which this run
 /// rewrites.
 fn check_file_set(assets: &Path, expected: &BTreeSet<String>) -> Result<(), String> {
@@ -202,7 +210,8 @@ fn check_file_set(assets: &Path, expected: &BTreeSet<String>) -> Result<(), Stri
         if name == MANIFEST || name == CHECKSUMS {
             continue;
         }
-        if expected.contains(&name) && entry.path().is_file() {
+        let regular = entry.file_type().is_ok_and(|kind| kind.is_file());
+        if expected.contains(&name) && regular {
             present.insert(name);
         } else {
             unexpected.insert(name);
@@ -240,14 +249,18 @@ fn check_file_set(assets: &Path, expected: &BTreeSet<String>) -> Result<(), Stri
     ))
 }
 
+/// The key to verify against and how a signature failure names it: only
+/// the release key in `tauri.conf.json` is the one installed copies trust.
 fn public_key(
     request: &ManifestRequest,
     workspace_root: &Path,
 ) -> Result<(minisign_verify::PublicKey, String), String> {
-    let (encoded, source) = if let Some(path) = &request.public_key {
+    let (encoded, source, against) = if let Some(path) = &request.public_key {
         let contents = fs::read_to_string(path)
             .map_err(|error| format!("cannot read the public key {}: {error}", path.display()))?;
-        (contents, path.display().to_string())
+        let source = path.display().to_string();
+        let against = format!("the key in {source}");
+        (contents, source, against)
     } else {
         let config = workspace_root
             .join("crates")
@@ -267,16 +280,15 @@ fn public_key(
                     config.display()
                 )
             })?;
-        (
-            key.to_owned(),
-            format!("{} (plugins.updater.pubkey)", config.display()),
-        )
+        let source = format!("{} (plugins.updater.pubkey)", config.display());
+        let against = format!("the release key in {source}, which every installed copy trusts");
+        (key.to_owned(), source, against)
     };
     let text =
         base64_text(&encoded, "public key").map_err(|reason| format!("{source}: {reason}"))?;
     let key = minisign_verify::PublicKey::decode(&text)
         .map_err(|error| format!("{source}: the public key is not a minisign key: {error}"))?;
-    Ok((key, source))
+    Ok((key, against))
 }
 
 /// Checks `file`'s signature as the Gateway does before it applies an
@@ -371,3 +383,7 @@ pub(crate) fn pub_date(seconds: u64) -> String {
 #[cfg(test)]
 #[path = "tests/manifest.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "tests/manifest-args.rs"]
+mod args_tests;

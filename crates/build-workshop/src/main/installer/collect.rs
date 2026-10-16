@@ -254,7 +254,7 @@ fn windows_arch(arch: Arch) -> &'static str {
     }
 }
 
-pub(crate) fn linux_arch(arch: Arch) -> &'static str {
+fn linux_arch(arch: Arch) -> &'static str {
     match arch {
         Arch::X86_64 => "amd64",
         Arch::Aarch64 => "aarch64",

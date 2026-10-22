@@ -1,4 +1,4 @@
-//! `promptforge-gateway init`: first-run configuration and speech
+//! `runvil-gateway init`: first-run configuration and speech
 //! provisioning at install time.
 //!
 //! The installers run it as the installing user once the Gateway component
@@ -50,7 +50,7 @@ enum InitRepr {
 
 /// The remedy when no profile is selected.
 const SELECT_A_PROFILE: &str = "select a profile whose `models` name a [[stt_model]], through \
-     PROMPTFORGE_PROFILE or the state file's active_profile";
+     RUNVIL_PROFILE or the state file's active_profile";
 
 /// The [`InitRepr::NoSpeechModels`] text: what speech requires, the actual
 /// selection named by the input that made it, and the remedy.
@@ -58,9 +58,9 @@ fn no_speech_models(path: &Path, environment: Option<&str>, config: &Config) -> 
     let state_file = gateway_config::profile_state_path(path);
     let (actual, remedy) = match (config.active_profile(), config.stale_state_selection()) {
         (Some(profile), _) => {
-            // PROMPTFORGE_PROFILE, when set, wins over the state file.
+            // RUNVIL_PROFILE, when set, wins over the state file.
             let source = if environment.is_some() {
-                "PROMPTFORGE_PROFILE".to_owned()
+                "RUNVIL_PROFILE".to_owned()
             } else {
                 state_file.display().to_string()
             };
@@ -138,15 +138,15 @@ pub fn init(
 }
 
 /// What a boot reads before loading `config_path`: the env file beside it,
-/// then `PROMPTFORGE_PROFILE`, which that file may set.
+/// then `RUNVIL_PROFILE`, which that file may set.
 fn boot_environment(config_path: &Path) -> Option<String> {
     crate::runner::load_env_file(&config_path.with_extension("env"));
-    std::env::var("PROMPTFORGE_PROFILE").ok()
+    std::env::var("RUNVIL_PROFILE").ok()
 }
 
 /// The testable body of [`init`]: `gather`, `environment`, and `provision`
 /// are injected. `environment` receives the resolved configuration path and
-/// returns the `PROMPTFORGE_PROFILE` value a boot would read.
+/// returns the `RUNVIL_PROFILE` value a boot would read.
 fn init_in(
     explicit: Option<PathBuf>,
     gather: impl FnOnce() -> Result<Locations, BootError>,

@@ -5,8 +5,8 @@
 //!
 //! Why the refresh exists: on Windows, `tauri.windows.conf.json` declares
 //! the gateway as an `externalBin`, so tauri-build copies
-//! `binaries/promptforge-gateway-<target-triple>.exe` over
-//! `target/<profile>/promptforge-gateway.exe` on every workshop build.
+//! `binaries/runvil-gateway-<target-triple>.exe` over
+//! `target/<profile>/runvil-gateway.exe` on every workshop build.
 //! That is the same path cargo writes the gateway crate's own binary to,
 //! so without this step a `cargo build -p gateway` followed by
 //! `cargo build -p workshop` ends with the stale sidecar copy in place of
@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// On Windows, copies `target/<profile>/promptforge-gateway.exe` into the
+/// On Windows, copies `target/<profile>/runvil-gateway.exe` into the
 /// sidecar slot when it is newer than the copy there, so tauri-build ships
 /// the gateway most recently built rather than whatever was placed by hand.
 fn refresh_gateway_sidecar() -> Result<(), Box<dyn Error>> {
@@ -43,12 +43,12 @@ fn refresh_gateway_sidecar() -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let sidecar = manifest_dir
         .join("binaries")
-        .join(format!("promptforge-gateway-{target}.exe"));
+        .join(format!("runvil-gateway-{target}.exe"));
 
     let Some(profile_dir) = profile_dir_from_out_dir(&PathBuf::from(env::var("OUT_DIR")?)) else {
         return Ok(());
     };
-    let built = profile_dir.join("promptforge-gateway.exe");
+    let built = profile_dir.join("runvil-gateway.exe");
     // A rebuilt gateway must re-run this script; a missing one is not an
     // error here because tauri-build reports the absent sidecar itself.
     println!("cargo:rerun-if-changed={}", built.display());

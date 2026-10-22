@@ -8,7 +8,7 @@ fn windows_runs_the_setup_only_without_a_workshop_beside_the_gateway() {
     assert_eq!(route("windows", || None), Route::Setup);
     assert_eq!(
         route("windows", || Some(PathBuf::from(
-            r"C:\PromptForge\promptforge-workshop.exe"
+            r"C:\Runvil\runvil-workshop.exe"
         ))),
         Route::WorkshopOwned
     );
@@ -36,7 +36,7 @@ fn a_gateway_shutting_down_starts_no_setup_and_frees_the_claim() {
     let ticket = shutdown.begin_update().expect("claim");
     shutdown.fire(crate::ShutdownReason::Stop);
     let error = start_setup(
-        std::path::Path::new("/nonexistent/PromptForge-setup.exe"),
+        std::path::Path::new("/nonexistent/Runvil-setup.exe"),
         ticket,
         &shutdown,
     )
@@ -48,18 +48,18 @@ fn a_gateway_shutting_down_starts_no_setup_and_frees_the_claim() {
 #[test]
 fn the_setup_keeps_its_published_name_when_it_is_a_plain_exe() {
     assert_eq!(
-        setup_file_name("https://example.invalid/d/PromptForge_0.4.0_x64-setup.exe"),
-        "PromptForge_0.4.0_x64-setup.exe"
+        setup_file_name("https://example.invalid/d/Runvil_0.4.0_x64-setup.exe"),
+        "Runvil_0.4.0_x64-setup.exe"
     );
     assert_eq!(
-        setup_file_name("https://example.invalid/d/PromptForge_0.4.0_x64-setup.exe?sig=1"),
-        "PromptForge_0.4.0_x64-setup.exe"
+        setup_file_name("https://example.invalid/d/Runvil_0.4.0_x64-setup.exe?sig=1"),
+        "Runvil_0.4.0_x64-setup.exe"
     );
     for odd in [
         "https://example.invalid/d/setup.zip",
         "https://example.invalid/d/",
         "https://example.invalid/d/..%5Cevil.exe",
     ] {
-        assert_eq!(setup_file_name(odd), "PromptForge-setup.exe", "{odd}");
+        assert_eq!(setup_file_name(odd), "Runvil-setup.exe", "{odd}");
     }
 }

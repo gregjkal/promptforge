@@ -8,7 +8,7 @@
 //! generation writes the sidecar default - loopback on an OS-assigned
 //! port, a fresh random bearer key, the recommended STT pair - into the
 //! profile location, and the boot proceeds from it. The installers run
-//! `promptforge-gateway init` ([`init`]) first, which generates the same
+//! `runvil-gateway init` ([`init`]) first, which generates the same
 //! default (without the STT pair under `--no-stt`) and provisions the
 //! speech artifacts it declares.
 

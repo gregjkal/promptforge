@@ -273,22 +273,20 @@ fn a_version_mismatch_stops_before_staging_and_removes_a_stale_sidecar() {
     let mut runner = FakeRunner::with_responses(vec![
         node_found(),
         gateway_built(gateway(environment, target)),
-        success("promptforge-gateway 0.0.1\n"),
+        success("runvil-gateway 0.0.1\n"),
     ]);
 
     let error = build_installer(&request(target, false), environment, &mut runner)
         .expect_err("version mismatch");
 
     assert!(
-        error
-            .primary
-            .contains("printed `promptforge-gateway 0.0.1`"),
+        error.primary.contains("printed `runvil-gateway 0.0.1`"),
         "{error}"
     );
     assert!(
         error
             .primary
-            .contains(&format!("expected `promptforge-gateway {VERSION}`")),
+            .contains(&format!("expected `runvil-gateway {VERSION}`")),
         "{error}"
     );
     assert_eq!(runner.commands.len(), 3);
@@ -375,8 +373,8 @@ fn a_signer_that_writes_no_signature_fails_the_build() {
     set_signing_key(&mut test_environment.environment);
     let environment = &test_environment.environment;
     let target = "x86_64-unknown-linux-gnu";
-    let appimage = bundle(environment, target, "appimage")
-        .join(format!("PromptForge_{VERSION}_amd64.AppImage"));
+    let appimage =
+        bundle(environment, target, "appimage").join(format!("Runvil_{VERSION}_amd64.AppImage"));
     let mut runner = FakeRunner::with_responses(vec![
         ifw_found(),
         node_found(),

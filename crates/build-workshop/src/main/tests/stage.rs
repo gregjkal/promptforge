@@ -13,21 +13,21 @@ const RELEASE_DATE: &str = "2026-10-11";
 fn payload(root: &Path, macos: bool) -> PathBuf {
     let payload = root.join("payload");
     let executables = if macos {
-        let gateway = payload.join("PromptForge Gateway.app").join("Contents");
+        let gateway = payload.join("Runvil Gateway.app").join("Contents");
         write_file(&gateway.join("Info.plist"), b"plist");
         write_file(&gateway.join("Resources").join("icon.icns"), b"icns");
         vec![
             payload
-                .join("PromptForge.app")
+                .join("Runvil.app")
                 .join("Contents")
                 .join("MacOS")
-                .join("promptforge-workshop"),
-            gateway.join("MacOS").join("promptforge-gateway"),
+                .join("runvil-workshop"),
+            gateway.join("MacOS").join("runvil-gateway"),
         ]
     } else {
         vec![
-            payload.join("PromptForge.AppImage"),
-            payload.join("promptforge-gateway"),
+            payload.join("Runvil.AppImage"),
+            payload.join("runvil-gateway"),
         ]
     };
     for executable in executables {
@@ -66,27 +66,27 @@ fn expected_files(macos: bool) -> Vec<String> {
         "config/installer-logo@2x.png",
         "config/installer-watermark.png",
         "config/installer-watermark@2x.png",
-        "packages/com.promptforge.gateway/meta/LICENSE.txt",
-        "packages/com.promptforge.gateway/meta/installscript.qs",
-        "packages/com.promptforge.gateway/meta/package.xml",
-        "packages/com.promptforge.stt/meta/package.xml",
-        "packages/com.promptforge.workshop/meta/LICENSE.txt",
-        "packages/com.promptforge.workshop/meta/installscript.qs",
-        "packages/com.promptforge.workshop/meta/package.xml",
+        "packages/com.runvil.gateway/meta/LICENSE.txt",
+        "packages/com.runvil.gateway/meta/installscript.qs",
+        "packages/com.runvil.gateway/meta/package.xml",
+        "packages/com.runvil.stt/meta/package.xml",
+        "packages/com.runvil.workshop/meta/LICENSE.txt",
+        "packages/com.runvil.workshop/meta/installscript.qs",
+        "packages/com.runvil.workshop/meta/package.xml",
     ];
     if macos {
         files.extend([
-            "packages/com.promptforge.gateway/data/PromptForge Gateway.app/Contents/Info.plist",
-            "packages/com.promptforge.gateway/data/PromptForge Gateway.app/Contents/MacOS/promptforge-gateway",
-            "packages/com.promptforge.gateway/data/PromptForge Gateway.app/Contents/Resources/icon.icns",
-            "packages/com.promptforge.workshop/data/PromptForge.app/Contents/MacOS/promptforge-workshop",
+            "packages/com.runvil.gateway/data/Runvil Gateway.app/Contents/Info.plist",
+            "packages/com.runvil.gateway/data/Runvil Gateway.app/Contents/MacOS/runvil-gateway",
+            "packages/com.runvil.gateway/data/Runvil Gateway.app/Contents/Resources/icon.icns",
+            "packages/com.runvil.workshop/data/Runvil.app/Contents/MacOS/runvil-workshop",
         ]);
     } else {
         files.extend([
-            "packages/com.promptforge.gateway/data/promptforge-gateway",
-            "packages/com.promptforge.gateway/data/promptforge-gateway.png",
-            "packages/com.promptforge.workshop/data/PromptForge.AppImage",
-            "packages/com.promptforge.workshop/data/promptforge-workshop.png",
+            "packages/com.runvil.gateway/data/runvil-gateway",
+            "packages/com.runvil.gateway/data/runvil-gateway.png",
+            "packages/com.runvil.workshop/data/Runvil.AppImage",
+            "packages/com.runvil.workshop/data/runvil-workshop.png",
         ]);
     }
     let mut files: Vec<String> = files.into_iter().map(str::to_owned).collect();
@@ -99,17 +99,17 @@ fn the_staged_definition_is_filled_for_each_platform_with_the_payload_in_place()
     for (target, target_dir, stt) in [
         (
             "aarch64-apple-darwin",
-            "@ApplicationsDir@/PromptForge",
+            "@ApplicationsDir@/Runvil",
             "Speech to Text (downloads about 0.6 GB)",
         ),
         (
             "x86_64-unknown-linux-gnu",
-            "@HomeDir@/PromptForge",
+            "@HomeDir@/Runvil",
             "Speech to Text (downloads about 0.6 GB, 1.3 GB with an NVIDIA GPU)",
         ),
         (
             "aarch64-unknown-linux-gnu",
-            "@HomeDir@/PromptForge",
+            "@HomeDir@/Runvil",
             "Speech to Text (downloads about 0.6 GB)",
         ),
     ] {
@@ -153,7 +153,7 @@ fn check_templates(stage: &Path, target: &str, target_dir: &str, stt: &str) {
     }
     let packages = stage.join("packages");
     for package in ["workshop", "gateway", "stt"] {
-        let xml = read(&packages.join(format!("com.promptforge.{package}/meta/package.xml")));
+        let xml = read(&packages.join(format!("com.runvil.{package}/meta/package.xml")));
         for expected in [
             format!("<Version>{VERSION}</Version>"),
             format!("<ReleaseDate>{RELEASE_DATE}</ReleaseDate>"),
@@ -161,21 +161,21 @@ fn check_templates(stage: &Path, target: &str, target_dir: &str, stt: &str) {
             assert!(xml.contains(&expected), "{target}: {xml}");
         }
     }
-    let stt_xml = read(&packages.join("com.promptforge.stt/meta/package.xml"));
+    let stt_xml = read(&packages.join("com.runvil.stt/meta/package.xml"));
     assert!(
         stt_xml.contains(&format!("<DisplayName>{stt}</DisplayName>")),
         "{target}: {stt_xml}"
     );
     let license = std::fs::read(repository_root().join("LICENSE")).expect("LICENSE");
     for package in ["workshop", "gateway"] {
-        let copy = packages.join(format!("com.promptforge.{package}/meta/LICENSE.txt"));
+        let copy = packages.join(format!("com.runvil.{package}/meta/LICENSE.txt"));
         assert_eq!(std::fs::read(copy).expect("license copy"), license);
     }
-    let gateway_script = read(&packages.join("com.promptforge.gateway/meta/installscript.qs"));
+    let gateway_script = read(&packages.join("com.runvil.gateway/meta/installscript.qs"));
     let gateway_executable = if target.ends_with("apple-darwin") {
-        "PromptForge Gateway.app/Contents/MacOS/promptforge-gateway"
+        "Runvil Gateway.app/Contents/MacOS/runvil-gateway"
     } else {
-        "promptforge-gateway"
+        "runvil-gateway"
     };
     assert!(
         gateway_script.contains(&format!("\"/{gateway_executable}\"")),
@@ -183,10 +183,9 @@ fn check_templates(stage: &Path, target: &str, target_dir: &str, stt: &str) {
     );
     // The Workshop script reads its executable only on Linux.
     if !target.ends_with("apple-darwin") {
-        let workshop_script =
-            read(&packages.join("com.promptforge.workshop/meta/installscript.qs"));
+        let workshop_script = read(&packages.join("com.runvil.workshop/meta/installscript.qs"));
         assert!(
-            workshop_script.contains("\"/PromptForge.AppImage\""),
+            workshop_script.contains("\"/Runvil.AppImage\""),
             "{target}: {workshop_script}"
         );
     }
@@ -203,25 +202,23 @@ fn check_data(packages: &Path, macos: bool) {
     .expect("icon");
     let items = if macos {
         [
-            "PromptForge.app/Contents/MacOS/promptforge-workshop",
-            "PromptForge Gateway.app/Contents/MacOS/promptforge-gateway",
+            "Runvil.app/Contents/MacOS/runvil-workshop",
+            "Runvil Gateway.app/Contents/MacOS/runvil-gateway",
         ]
     } else {
-        ["PromptForge.AppImage", "promptforge-gateway"]
+        ["Runvil.AppImage", "runvil-gateway"]
     };
     for (package, item) in ["workshop", "gateway"].into_iter().zip(items) {
-        let data = packages
-            .join(format!("com.promptforge.{package}"))
-            .join("data");
+        let data = packages.join(format!("com.runvil.{package}")).join("data");
         let copy = data.join(item);
         assert_eq!(std::fs::read(&copy).expect("data copy"), b"program");
         assert_executable(&copy);
         if !macos {
-            let png = data.join(format!("promptforge-{package}.png"));
+            let png = data.join(format!("runvil-{package}.png"));
             assert_eq!(std::fs::read(png).expect("package icon"), icon);
         }
     }
-    assert!(!packages.join("com.promptforge.stt").join("data").exists());
+    assert!(!packages.join("com.runvil.stt").join("data").exists());
 }
 
 #[cfg(unix)]
@@ -246,7 +243,7 @@ fn an_unknown_placeholder_fails_naming_the_file_and_the_placeholder() {
     let package = sources
         .definition
         .join("packages")
-        .join("com.promptforge.stt")
+        .join("com.runvil.stt")
         .join("meta")
         .join("package.xml");
     write_file(&package, b"<Package><Name>{{NOT_A_VALUE}}</Name></Package>");
@@ -272,7 +269,7 @@ fn a_symlink_in_the_payload_is_refused_naming_its_path() {
     let temp = tempfile::tempdir().expect("temporary root");
     let payload = payload(temp.path(), true);
     let link = payload
-        .join("PromptForge.app")
+        .join("Runvil.app")
         .join("Contents")
         .join("Frameworks");
     std::os::unix::fs::symlink("/usr/lib", &link).expect("symlink");
@@ -355,12 +352,12 @@ fn the_definition_names_only_files_it_holds_with_exact_double_size_images() {
             .is_file()
     );
     let packages = sources.definition.join("packages");
-    let gateway = read(&packages.join("com.promptforge.gateway/meta/installscript.qs"));
+    let gateway = read(&packages.join("com.runvil.gateway/meta/installscript.qs"));
     assert!(gateway.contains("{{GATEWAY_EXECUTABLE}}"), "{gateway}");
-    let workshop = read(&packages.join("com.promptforge.workshop/meta/installscript.qs"));
+    let workshop = read(&packages.join("com.runvil.workshop/meta/installscript.qs"));
     assert!(workshop.contains("{{WORKSHOP_EXECUTABLE}}"), "{workshop}");
     for package in ["workshop", "gateway"] {
-        let xml = read(&packages.join(format!("com.promptforge.{package}/meta/package.xml")));
+        let xml = read(&packages.join(format!("com.runvil.{package}/meta/package.xml")));
         assert!(xml.contains("file=\"LICENSE.txt\""), "{xml}");
         assert_eq!(element(&xml, "Script"), "installscript.qs");
     }

@@ -1,4 +1,4 @@
-//! Assembles `PromptForge Gateway.app`, the macOS Gateway payload, around
+//! Assembles `Runvil Gateway.app`, the macOS Gateway payload, around
 //! the release Gateway binary: the Gateway's `Info.plist` template with the
 //! workspace version filled in, and Workshop's icon.
 
@@ -37,7 +37,7 @@ impl BundleSources {
 }
 
 /// Writes the bundle at `bundle`, which must not exist yet:
-/// `Contents/Info.plist`, `Contents/MacOS/promptforge-gateway`, and
+/// `Contents/Info.plist`, `Contents/MacOS/runvil-gateway`, and
 /// `Contents/Resources/icon.icns`, the file `CFBundleIconFile` names.
 pub(crate) fn assemble(
     sources: &BundleSources,

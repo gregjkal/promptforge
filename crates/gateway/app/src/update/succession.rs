@@ -238,7 +238,7 @@ impl Succession {
             Ok(mut successor) => {
                 if self.record.is_none() {
                     tracing::warn!(
-                        "started PromptForge Gateway {} with no discovery record to confirm it by",
+                        "started Runvil Gateway {} with no discovery record to confirm it by",
                         self.version
                     );
                     self.clean_up();
@@ -250,7 +250,7 @@ impl Succession {
                     timeouts.successor,
                     timeouts.poll,
                 ) {
-                    tracing::info!("PromptForge Gateway {} took over", self.version);
+                    tracing::info!("Runvil Gateway {} took over", self.version);
                     self.clean_up();
                     return Ok(self.version);
                 }
@@ -262,7 +262,7 @@ impl Succession {
             Err(error) => format!("{} did not start: {error}", self.executable.display()),
         };
         tracing::error!(
-            "PromptForge Gateway {} did not take over ({reason}); restoring the previous gateway",
+            "Runvil Gateway {} did not take over ({reason}); restoring the previous gateway",
             self.version
         );
         let restore = self.restore(arguments, &mut spawn, &mut serving, timeouts);

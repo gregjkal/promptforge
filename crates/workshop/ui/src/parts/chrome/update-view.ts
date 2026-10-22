@@ -60,7 +60,7 @@ export class UpdateView extends Disposable {
     if (snapshot.gateway !== this.notifiedGateway) {
       this.notifiedGateway = snapshot.gateway;
       if (snapshot.gateway?.outcome === "updating") {
-        this.toasts.show(`PromptForge Gateway is updating to ${snapshot.gateway.version}`, "info");
+        this.toasts.show(`Runvil Gateway is updating to ${snapshot.gateway.version}`, "info");
       }
     }
     if (snapshot.phase === this.notifiedPhase) {

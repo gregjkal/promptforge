@@ -76,7 +76,7 @@ fn a_marked_file_whose_process_died_is_stale_and_removed() {
 fn a_marked_file_naming_another_program_is_stale() {
     let dir = tempfile::TempDir::new().expect("tempdir");
     marked_file(1).write_to(dir.path()).expect("write");
-    // The test process is alive but is not a promptforge-gateway: a
+    // The test process is alive but is not a runvil-gateway: a
     // reused pid.
     let resolution = resolve(dir.path()).expect("resolve");
     assert_eq!(resolution, Resolution::Stale(StaleReason::ImageMismatch));

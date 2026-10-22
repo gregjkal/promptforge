@@ -27,7 +27,7 @@ pub(super) fn node_found() -> FakeResponse {
 }
 
 pub(super) fn version_printed() -> FakeResponse {
-    success(&format!("promptforge-gateway {VERSION}\n"))
+    success(&format!("runvil-gateway {VERSION}\n"))
 }
 
 /// A Tauri build that writes `files`, with the sidecar staged exactly when
@@ -144,12 +144,11 @@ fn windows_unsigned_builds_the_setup_on_the_unsigned_config() {
     test_environment.environment.qtifw_dir = None;
     let environment = &test_environment.environment;
     let target = "x86_64-pc-windows-msvc";
-    let setup =
-        bundle(environment, target, "nsis").join(format!("PromptForge_{VERSION}_x64-setup.exe"));
+    let setup = bundle(environment, target, "nsis").join(format!("Runvil_{VERSION}_x64-setup.exe"));
     // A setup left by an earlier build at another version must not make
     // the collection ambiguous.
     write_file(
-        &bundle(environment, target, "nsis").join("PromptForge_0.0.1_x64-setup.exe"),
+        &bundle(environment, target, "nsis").join("Runvil_0.0.1_x64-setup.exe"),
         b"stale",
     );
     let mut runner = FakeRunner::with_responses(vec![
@@ -173,7 +172,7 @@ fn windows_unsigned_builds_the_setup_on_the_unsigned_config() {
     let publish = output(environment, target).join("publish");
     assert!(
         publish
-            .join(format!("PromptForge_{VERSION}_x64-setup.exe"))
+            .join(format!("Runvil_{VERSION}_x64-setup.exe"))
             .is_file()
     );
     assert_eq!(std::fs::read_dir(&publish).expect("publish").count(), 1);
@@ -193,8 +192,7 @@ fn windows_signed_publishes_the_setup_signature_without_a_gateway_archive() {
     test_environment.environment.signing_key_path_variable = Some("TAURI_SIGNING_PRIVATE_KEY_PATH");
     let environment = &test_environment.environment;
     let target = "x86_64-pc-windows-msvc";
-    let setup =
-        bundle(environment, target, "nsis").join(format!("PromptForge_{VERSION}_x64-setup.exe"));
+    let setup = bundle(environment, target, "nsis").join(format!("Runvil_{VERSION}_x64-setup.exe"));
     let mut runner = FakeRunner::with_responses(vec![
         node_found(),
         gateway_built(gateway(environment, target)),
@@ -214,7 +212,7 @@ fn windows_signed_publishes_the_setup_signature_without_a_gateway_archive() {
         expected_commands(environment, target, "nsis", true)
     );
     let publish = output(environment, target).join("publish");
-    let setup = publish.join(format!("PromptForge_{VERSION}_x64-setup.exe"));
+    let setup = publish.join(format!("Runvil_{VERSION}_x64-setup.exe"));
     assert!(setup.is_file());
     assert!(collect_signature(&setup).is_file());
 }
@@ -235,8 +233,8 @@ fn linux_unsigned_from_the_host_publishes_only_the_installer() {
             test_environment.sidecar(target),
             target,
             vec![
-                appimage.join(format!("PromptForge_{VERSION}_amd64.AppImage")),
-                appimage.join("PromptForge.AppDir").join("AppRun"),
+                appimage.join(format!("Runvil_{VERSION}_amd64.AppImage")),
+                appimage.join("Runvil.AppDir").join("AppRun"),
             ],
             success(""),
         ),
@@ -267,19 +265,14 @@ fn linux_unsigned_from_the_host_publishes_only_the_installer() {
     assert!(
         output_root
             .join("payload")
-            .join("PromptForge.AppImage")
+            .join("Runvil.AppImage")
             .is_file()
     );
-    assert!(
-        output_root
-            .join("payload")
-            .join("promptforge-gateway")
-            .is_file()
-    );
+    assert!(output_root.join("payload").join("runvil-gateway").is_file());
     let installer = installer_path(environment, target);
     assert_eq!(
         installer.file_name().expect("name"),
-        format!("PromptForge_{VERSION}_amd64-setup.run").as_str()
+        format!("Runvil_{VERSION}_amd64-setup.run").as_str()
     );
     assert!(installer.is_file());
     assert_eq!(
@@ -297,11 +290,11 @@ fn linux_signed_publishes_the_appimage_and_the_gateway_archive() {
     test_environment.environment.signing_password_set = false;
     let environment = &test_environment.environment;
     let target = "aarch64-unknown-linux-gnu";
-    let appimage = bundle(environment, target, "appimage")
-        .join(format!("PromptForge_{VERSION}_aarch64.AppImage"));
-    let archive = output(environment, target).join("publish").join(format!(
-        "promptforge-gateway_{VERSION}_linux-aarch64.tar.gz"
-    ));
+    let appimage =
+        bundle(environment, target, "appimage").join(format!("Runvil_{VERSION}_aarch64.AppImage"));
+    let archive = output(environment, target)
+        .join("publish")
+        .join(format!("runvil-gateway_{VERSION}_linux-aarch64.tar.gz"));
     let signed_archive = archive.clone();
     let mut responses = vec![
         ifw_found(),
@@ -338,14 +331,14 @@ fn linux_signed_publishes_the_appimage_and_the_gateway_archive() {
     assert_eq!(runner.commands, expected);
     assert!(installer_path(environment, target).is_file());
     let publish = output(environment, target).join("publish");
-    let published = publish.join(format!("PromptForge_{VERSION}_aarch64.AppImage"));
+    let published = publish.join(format!("Runvil_{VERSION}_aarch64.AppImage"));
     assert!(published.is_file());
     assert!(collect_signature(&published).is_file());
     assert!(collect_signature(&archive).is_file());
     assert!(
         output(environment, target)
             .join("payload")
-            .join("PromptForge.AppImage")
+            .join("Runvil.AppImage")
             .is_file()
     );
 }

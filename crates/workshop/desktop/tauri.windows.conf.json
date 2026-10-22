@@ -1,6 +1,6 @@
 {
   "bundle": {
-    "externalBin": ["binaries/promptforge-gateway"],
+    "externalBin": ["binaries/runvil-gateway"],
     "targets": ["nsis"]
   }
 }

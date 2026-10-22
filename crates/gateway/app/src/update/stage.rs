@@ -14,7 +14,7 @@ use super::verify::Verifier;
 
 /// The staging directory's name, beside the installed item and so on its
 /// filesystem, which a rename needs.
-pub(crate) const STAGING_DIR_NAME: &str = ".promptforge-gateway-update";
+pub(crate) const STAGING_DIR_NAME: &str = ".runvil-gateway-update";
 
 /// The largest download accepted. The macOS bundle and the Linux binary are
 /// tens of megabytes; the Windows setup carries Workshop too.
@@ -358,14 +358,14 @@ pub(crate) fn extract(
         .ok_or_else(|| refused("it is empty".to_owned()))
 }
 
-/// Requires the staged executable to print `promptforge-gateway <version>`
+/// Requires the staged executable to print `runvil-gateway <version>`
 /// for `--version`.
 ///
 /// # Errors
 /// Returns [`UpdateError::StagedVersion`] with what it printed, or why it
 /// could not run.
 pub(crate) fn require_version(exe: &Path, version: &str) -> Result<(), UpdateError> {
-    let required = format!("promptforge-gateway {version}");
+    let required = format!("runvil-gateway {version}");
     let actual = match printed_version(exe) {
         Ok(printed) => printed,
         Err(error) => format!("no version: {} did not run: {error}", exe.display()),

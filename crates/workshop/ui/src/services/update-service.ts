@@ -25,7 +25,7 @@ export type UpdatePhase =
   | "browser";
 
 /**
- * What PromptForge Gateway did when Workshop asked it to update itself after
+ * What Runvil Gateway did when Workshop asked it to update itself after
  * Workshop's own check: the desktop app's `update_gateway` command answer.
  */
 export type GatewayUpdate =
@@ -105,10 +105,10 @@ function oneLine(text: string | undefined): string {
 /** The log line a gateway answer adds; most outcomes add none. */
 function gatewayLogLine(gateway: GatewayUpdate): string | null {
   if (gateway.outcome === "updating") {
-    return `PromptForge Gateway is updating to ${gateway.version}.`;
+    return `Runvil Gateway is updating to ${gateway.version}.`;
   }
   if (gateway.outcome === "failed") {
-    return `PromptForge Gateway update failed: ${gateway.message}`;
+    return `Runvil Gateway update failed: ${gateway.message}`;
   }
   return null;
 }

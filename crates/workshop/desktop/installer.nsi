@@ -82,10 +82,10 @@ Var UpdateMode
 Var NoShortcutMode
 Var WixMode
 Var OldMainBinaryName
-; Set when a running promptforge-gateway.exe was stopped in the Gateway
+; Set when a running runvil-gateway.exe was stopped in the Gateway
 ; section, so the -Relaunch section can relaunch it after the update.
 Var GatewayWasRunning
-; The arguments of the install-time `promptforge-gateway init` and its
+; The arguments of the install-time `runvil-gateway init` and its
 ; nsExec result (an exit code, or "error" when it could not start), both
 ; empty when it did not run; the finish page reports a failure.
 Var GatewayInitArgs
@@ -493,7 +493,7 @@ Function FinishPageShow
  ${EndIf}
  ${If} $GatewayInitExit != ""
  ${AndIf} $GatewayInitExit != 0
- SendMessage $mui.FinishPage.Text ${WM_SETTEXT} 0 "STR:PromptForge Gateway is installed, but its setup, promptforge-gateway.exe $GatewayInitArgs, failed (result: $GatewayInitExit). The installation details show the cause. Once that is fixed, rerun the same command from $INSTDIR."
+ SendMessage $mui.FinishPage.Text ${WM_SETTEXT} 0 "STR:Runvil Gateway is installed, but its setup, runvil-gateway.exe $GatewayInitArgs, failed (result: $GatewayInitExit). The installation details show the cause. Once that is fixed, rerun the same command from $INSTDIR."
  ${EndIf}
 FunctionEnd
 
@@ -826,7 +826,7 @@ Section "Runvil Gateway" SecGateway
 SectionEnd
 
 Section "Speech to Text (downloads about 0.6 GB, 1.1 GB with an NVIDIA GPU)" SecSTT
- ; No files: the -GatewayInit section's `promptforge-gateway init`
+ ; No files: the -GatewayInit section's `runvil-gateway init`
  ; downloads the speech runtime and models into the user's profile.
 SectionEnd
 
@@ -922,10 +922,10 @@ Section "-GatewayInit"
  ${Else}
  StrCpy $GatewayInitArgs "init --no-stt"
  ${EndIf}
- nsExec::ExecToLog '"$INSTDIR\promptforge-gateway.exe" $GatewayInitArgs'
+ nsExec::ExecToLog '"$INSTDIR\runvil-gateway.exe" $GatewayInitArgs'
  Pop $GatewayInitExit
  ${If} $GatewayInitExit != 0
- DetailPrint "promptforge-gateway.exe $GatewayInitArgs failed (result: $GatewayInitExit); Gateway stays installed"
+ DetailPrint "runvil-gateway.exe $GatewayInitArgs failed (result: $GatewayInitExit); Gateway stays installed"
  ; Keep the cause in view: the GUI install stops on this page
  ; (MUI_FINISHPAGE_NOAUTOCLOSE) and the finish page cannot go back.
  SetDetailsView show
@@ -1204,17 +1204,17 @@ FunctionEnd
 !macroend
 
 ; Sets $0 to 1 when init would find a gateway config, searching where it
-; does: PROMPTFORGE_GATEWAY_CONFIG when it names a file, else beside the
+; does: RUNVIL_GATEWAY_CONFIG when it names a file, else beside the
 ; executable and in the working directory (both $INSTDIR here), then the
 ; profile. Like init, it counts files only, not directories. Clobbers $1.
 Function GatewayConfigExists
  StrCpy $0 ""
- ReadEnvStr $1 PROMPTFORGE_GATEWAY_CONFIG
+ ReadEnvStr $1 RUNVIL_GATEWAY_CONFIG
  ${If} $1 != ""
  !insertmacro SetIfConfigFile "$1"
  ${EndIf}
  !insertmacro SetIfConfigFile "$INSTDIR\gateway.toml"
- !insertmacro SetIfConfigFile "$PROFILE\.promptforge\gateway.toml"
+ !insertmacro SetIfConfigFile "$PROFILE\.runvil\gateway.toml"
 FunctionEnd
 
 ; STT installs through the gateway's init, so it requires Gateway: with

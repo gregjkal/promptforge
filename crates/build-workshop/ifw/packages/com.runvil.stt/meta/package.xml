@@ -6,5 +6,5 @@
     <ReleaseDate>{{RELEASE_DATE}}</ReleaseDate>
     <Default>true</Default>
     <SortingPriority>100</SortingPriority>
-    <Dependencies>com.promptforge.gateway</Dependencies>
+    <Dependencies>com.runvil.gateway</Dependencies>
 </Package>

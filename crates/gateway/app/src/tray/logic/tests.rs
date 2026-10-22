@@ -300,13 +300,13 @@ mod macos {
         let template = Path::new(env!("CARGO_MANIFEST_DIR")).join("packaging/Info.plist");
         let plist = std::fs::read_to_string(template).expect("packaging Info.plist");
         let temp = tempfile::TempDir::new().expect("tempdir");
-        let bundle = temp.path().join("PromptForge Gateway.app");
+        let bundle = temp.path().join("Runvil Gateway.app");
         std::fs::create_dir_all(bundle.join("Contents")).expect("mkdir");
         std::fs::write(bundle.join("Contents/Info.plist"), &plist).expect("write plist");
 
         assert!(gateway_is_bundle_principal(
             &bundle,
-            &bundle.join("Contents/MacOS/promptforge-gateway")
+            &bundle.join("Contents/MacOS/runvil-gateway")
         ));
         assert!(
             plist.contains("<key>LSUIElement</key>\n    <true/>"),

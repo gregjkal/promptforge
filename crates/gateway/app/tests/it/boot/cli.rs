@@ -248,21 +248,21 @@ fn a_fatal_boot_error_lands_in_the_log_with_its_chain() {
 /// Runs `init --no-stt --config <config>` with the profile directory at
 /// `home` and no ambient profile or test variable.
 fn init_without_stt(home: &std::path::Path, config: &std::path::Path) -> std::process::Output {
-    std::process::Command::new(env!("CARGO_BIN_EXE_promptforge-gateway"))
+    std::process::Command::new(env!("CARGO_BIN_EXE_runvil-gateway"))
         .args(["init", "--no-stt", "--config"])
         .arg(config)
         .env("USERPROFILE", home)
         .env("HOME", home)
         .env_remove("RUST_LOG")
-        .env_remove("PROMPTFORGE_PROFILE")
-        .env_remove("PROMPTFORGE_INIT_TEST_KEY")
-        .env_remove("PROMPTFORGE_GATEWAY_CONFIG")
+        .env_remove("RUNVIL_PROFILE")
+        .env_remove("RUNVIL_INIT_TEST_KEY")
+        .env_remove("RUNVIL_GATEWAY_CONFIG")
         .output()
         .expect("the init invocation runs")
 }
 
 /// `init` loads the config as a boot does: the env file beside it first,
-/// so `${VAR}` resolves from it, and then `PROMPTFORGE_PROFILE`, which that
+/// so `${VAR}` resolves from it, and then `RUNVIL_PROFILE`, which that
 /// file may set. It never logs, rotates, or writes a discovery file.
 #[test]
 fn init_loads_the_env_file_beside_the_config_before_selecting() {
@@ -270,12 +270,12 @@ fn init_loads_the_env_file_beside_the_config_before_selecting() {
     let config = write_config(
         &temp,
         "config-version = 0\n\n[server]\nbind = \"127.0.0.1:0\"\n\
-         api_key = \"${PROMPTFORGE_INIT_TEST_KEY}\"\n\n\
+         api_key = \"${RUNVIL_INIT_TEST_KEY}\"\n\n\
          [[profile]]\nname = \"main\"\nmodels = []\n"
             .to_owned(),
     );
     let env_file = config.with_extension("env");
-    std::fs::write(&env_file, "PROMPTFORGE_INIT_TEST_KEY=from-env-file\n").expect("write env file");
+    std::fs::write(&env_file, "RUNVIL_INIT_TEST_KEY=from-env-file\n").expect("write env file");
 
     let output = init_without_stt(temp.path(), &config);
     assert!(
@@ -288,17 +288,17 @@ fn init_loads_the_env_file_beside_the_config_before_selecting() {
         "{output:?}"
     );
     assert!(
-        !temp.path().join(".promptforge/logs").exists(),
+        !temp.path().join(".runvil/logs").exists(),
         "init never starts logging"
     );
     assert!(
-        !temp.path().join(".promptforge/run/gateway.json").exists(),
+        !temp.path().join(".runvil/run/gateway.json").exists(),
         "init writes no gateway discovery file"
     );
 
     std::fs::write(
         &env_file,
-        "PROMPTFORGE_INIT_TEST_KEY=from-env-file\nPROMPTFORGE_PROFILE=absent\n",
+        "RUNVIL_INIT_TEST_KEY=from-env-file\nRUNVIL_PROFILE=absent\n",
     )
     .expect("rewrite env file");
     let output = init_without_stt(temp.path(), &config);

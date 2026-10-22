@@ -204,7 +204,7 @@ fn finish(
             );
             match succession.run(lease, &shape, environment) {
                 Ok(version) => {
-                    tracing::info!("gateway exiting; PromptForge Gateway {version} serves");
+                    tracing::info!("gateway exiting; Runvil Gateway {version} serves");
                     ExitCode::SUCCESS
                 }
                 Err(error) => {

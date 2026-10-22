@@ -34,18 +34,18 @@ pub use self::succession::{Succession, SuccessionError, SuccessorShape};
 /// The release manifest the gateway reads unless [`UPDATE_URL_ENV`]
 /// overrides it: the one `tauri.conf.json`'s updater endpoint names.
 const DEFAULT_UPDATE_URL: &str =
-    "https://github.com/cppalliance/promptforge/releases/download/workshop-latest/latest.json";
+    "https://github.com/cppalliance/runvil/releases/download/workshop-latest/latest.json";
 
-/// Overrides [`DEFAULT_UPDATE_URL`], as `PROMPTFORGE_MODELS_SHEET_URL`
+/// Overrides [`DEFAULT_UPDATE_URL`], as `RUNVIL_MODELS_SHEET_URL`
 /// overrides the model sheet. The signature check is what makes the
 /// override safe: only a newer release signed by the release key applies.
-const UPDATE_URL_ENV: &str = "PROMPTFORGE_UPDATE_URL";
+const UPDATE_URL_ENV: &str = "RUNVIL_UPDATE_URL";
 
 /// Replaces the version this gateway reports, in `test-fixtures` builds
 /// only, so a test can run a copy that is older than the release it serves.
 /// Children the update starts never inherit it.
 #[cfg(feature = "test-fixtures")]
-const TEST_VERSION_ENV: &str = "PROMPTFORGE_GATEWAY_TEST_VERSION";
+const TEST_VERSION_ENV: &str = "RUNVIL_GATEWAY_TEST_VERSION";
 
 /// The version this gateway reports: in `--version`, in its discovery file,
 /// and to the update check.
@@ -326,7 +326,7 @@ async fn update(
     };
     let verifier = verify::Verifier::new(&environment.public_key, &entry.signature, &version)
         .map_err(|reason| UpdateError::Signature { key, reason })?;
-    let label = format!("Downloading PromptForge Gateway {version}");
+    let label = format!("Downloading Runvil Gateway {version}");
     let activity = state.hub.begin(label.clone());
     let download = stage::Download {
         url: &entry.url,
@@ -339,7 +339,7 @@ async fn update(
         let setup = windows::download_setup(download).await?;
         windows::start_setup(&setup, ticket, &state.shutdown)?;
         tracing::info!(
-            "started the PromptForge {version} setup {}; it restarts this gateway",
+            "started the Runvil {version} setup {}; it restarts this gateway",
             setup.display()
         );
         return Ok(Applied::Updating { version });
@@ -348,7 +348,7 @@ async fn update(
     install.require_standalone()?;
     let staging = stage::Staging::create(&install)?;
     stage::download(download, &staging.archive()).await?;
-    activity.set_text(format!("Installing PromptForge Gateway {version}"));
+    activity.set_text(format!("Installing Runvil Gateway {version}"));
     let staging = {
         let (install, version, shutdown) =
             (install.clone(), version.clone(), state.shutdown.clone());
@@ -364,7 +364,7 @@ async fn update(
     };
     drop(activity);
     tracing::info!(
-        "installed PromptForge Gateway {version} at {}; restarting into it",
+        "installed Runvil Gateway {version} at {}; restarting into it",
         install.item().display()
     );
     let succession = Succession::new(

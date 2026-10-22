@@ -71,17 +71,14 @@ fn fixture_gateway(expected_key: &'static str) -> u16 {
 
 #[test]
 fn a_gateway_is_known_by_its_name_or_its_superseded_name() {
-    let expected = "promptforge-gateway";
+    let expected = "runvil-gateway";
     for image in [
-        "/opt/promptforge/promptforge-gateway",
-        "/opt/promptforge/promptforge-gateway.previous",
+        "/opt/runvil/runvil-gateway",
+        "/opt/runvil/runvil-gateway.previous",
     ] {
         assert!(image_name_matches(Path::new(image), expected), "{image}");
     }
-    for image in [
-        "/opt/promptforge/promptforge-gateway.old",
-        "/opt/promptforge/sleep",
-    ] {
+    for image in ["/opt/runvil/runvil-gateway.old", "/opt/runvil/sleep"] {
         assert!(!image_name_matches(Path::new(image), expected), "{image}");
     }
 }
@@ -94,10 +91,10 @@ fn a_gateway_is_known_by_its_name_or_its_superseded_name() {
 #[test]
 fn a_gateway_moved_aside_by_its_update_still_holds_its_record() {
     let dir = tempfile::TempDir::new().expect("tempdir");
-    let installed = dir.path().join("promptforge-gateway");
+    let installed = dir.path().join("runvil-gateway");
     // The stand-in is a shell, which ignores the name it runs under; a
     // multi-call `sleep` (uutils coreutils, Ubuntu 26.04) refuses to run as
-    // `promptforge-gateway`. `cp` writes it, so no descriptor for it is
+    // `runvil-gateway`. `cp` writes it, so no descriptor for it is
     // ever open in this process, where a sibling test's fork could inherit
     // it and make the exec below fail with ETXTBSY.
     let copied = std::process::Command::new("cp")
@@ -112,19 +109,18 @@ fn a_gateway_moved_aside_by_its_update_still_holds_its_record() {
         .stdin(std::process::Stdio::piped())
         .spawn()
         .expect("start the stand-in");
-    std::fs::rename(&installed, dir.path().join("promptforge-gateway.previous"))
-        .expect("move it aside");
+    std::fs::rename(&installed, dir.path().join("runvil-gateway.previous")).expect("move it aside");
     let image = crate::sys::process_identity(child.id()).map(|identity| identity.image);
     let mut file = connection(1, "key");
     file.pid = child.id();
     file.restarting = true;
-    let lives = marking_process_lives(&file, "promptforge-gateway");
+    let lives = marking_process_lives(&file, "runvil-gateway");
     drop(child.stdin.take());
     let _ = child.wait();
     assert!(
         image
             .as_deref()
-            .is_some_and(|image| image.ends_with("promptforge-gateway.previous")),
+            .is_some_and(|image| image.ends_with("runvil-gateway.previous")),
         "Linux reports the moved name, so the superseded branch is the one tested: {image:?}"
     );
     assert_eq!(lives, Ok(()));

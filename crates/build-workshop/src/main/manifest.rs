@@ -151,7 +151,7 @@ pub(crate) fn write(
     }
     let manifest = serde_json::json!({
         "version": VERSION,
-        "notes": format!("PromptForge {VERSION}"),
+        "notes": format!("Runvil {VERSION}"),
         "pub_date": pub_date(now),
         "platforms": platforms,
     });
@@ -248,7 +248,7 @@ fn check_file_set(assets: &Path, expected: &BTreeSet<String>) -> Result<(), Stri
         ));
     }
     Err(format!(
-        "{} must hold exactly the {} release files of PromptForge {VERSION} as regular files; \
+        "{} must hold exactly the {} release files of Runvil {VERSION} as regular files; \
          {}",
         assets.display(),
         expected.len(),

@@ -190,10 +190,10 @@ fn get(url: &str, path: &str) -> String {
 
 /// The Gateway executable's file name beside Workshop's.
 #[cfg(windows)]
-const GATEWAY_EXE_NAME: &str = "promptforge-gateway.exe";
+const GATEWAY_EXE_NAME: &str = "runvil-gateway.exe";
 /// The Gateway executable's file name beside Workshop's.
 #[cfg(not(windows))]
-const GATEWAY_EXE_NAME: &str = "promptforge-gateway";
+const GATEWAY_EXE_NAME: &str = "runvil-gateway";
 
 /// Plants an empty file the gateway lookup accepts as runnable.
 fn plant_executable(path: &std::path::Path) {
@@ -213,6 +213,6 @@ fn workshop_exe(with_gateway: bool) -> (tempfile::TempDir, PathBuf) {
     if with_gateway {
         plant_executable(&dir.path().join(GATEWAY_EXE_NAME));
     }
-    let path = dir.path().join("promptforge-workshop");
+    let path = dir.path().join("runvil-workshop");
     (dir, path)
 }

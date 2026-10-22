@@ -84,7 +84,7 @@ fn a_missing_signature_under_sign_names_the_file() {
     let setup = release
         .join("bundle")
         .join("nsis")
-        .join(format!("PromptForge_{VERSION}_x64-setup.exe"));
+        .join(format!("Runvil_{VERSION}_x64-setup.exe"));
     write_file(&setup, b"setup");
 
     let error = collect::collect(
@@ -119,7 +119,7 @@ fn collection_replaces_an_earlier_output() {
         &release
             .join("bundle")
             .join("nsis")
-            .join(format!("PromptForge_{VERSION}_x64-setup.exe")),
+            .join(format!("Runvil_{VERSION}_x64-setup.exe")),
         b"setup",
     );
 
@@ -164,7 +164,7 @@ fn set_mode(path: &Path, mode: u32) {
 #[test]
 fn the_linux_gateway_archive_holds_one_executable_entry_with_the_same_bytes() {
     let temp = tempfile::tempdir().expect("temporary root");
-    let binary = temp.path().join("promptforge-gateway");
+    let binary = temp.path().join("runvil-gateway");
     let contents = b"\x7fELF gateway bytes".repeat(1000);
     write_file(&binary, &contents);
     set_mode(&binary, 0o755);
@@ -174,7 +174,7 @@ fn the_linux_gateway_archive_holds_one_executable_entry_with_the_same_bytes() {
 
     assert_eq!(
         archive_entries(&archive),
-        vec![(PathBuf::from("promptforge-gateway"), 0o755, contents)]
+        vec![(PathBuf::from("runvil-gateway"), 0o755, contents)]
     );
 }
 
@@ -182,20 +182,17 @@ fn the_linux_gateway_archive_holds_one_executable_entry_with_the_same_bytes() {
 #[test]
 fn a_bundle_tree_archives_sorted_at_the_root_with_its_modes() {
     let temp = tempfile::tempdir().expect("temporary root");
-    let bundle = temp.path().join("PromptForge Gateway.app");
+    let bundle = temp.path().join("Runvil Gateway.app");
     let contents = bundle.join("Contents");
     write_file(&contents.join("Info.plist"), b"plist");
-    write_file(
-        &contents.join("MacOS").join("promptforge-gateway"),
-        b"gateway",
-    );
-    set_mode(&contents.join("MacOS").join("promptforge-gateway"), 0o700);
+    write_file(&contents.join("MacOS").join("runvil-gateway"), b"gateway");
+    set_mode(&contents.join("MacOS").join("runvil-gateway"), 0o700);
     write_file(&contents.join("Resources").join("icon.icns"), b"icon");
     let archive = temp.path().join("gateway.tar.gz");
 
     archive::write_archive(&bundle, &archive).expect("archive");
 
-    let root = PathBuf::from("PromptForge Gateway.app");
+    let root = PathBuf::from("Runvil Gateway.app");
     let contents = root.join("Contents");
     assert_eq!(
         archive_entries(&archive),
@@ -205,7 +202,7 @@ fn a_bundle_tree_archives_sorted_at_the_root_with_its_modes() {
             (contents.join("Info.plist"), 0o644, b"plist".to_vec()),
             (contents.join("MacOS"), 0o755, Vec::new()),
             (
-                contents.join("MacOS").join("promptforge-gateway"),
+                contents.join("MacOS").join("runvil-gateway"),
                 0o755,
                 b"gateway".to_vec()
             ),
@@ -223,7 +220,7 @@ fn a_bundle_tree_archives_sorted_at_the_root_with_its_modes() {
 #[test]
 fn a_symlink_in_the_payload_is_refused_naming_its_path() {
     let temp = tempfile::tempdir().expect("temporary root");
-    let bundle = temp.path().join("PromptForge Gateway.app");
+    let bundle = temp.path().join("Runvil Gateway.app");
     write_file(&bundle.join("real"), b"real");
     let link = bundle.join("link");
     std::os::unix::fs::symlink("real", &link).expect("symlink");
@@ -241,17 +238,17 @@ fn macos_release(release: &Path, sign: bool) {
     let bundle = release.join("bundle").join("macos");
     write_file(
         &bundle
-            .join("PromptForge.app")
+            .join("Runvil.app")
             .join("Contents")
             .join("MacOS")
-            .join("promptforge-workshop"),
+            .join("runvil-workshop"),
         b"workshop",
     );
     if sign {
-        write_file(&bundle.join("PromptForge.app.tar.gz"), b"app archive");
-        write_file(&bundle.join("PromptForge.app.tar.gz.sig"), b"app signature");
+        write_file(&bundle.join("Runvil.app.tar.gz"), b"app archive");
+        write_file(&bundle.join("Runvil.app.tar.gz.sig"), b"app signature");
     }
-    write_file(&release.join("promptforge-gateway"), b"gateway");
+    write_file(&release.join("runvil-gateway"), b"gateway");
 }
 
 #[cfg(unix)]
@@ -275,20 +272,20 @@ fn macos_payload_holds_the_two_bundles_and_the_signed_archive_the_gateway_bundle
         .map(|entry| entry.expect("entry").file_name())
         .collect();
     names.sort();
-    assert_eq!(names, ["PromptForge Gateway.app", "PromptForge.app"]);
-    let archive = output.join("publish").join(format!(
-        "promptforge-gateway_{VERSION}_darwin-aarch64.tar.gz"
-    ));
+    assert_eq!(names, ["Runvil Gateway.app", "Runvil.app"]);
+    let archive = output
+        .join("publish")
+        .join(format!("runvil-gateway_{VERSION}_darwin-aarch64.tar.gz"));
     assert_eq!(
         collected.gateway_archive.as_deref(),
         Some(archive.as_path())
     );
-    let executable = PathBuf::from("PromptForge Gateway.app")
+    let executable = PathBuf::from("Runvil Gateway.app")
         .join("Contents")
         .join("MacOS")
-        .join("promptforge-gateway");
+        .join("runvil-gateway");
     let entries = archive_entries(&archive);
-    assert_eq!(entries[0].0, PathBuf::from("PromptForge Gateway.app"));
+    assert_eq!(entries[0].0, PathBuf::from("Runvil Gateway.app"));
     assert!(
         entries.iter().any(|(path, mode, bytes)| *path == executable
             && *mode == 0o755
@@ -313,8 +310,8 @@ fn macos_unsigned_payload_writes_no_archive() {
 
     assert_eq!(collected.gateway_archive, None);
     let payload = output.join("payload");
-    assert!(payload.join("PromptForge Gateway.app").is_dir());
-    assert!(!payload.join("promptforge-gateway").exists());
+    assert!(payload.join("Runvil Gateway.app").is_dir());
+    assert!(!payload.join("runvil-gateway").exists());
     assert_eq!(
         std::fs::read_dir(output.join("publish"))
             .expect("publish")

@@ -1,5 +1,5 @@
 //! Self-update end to end: a copy of the real binary, installed in a
-//! temporary directory and pretending through `PROMPTFORGE_GATEWAY_TEST_VERSION`
+//! temporary directory and pretending through `RUNVIL_GATEWAY_TEST_VERSION`
 //! to be older than this build, updates through `POST /update` from a local
 //! release server signed with a key generated per run, and hands its lease
 //! to the swapped-in copy.
@@ -45,8 +45,8 @@ impl Release {
         let temp = tempfile::tempdir().unwrap();
         let install = temp.path().join("install");
         std::fs::create_dir(&install).unwrap();
-        let installed = install.join("promptforge-gateway");
-        std::fs::copy(env!("CARGO_BIN_EXE_promptforge-gateway"), &installed).unwrap();
+        let installed = install.join("runvil-gateway");
+        std::fs::copy(env!("CARGO_BIN_EXE_runvil-gateway"), &installed).unwrap();
         let config = temp.path().join("gateway.toml");
         std::fs::write(
             &config,
@@ -54,7 +54,7 @@ impl Release {
         )
         .unwrap();
 
-        let archive = archive_of(Path::new(env!("CARGO_BIN_EXE_promptforge-gateway")));
+        let archive = archive_of(Path::new(env!("CARGO_BIN_EXE_runvil-gateway")));
         let signature = minisign::sign(
             Some(&signer.pk),
             &signer.sk,
@@ -111,7 +111,7 @@ impl Release {
     }
 
     fn run_dir(&self) -> PathBuf {
-        self.temp.path().join(".promptforge").join("run")
+        self.temp.path().join(".runvil").join("run")
     }
 
     /// Starts the installed copy headless, reporting the old version.
@@ -123,10 +123,10 @@ impl Release {
             .arg("--print-url")
             .env("USERPROFILE", self.temp.path())
             .env("HOME", self.temp.path())
-            .env("PROMPTFORGE_UPDATE_URL", &self.manifest_url)
-            .env("PROMPTFORGE_UPDATE_TEST_PUBKEY", &self.public_key)
-            .env("PROMPTFORGE_GATEWAY_TEST_VERSION", OLD_VERSION)
-            .env_remove("PROMPTFORGE_GATEWAY_CONFIG")
+            .env("RUNVIL_UPDATE_URL", &self.manifest_url)
+            .env("RUNVIL_UPDATE_TEST_PUBKEY", &self.public_key)
+            .env("RUNVIL_GATEWAY_TEST_VERSION", OLD_VERSION)
+            .env_remove("RUNVIL_GATEWAY_CONFIG")
             .stdin(std::process::Stdio::null())
             .stdout(log)
             .stderr(std::process::Stdio::null())
@@ -151,7 +151,7 @@ impl Release {
     fn installed_version(&self) -> String {
         let output = std::process::Command::new(&self.installed)
             .arg("--version")
-            .env_remove("PROMPTFORGE_GATEWAY_TEST_VERSION")
+            .env_remove("RUNVIL_GATEWAY_TEST_VERSION")
             .output()
             .unwrap();
         String::from_utf8_lossy(&output.stdout).trim().to_owned()
@@ -170,7 +170,7 @@ impl Drop for Release {
     }
 }
 
-/// A `.tar.gz` holding `exe` as one executable named `promptforge-gateway`.
+/// A `.tar.gz` holding `exe` as one executable named `runvil-gateway`.
 fn archive_of(exe: &Path) -> Vec<u8> {
     let bytes = std::fs::read(exe).unwrap();
     let mut header = tar::Header::new_gnu();
@@ -182,7 +182,7 @@ fn archive_of(exe: &Path) -> Vec<u8> {
         flate2::Compression::fast(),
     ));
     builder
-        .append_data(&mut header, "promptforge-gateway", bytes.as_slice())
+        .append_data(&mut header, "runvil-gateway", bytes.as_slice())
         .unwrap();
     builder.into_inner().unwrap().finish().unwrap()
 }
@@ -238,15 +238,15 @@ fn an_update_hands_the_lease_to_the_swapped_in_gateway() {
     );
     assert_eq!(
         release.installed_version(),
-        format!("promptforge-gateway {VERSION}")
+        format!("runvil-gateway {VERSION}")
     );
     let install = release.installed.parent().unwrap();
     assert!(
         !install
-            .join(format!("promptforge-gateway{SUPERSEDED_SUFFIX}"))
+            .join(format!("runvil-gateway{SUPERSEDED_SUFFIX}"))
             .exists()
     );
-    assert!(!install.join(".promptforge-gateway-update").exists());
+    assert!(!install.join(".runvil-gateway-update").exists());
 }
 
 #[test]
@@ -283,10 +283,10 @@ fn a_release_signed_by_another_key_leaves_the_gateway_serving_and_untouched() {
     let install = release.installed.parent().unwrap();
     assert!(
         !install
-            .join(format!("promptforge-gateway{SUPERSEDED_SUFFIX}"))
+            .join(format!("runvil-gateway{SUPERSEDED_SUFFIX}"))
             .exists()
     );
-    assert!(!install.join(".promptforge-gateway-update").exists());
+    assert!(!install.join(".runvil-gateway-update").exists());
     let _ = old.kill();
     let _ = old.wait();
 }

@@ -148,8 +148,8 @@ fn a_running_setup_holds_the_claim_until_it_exits() {
 #[test]
 fn only_a_stranded_install_keeps_the_claim_after_failing() {
     let stranded = UpdateError::Stranded {
-        installed: "/opt/promptforge/promptforge-gateway".into(),
-        previous: "/opt/promptforge/promptforge-gateway.previous".into(),
+        installed: "/opt/runvil/runvil-gateway".into(),
+        previous: "/opt/runvil/runvil-gateway.previous".into(),
         reason: "swap: injected; restore: injected".to_owned(),
     };
     let held = state();
@@ -169,19 +169,19 @@ fn only_a_stranded_install_keeps_the_claim_after_failing() {
 #[test]
 fn an_executable_inside_another_bundle_is_refused() {
     let workshop = Install::locate(std::path::Path::new(
-        "/Applications/PromptForge.app/Contents/MacOS/promptforge-gateway",
+        "/Applications/Runvil.app/Contents/MacOS/runvil-gateway",
     ));
     let error = workshop
         .require_standalone()
         .expect_err("Workshop's bundle");
     assert!(
         matches!(&error, UpdateError::NotStandalone { bundle }
-            if bundle == std::path::Path::new("/Applications/PromptForge.app")),
+            if bundle == std::path::Path::new("/Applications/Runvil.app")),
         "{error}"
     );
     for standalone in [
-        "/Applications/PromptForge Gateway.app/Contents/MacOS/promptforge-gateway",
-        "/usr/local/bin/promptforge-gateway",
+        "/Applications/Runvil Gateway.app/Contents/MacOS/runvil-gateway",
+        "/usr/local/bin/runvil-gateway",
     ] {
         Install::locate(std::path::Path::new(standalone))
             .require_standalone()
@@ -193,13 +193,13 @@ fn an_executable_inside_another_bundle_is_refused() {
 /// installed one, as `apply` leaves them after a verified download.
 #[cfg(unix)]
 fn staged(dir: &std::path::Path, version: &str) -> (Install, Staging) {
-    let script = format!("#!/bin/sh\necho 'promptforge-gateway {version}'\n");
-    let install = Install::locate(&dir.join("promptforge-gateway"));
+    let script = format!("#!/bin/sh\necho 'runvil-gateway {version}'\n");
+    let install = Install::locate(&dir.join("runvil-gateway"));
     std::fs::write(install.item(), "installed").expect("install");
     let staging = Staging::create(&install).expect("stage");
     std::fs::write(
         staging.archive(),
-        super::tar_gz(&[("promptforge-gateway", script.as_bytes(), 0o755)]),
+        super::tar_gz(&[("runvil-gateway", script.as_bytes(), 0o755)]),
     )
     .expect("the verified download");
     (install, staging)

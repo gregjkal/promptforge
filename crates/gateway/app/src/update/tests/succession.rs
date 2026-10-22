@@ -34,7 +34,7 @@ impl Fixture {
     fn new() -> Fixture {
         let dir = tempfile::TempDir::new().expect("tempdir");
         let run_dir = dir.path().join("run");
-        let installed = dir.path().join("promptforge-gateway");
+        let installed = dir.path().join("runvil-gateway");
         let staging = dir.path().join(crate::update::stage::STAGING_DIR_NAME);
         std::fs::write(&installed, "new").expect("install the new item");
         std::fs::write(previous_path(&installed), "old").expect("move the old item aside");

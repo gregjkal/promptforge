@@ -304,14 +304,14 @@ fn parses_the_installer_and_sidecar_modes() {
             "sidecar",
             "stage",
             "--source",
-            "target/debug/promptforge-gateway.exe",
+            "target/debug/runvil-gateway.exe",
             "--target",
             "aarch64-pc-windows-msvc",
         ]))
         .expect("stage"),
         Request::Sidecar(SidecarRequest::Stage {
             target: "aarch64-pc-windows-msvc".to_owned(),
-            source: PathBuf::from("target/debug/promptforge-gateway.exe"),
+            source: PathBuf::from("target/debug/runvil-gateway.exe"),
         })
     );
     assert_eq!(
@@ -386,7 +386,7 @@ fn default_build_derives_host_and_stages_around_the_workshop_build() {
     let source = environment
         .target_root
         .join("debug")
-        .join("promptforge-gateway.exe");
+        .join("runvil-gateway.exe");
     let mut runner = FakeRunner::with_responses(vec![
         success("cargo 1.89.0\nhost: x86_64-pc-windows-msvc\n"),
         gateway_built(source),
@@ -423,7 +423,7 @@ fn explicit_linux_release_target_builds_without_a_host_probe_or_sidecar() {
         .target_root
         .join(triple)
         .join("release")
-        .join("promptforge-gateway");
+        .join("runvil-gateway");
     let mut runner = FakeRunner::with_responses(vec![
         gateway_built(source),
         workshop_built_without_sidecar(test_environment.sidecar(triple), success("")),
@@ -465,7 +465,7 @@ fn a_target_root_from_cargo_configuration_is_left_to_cargo() {
         .target_root
         .join(triple)
         .join("release")
-        .join("promptforge-gateway");
+        .join("runvil-gateway");
     let mut runner = FakeRunner::with_responses(vec![gateway_built(source), success("")]);
 
     build_workshop(

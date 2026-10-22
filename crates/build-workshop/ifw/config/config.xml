@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Installer>
-    <Name>PromptForge</Name>
+    <Name>Runvil</Name>
     <Version>{{VERSION}}</Version>
-    <Title>PromptForge {{VERSION}}</Title>
+    <Title>Runvil {{VERSION}}</Title>
     <Publisher>The C++ Alliance, Inc.</Publisher>
-    <ProductUrl>https://github.com/cppalliance/promptforge</ProductUrl>
+    <ProductUrl>https://github.com/cppalliance/runvil</ProductUrl>
     <TargetDir>{{TARGET_DIR}}</TargetDir>
     <WizardStyle>Modern</WizardStyle>
     <WizardShowPageList>false</WizardShowPageList>

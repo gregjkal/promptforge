@@ -73,7 +73,7 @@ pub(super) fn answer(result: Result<Applied, UpdateError>) -> (StatusCode, Updat
                 UpdateOutcome::WorkshopOwned,
                 None,
                 Some(
-                    "updates come from PromptForge Workshop on this install: its updater updates the gateway with it"
+                    "updates come from Runvil Workshop on this install: its updater updates the gateway with it"
                         .to_owned(),
                 ),
             ),

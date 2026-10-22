@@ -13,33 +13,33 @@ fn names_the_sidecar_with_tauri_s_target_suffix() {
     for (target, binary, staged) in [
         (
             "x86_64-pc-windows-msvc",
-            "promptforge-gateway.exe",
-            "promptforge-gateway-x86_64-pc-windows-msvc.exe",
+            "runvil-gateway.exe",
+            "runvil-gateway-x86_64-pc-windows-msvc.exe",
         ),
         (
             "x86_64-pc-windows-gnu",
-            "promptforge-gateway.exe",
-            "promptforge-gateway-x86_64-pc-windows-gnu.exe",
+            "runvil-gateway.exe",
+            "runvil-gateway-x86_64-pc-windows-gnu.exe",
         ),
         (
             "x86_64-unknown-linux-gnu",
-            "promptforge-gateway",
-            "promptforge-gateway-x86_64-unknown-linux-gnu",
+            "runvil-gateway",
+            "runvil-gateway-x86_64-unknown-linux-gnu",
         ),
         (
             "aarch64-unknown-linux-gnu",
-            "promptforge-gateway",
-            "promptforge-gateway-aarch64-unknown-linux-gnu",
+            "runvil-gateway",
+            "runvil-gateway-aarch64-unknown-linux-gnu",
         ),
         (
             "aarch64-apple-darwin",
-            "promptforge-gateway",
-            "promptforge-gateway-aarch64-apple-darwin",
+            "runvil-gateway",
+            "runvil-gateway-aarch64-apple-darwin",
         ),
         (
             "x86_64-apple-darwin",
-            "promptforge-gateway",
-            "promptforge-gateway-x86_64-apple-darwin",
+            "runvil-gateway",
+            "runvil-gateway-x86_64-apple-darwin",
         ),
     ] {
         assert_eq!(sidecar::gateway_binary_name(target), binary, "{target}");
@@ -55,7 +55,7 @@ fn names_the_sidecar_with_tauri_s_target_suffix() {
 fn stages_a_copy_and_removes_it() {
     let temp = tempfile::tempdir().expect("temporary root");
     let root = temp.path().join("repo");
-    let source = temp.path().join("build").join("promptforge-gateway");
+    let source = temp.path().join("build").join("runvil-gateway");
     write_file(&source, b"gateway bytes");
     let target = "x86_64-unknown-linux-gnu";
 
@@ -74,7 +74,7 @@ fn staging_keeps_the_execute_bit() {
     use std::os::unix::fs::PermissionsExt as _;
 
     let temp = tempfile::tempdir().expect("temporary root");
-    let source = temp.path().join("promptforge-gateway");
+    let source = temp.path().join("runvil-gateway");
     write_file(&source, b"gateway");
     std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o755))
         .expect("make executable");
@@ -104,10 +104,10 @@ fn refuses_a_missing_source_a_directory_and_a_wrong_name() {
     let temp = tempfile::tempdir().expect("temporary root");
     let root = temp.path().join("repo");
     let target = "x86_64-pc-windows-msvc";
-    let missing = temp.path().join("promptforge-gateway.exe");
-    let directory = temp.path().join("dir").join("promptforge-gateway.exe");
+    let missing = temp.path().join("runvil-gateway.exe");
+    let directory = temp.path().join("dir").join("runvil-gateway.exe");
     std::fs::create_dir_all(&directory).expect("directory");
-    let misnamed = temp.path().join("promptforge-gateway");
+    let misnamed = temp.path().join("runvil-gateway");
     write_file(&misnamed, b"gateway");
 
     for (source, expected) in [
@@ -115,7 +115,7 @@ fn refuses_a_missing_source_a_directory_and_a_wrong_name() {
         (&directory, "is not a file"),
         (
             &misnamed,
-            "must be named promptforge-gateway.exe for x86_64-pc-windows-msvc",
+            "must be named runvil-gateway.exe for x86_64-pc-windows-msvc",
         ),
     ] {
         let error = sidecar::stage(&root, target, source).expect_err("refused source");

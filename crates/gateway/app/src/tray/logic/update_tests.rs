@@ -39,7 +39,7 @@ fn the_update_item_follows_every_notice_state() {
         ),
         (
             NoticeState::WorkshopOwned,
-            "Updates come from PromptForge Workshop",
+            "Updates come from Runvil Workshop",
             false,
         ),
     ];
@@ -137,12 +137,12 @@ fn busy_text_outranks_the_notice() {
         assert_eq!(
             status_label(
                 TrayPhase::Running,
-                Some("Downloading PromptForge Gateway 0.4.0 34%"),
+                Some("Downloading Runvil Gateway 0.4.0 34%"),
                 2,
                 0.0,
                 &notice
             ),
-            "Running - Downloading PromptForge Gateway 0.4.0 34%",
+            "Running - Downloading Runvil Gateway 0.4.0 34%",
             "{notice:?} waits behind the activity"
         );
     }

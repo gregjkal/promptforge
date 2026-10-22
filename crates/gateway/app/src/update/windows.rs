@@ -19,10 +19,10 @@ use crate::shutdown::{ShutdownSignal, UpdateTicket};
 pub(crate) const SETUP_ARGUMENTS: [&str; 2] = ["/P", "/UPDATE"];
 
 /// The directory under the temporary directory the setup downloads into.
-const SETUP_DIR_NAME: &str = "promptforge-gateway-update";
+const SETUP_DIR_NAME: &str = "runvil-gateway-update";
 
 /// The setup's name when the download URL names no `.exe`.
-const DEFAULT_SETUP_NAME: &str = "PromptForge-setup.exe";
+const DEFAULT_SETUP_NAME: &str = "Runvil-setup.exe";
 
 /// How this gateway updates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

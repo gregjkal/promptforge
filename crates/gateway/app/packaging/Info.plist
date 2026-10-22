@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-    PromptForge Gateway.app, the macOS Gateway payload. `cargo workshop
+    Runvil Gateway.app, the macOS Gateway payload. `cargo workshop
     installer` assembles the bundle and fills both version keys with the
     workspace version. LSUIElement keeps the tray-only gateway out of the
     Dock, and CFBundleExecutable makes the gateway the bundle's principal
@@ -12,17 +12,17 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleDisplayName</key>
-    <string>PromptForge Gateway</string>
+    <string>Runvil Gateway</string>
     <key>CFBundleExecutable</key>
-    <string>promptforge-gateway</string>
+    <string>runvil-gateway</string>
     <key>CFBundleIconFile</key>
     <string>icon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.promptforge.gateway</string>
+    <string>com.runvil.gateway</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>PromptForge Gateway</string>
+    <string>Runvil Gateway</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

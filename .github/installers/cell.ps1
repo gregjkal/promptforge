@@ -36,10 +36,10 @@ if (-not $selections.ContainsKey($Selection)) {
 }
 $want = $selections[$Selection]
 
-$root = Join-Path $env:LOCALAPPDATA 'PromptForge'
-$profileDir = Join-Path $env:USERPROFILE '.promptforge'
-$workshopExe = Join-Path $root 'promptforge-workshop.exe'
-$gatewayExe = Join-Path $root 'promptforge-gateway.exe'
+$root = Join-Path $env:LOCALAPPDATA 'Runvil'
+$profileDir = Join-Path $env:USERPROFILE '.runvil'
+$workshopExe = Join-Path $root 'runvil-workshop.exe'
+$gatewayExe = Join-Path $root 'runvil-gateway.exe'
 $config = Join-Path $profileDir 'gateway.toml'
 $discovery = Join-Path $profileDir 'run\gateway.json'
 # Nothing listens on the discard port, so every download through this proxy
@@ -76,7 +76,7 @@ function Invoke-Setup([string[]]$Arguments, [switch]$DeadProxy) {
 }
 
 function Stop-Started {
-  $running = @(Get-Process -Name 'promptforge-workshop', 'promptforge-gateway' -ErrorAction SilentlyContinue)
+  $running = @(Get-Process -Name 'runvil-workshop', 'runvil-gateway' -ErrorAction SilentlyContinue)
   foreach ($process in $running) {
     Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
   }
@@ -156,8 +156,8 @@ function Test-ConfigPage([string]$Origin) {
   } catch {
     Fail "$Origin/config/ did not answer: $($_.Exception.Message)"
   }
-  if (-not (Select-String -LiteralPath $page -SimpleMatch '<title>PromptForge Gateway Config</title>' -Quiet)) {
-    Fail "$Origin/config/ lacks <title>PromptForge Gateway Config</title>"
+  if (-not (Select-String -LiteralPath $page -SimpleMatch '<title>Runvil Gateway Config</title>' -Quiet)) {
+    Fail "$Origin/config/ lacks <title>Runvil Gateway Config</title>"
   }
   Write-Host "cell: the Gateway serves /config/ at $Origin"
 }
@@ -177,8 +177,8 @@ function Read-SharedText([string]$Path) {
 }
 
 function Get-InstallState {
-  $keys = @(Get-Item -Path 'HKCU:\Software\*\PromptForge\Components' -ErrorAction SilentlyContinue)
-  if ($keys.Count -ne 1) { Fail "exactly one HKCU:\Software\*\PromptForge\Components key must hold the persisted selection; found $($keys.Count)" }
+  $keys = @(Get-Item -Path 'HKCU:\Software\*\Runvil\Components' -ErrorAction SilentlyContinue)
+  if ($keys.Count -ne 1) { Fail "exactly one HKCU:\Software\*\Runvil\Components key must hold the persisted selection; found $($keys.Count)" }
   $components = ($keys[0].GetValueNames() | Sort-Object | ForEach-Object { "$_=$($keys[0].GetValue($_))" }) -join ','
   $models = (@(Get-ModelFiles) | Sort-Object FullName | ForEach-Object { "$($_.FullName):$($_.Length)" }) -join ','
   [pscustomobject]@{
@@ -235,8 +235,8 @@ function Test-Selection($Want) {
 
   # 3. Every present executable prints the version.
   foreach ($check in @(
-      @{ Wanted = $Want.Workshop; Exe = $workshopExe; Expected = "promptforge-workshop $Version" },
-      @{ Wanted = $Want.Gateway; Exe = $gatewayExe; Expected = "promptforge-gateway $Version" })) {
+      @{ Wanted = $Want.Workshop; Exe = $workshopExe; Expected = "runvil-workshop $Version" },
+      @{ Wanted = $Want.Gateway; Exe = $gatewayExe; Expected = "runvil-gateway $Version" })) {
     if (-not $check.Wanted) { continue }
     $output = (& $check.Exe --version | Out-String).Trim()
     if ($output -ne $check.Expected) { Fail "$($check.Exe) --version printed '$output', required '$($check.Expected)'" }
@@ -269,7 +269,7 @@ api_key = "release-smoke"
       foreach ($candidate in $ports) {
         try {
           $response = Invoke-WebRequest -Uri "http://127.0.0.1:$candidate/" -TimeoutSec 2
-          if ($response.Content -match '<title>PromptForge</title>') {
+          if ($response.Content -match '<title>Runvil</title>') {
             $port = $candidate
             break
           }
@@ -279,7 +279,7 @@ api_key = "release-smoke"
       if ($port) { break }
       Start-Sleep -Seconds 1
     }
-    if (-not $port) { Fail 'Workshop never served <title>PromptForge</title> on a loopback port within 120 seconds' }
+    if (-not $port) { Fail 'Workshop never served <title>Runvil</title> on a loopback port within 120 seconds' }
     $script = Join-Path $logs 'app.js'
     Invoke-WebRequest -Uri "http://127.0.0.1:$port/app.js" -OutFile $script
     $size = (Get-Item -LiteralPath $script).Length
@@ -410,6 +410,6 @@ try {
   Stop-Started
   $profileLogs = Join-Path $profileDir 'logs'
   if (Test-Path -LiteralPath $profileLogs) {
-    Copy-Item -LiteralPath $profileLogs -Destination (Join-Path $logs 'promptforge-logs') -Recurse -Force -ErrorAction SilentlyContinue
+    Copy-Item -LiteralPath $profileLogs -Destination (Join-Path $logs 'runvil-logs') -Recurse -Force -ErrorAction SilentlyContinue
   }
 }

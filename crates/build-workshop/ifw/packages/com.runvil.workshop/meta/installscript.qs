@@ -17,12 +17,12 @@ Component.prototype.createOperations = function () {
 
     if (systemInfo.kernelType === "linux") {
         var target = installer.value("TargetDir");
-        component.addOperation("CreateDesktopEntry", "com.promptforge.workshop.desktop", [
+        component.addOperation("CreateDesktopEntry", "com.runvil.workshop.desktop", [
             "Type=Application",
-            "Name=PromptForge",
+            "Name=Runvil",
             "Comment=Write and run prompts",
             "Exec=" + desktopExec(target + "/{{WORKSHOP_EXECUTABLE}}"),
-            "Icon=" + target + "/promptforge-workshop.png",
+            "Icon=" + target + "/runvil-workshop.png",
             "Terminal=false",
             "Categories=Development;"
         ].join("\n"));

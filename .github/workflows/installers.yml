@@ -1,5 +1,5 @@
 name: Installers
-run-name: PromptForge installers (${{ github.event_name == 'push' && github.ref_name || github.event_name == 'pull_request' && 'pull request' || 'dispatched' }})
+run-name: Runvil installers (${{ github.event_name == 'push' && github.ref_name || github.event_name == 'pull_request' && 'pull request' || 'dispatched' }})
 
 # Builds the five installers (Windows x64, macOS ARM and Intel, Linux x64
 # and ARM64), installs and runs component selections on a fresh machine of
@@ -322,9 +322,9 @@ jobs:
         if: matrix.platform == 'windows'
         shell: bash
         run: |
-          setup=$(ls target/installer/x86_64-pc-windows-msvc/publish/PromptForge_*_x64-setup.exe)
+          setup=$(ls target/installer/x86_64-pc-windows-msvc/publish/Runvil_*_x64-setup.exe)
           listing=$(7z l "$setup")
-          grep -F promptforge-gateway.exe <<< "$listing" || { echo "$listing"; echo "promptforge-gateway.exe is not in $setup"; exit 1; }
+          grep -F runvil-gateway.exe <<< "$listing" || { echo "$listing"; echo "runvil-gateway.exe is not in $setup"; exit 1; }
 
       - name: Clean tree
         shell: bash
@@ -512,7 +512,7 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: PromptForge ${{ github.ref_name }}
+          name: Runvil ${{ github.ref_name }}
           make_latest: true
           files: dist/*
 
@@ -526,11 +526,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evergreen
-          cp "dist/PromptForge_${VERSION}_x64-setup.exe" evergreen/PromptForge-setup.exe
-          cp "dist/PromptForge_${VERSION}_aarch64-setup.dmg" evergreen/PromptForge-arm64.dmg
-          cp "dist/PromptForge_${VERSION}_x86_64-setup.dmg" evergreen/PromptForge-x64.dmg
-          cp "dist/PromptForge_${VERSION}_amd64-setup.run" evergreen/PromptForge-x64.run
-          cp "dist/PromptForge_${VERSION}_aarch64-setup.run" evergreen/PromptForge-arm64.run
+          cp "dist/Runvil_${VERSION}_x64-setup.exe" evergreen/Runvil-setup.exe
+          cp "dist/Runvil_${VERSION}_aarch64-setup.dmg" evergreen/Runvil-arm64.dmg
+          cp "dist/Runvil_${VERSION}_x86_64-setup.dmg" evergreen/Runvil-x64.dmg
+          cp "dist/Runvil_${VERSION}_amd64-setup.run" evergreen/Runvil-x64.run
+          cp "dist/Runvil_${VERSION}_aarch64-setup.run" evergreen/Runvil-arm64.run
           ls -l evergreen
 
       - name: Publish the stable updater pointer
@@ -543,8 +543,8 @@ jobs:
           else
             gh release create workshop-latest \
               --target "$GITHUB_SHA" \
-              --title "PromptForge updater" \
-              --notes "The updater manifest and version-free installers of the latest tested PromptForge release." \
+              --title "Runvil updater" \
+              --notes "The updater manifest and version-free installers of the latest tested Runvil release." \
               --latest=false \
               dist/latest.json evergreen/*
           fi

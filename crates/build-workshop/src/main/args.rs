@@ -7,7 +7,7 @@ use super::sidecar::bundles_sidecar;
 use super::{BuildRequest, Profile};
 
 pub(super) const USAGE: &str = "\
-Build PromptForge Gateway and Workshop together, build a platform installer,
+Build Runvil Gateway and Workshop together, build a platform installer,
 write a release's latest.json and SHA256SUMS, or stage the Gateway sidecar on
 its own. Workshop bundles the Gateway as a sidecar only for Windows targets.
 On macOS and Linux, `installer` needs Qt IFW 4.11.0, found through QTIFWDIR

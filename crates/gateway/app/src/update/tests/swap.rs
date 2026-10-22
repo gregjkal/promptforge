@@ -6,7 +6,7 @@ use crate::update::swap::{previous_path, restore, restore_with, swap, swap_with}
 
 fn fixture() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
     let dir = tempfile::TempDir::new().expect("tempdir");
-    let installed = dir.path().join("promptforge-gateway");
+    let installed = dir.path().join("runvil-gateway");
     let staged = dir.path().join("staged");
     std::fs::write(&installed, "old").expect("install");
     std::fs::write(&staged, "new").expect("stage");

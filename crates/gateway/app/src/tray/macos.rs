@@ -3,7 +3,7 @@
 //! [`crate::spawn`].
 //!
 //! Process shape: the gateway ships as the principal executable of its own
-//! `PromptForge Gateway.app`, whose Info.plist (`packaging/Info.plist`)
+//! `Runvil Gateway.app`, whose Info.plist (`packaging/Info.plist`)
 //! sets `LSUIElement`. A development build runs as a bare executable with
 //! no Info.plist, so the early `setActivationPolicy(.accessory)` call in
 //! [`run`] still keeps the daemon out of the Dock there, and it runs
@@ -390,7 +390,7 @@ impl LoginService {
     /// macOS 13 or later (the class arrived in 13, and messaging an
     /// absent class panics inside the objc2 class lookup), and the
     /// gateway running as its bundle's principal executable, as it does in
-    /// the shipped `PromptForge Gateway.app`. Inside another bundle the
+    /// the shipped `Runvil Gateway.app`. Inside another bundle the
     /// principal is that bundle's app, so registration would launch it at
     /// every login, and the item stays disabled instead. Registration is
     /// additionally meaningful only for signed builds: an unsigned bundle

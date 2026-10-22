@@ -16,8 +16,8 @@ use super::archive::write_archive;
 use super::bundle::{self, BundleSources};
 use super::{Arch, Platform, System, VERSION};
 
-const PRODUCT: &str = "PromptForge";
-pub(crate) const GATEWAY: &str = "promptforge-gateway";
+const PRODUCT: &str = "Runvil";
+pub(crate) const GATEWAY: &str = "runvil-gateway";
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct Collected {

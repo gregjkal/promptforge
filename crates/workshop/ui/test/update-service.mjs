@@ -149,7 +149,7 @@ await assertNoLeaks(lifecycle, async () => {
     check("an updating gateway leaves Workshop's phase", updating.snapshot.phase === "current");
     check(
       "an updating gateway adds its log line",
-      updating.snapshot.log.join("|") === "PromptForge Gateway is updating to 0.4.0.",
+      updating.snapshot.log.join("|") === "Runvil Gateway is updating to 0.4.0.",
     );
     updating.dispose();
   }
@@ -175,7 +175,7 @@ await assertNoLeaks(lifecycle, async () => {
     check(
       "a rejected gateway update logs its failure",
       rejected.snapshot.log.join("|") ===
-        "PromptForge Gateway update failed: command update_gateway not allowed",
+        "Runvil Gateway update failed: command update_gateway not allowed",
     );
     rejected.dispose();
   }
@@ -230,7 +230,7 @@ await assertNoLeaks(lifecycle, async () => {
     check("both checks settle with the gateway's answer", slow.snapshot.gateway?.outcome === "updating");
     check(
       "the joined request logs once",
-      slow.snapshot.log.join("|") === "PromptForge Gateway is updating to 0.4.0.",
+      slow.snapshot.log.join("|") === "Runvil Gateway is updating to 0.4.0.",
     );
     listener.dispose();
     slow.dispose();
@@ -265,7 +265,7 @@ await assertNoLeaks(lifecycle, async () => {
     check("a gateway answer during Workshop's check is not asked for again", calls.gateway === 1);
     check(
       "a gateway answer during Workshop's check keeps its log line",
-      racing.snapshot.log.join("|") === "PromptForge Gateway is updating to 0.4.0.",
+      racing.snapshot.log.join("|") === "Runvil Gateway is updating to 0.4.0.",
     );
     racing.dispose();
   }

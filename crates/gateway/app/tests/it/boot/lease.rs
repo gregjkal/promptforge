@@ -349,9 +349,9 @@ fn a_lease_loser_waits_through_a_marked_handoff() {
          [[profile]]\nname = \"main\"\nmodels = []\n"
             .to_string(),
     );
-    let run_dir = temp.path().join(".promptforge").join("run");
+    let run_dir = temp.path().join(".runvil").join("run");
     let gateway = |extra: &str, stdout: std::process::Stdio| {
-        std::process::Command::new(env!("CARGO_BIN_EXE_promptforge-gateway"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_runvil-gateway"))
             .arg("--config")
             .arg(&path)
             .arg("--profile")

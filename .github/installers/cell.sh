@@ -42,27 +42,27 @@ case "$selection" in
   *) fail "selection must be all, workshop, gateway, or gateway-stt; got '$selection'" ;;
 esac
 ids=""
-[ "$want_workshop" = 0 ] || ids="$ids com.promptforge.workshop"
-[ "$want_gateway" = 0 ] || ids="$ids com.promptforge.gateway"
-[ "$want_stt" = 0 ] || ids="$ids com.promptforge.stt"
+[ "$want_workshop" = 0 ] || ids="$ids com.runvil.workshop"
+[ "$want_gateway" = 0 ] || ids="$ids com.runvil.gateway"
+[ "$want_stt" = 0 ] || ids="$ids com.runvil.stt"
 
 system=$(uname -s)
-profile="$HOME/.promptforge"
+profile="$HOME/.runvil"
 applications="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 case "$system" in
   Darwin)
-    root=${CELL_ROOT:-/Applications/PromptForge}
-    workshop_item="$root/PromptForge.app"
-    workshop_exe="$workshop_item/Contents/MacOS/promptforge-workshop"
-    gateway_item="$root/PromptForge Gateway.app"
-    gateway_exe="$gateway_item/Contents/MacOS/promptforge-gateway"
+    root=${CELL_ROOT:-/Applications/Runvil}
+    workshop_item="$root/Runvil.app"
+    workshop_exe="$workshop_item/Contents/MacOS/runvil-workshop"
+    gateway_item="$root/Runvil Gateway.app"
+    gateway_exe="$gateway_item/Contents/MacOS/runvil-gateway"
     whisper_library=libwhisper.dylib
     ;;
   Linux)
-    root=${CELL_ROOT:-$HOME/PromptForge}
-    workshop_item="$root/PromptForge.AppImage"
+    root=${CELL_ROOT:-$HOME/Runvil}
+    workshop_item="$root/Runvil.AppImage"
     workshop_exe=$workshop_item
-    gateway_item="$root/promptforge-gateway"
+    gateway_item="$root/runvil-gateway"
     gateway_exe=$gateway_item
     whisper_library=libwhisper.so
     ;;
@@ -84,8 +84,8 @@ cleanup() {
     hdiutil detach "$mount" -quiet 2>/dev/null || true
   fi
   if [ -d "$profile/logs" ]; then
-    rm -rf "$logs/promptforge-logs"
-    cp -R "$profile/logs" "$logs/promptforge-logs" 2>/dev/null || true
+    rm -rf "$logs/runvil-logs"
+    cp -R "$profile/logs" "$logs/runvil-logs" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
@@ -154,7 +154,7 @@ case "$system" in
     mount=$(mktemp -d)
     hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$installer" >"$logs/hdiutil.log" 2>&1 ||
       fail "hdiutil attach $installer failed; see $logs/hdiutil.log"
-    setup="$mount/PromptForge Installer.app/Contents/MacOS/PromptForge Installer"
+    setup="$mount/Runvil Installer.app/Contents/MacOS/Runvil Installer"
     ;;
   Linux)
     chmod +x "$installer"
@@ -194,9 +194,9 @@ check_presence() {
 check_presence Workshop "$want_workshop" "$workshop_item"
 check_presence Gateway "$want_gateway" "$gateway_item"
 if [ "$system" = Linux ]; then
-  check_presence "Workshop's desktop entry" "$want_workshop" "$applications/com.promptforge.workshop.desktop"
-  check_presence "the Gateway's desktop entry" "$want_gateway" "$applications/com.promptforge.gateway.desktop"
-  for entry in "$applications"/com.promptforge.*.desktop; do
+  check_presence "Workshop's desktop entry" "$want_workshop" "$applications/com.runvil.workshop.desktop"
+  check_presence "the Gateway's desktop entry" "$want_gateway" "$applications/com.runvil.gateway.desktop"
+  for entry in "$applications"/com.runvil.*.desktop; do
     [ -e "$entry" ] || continue
     desktop-file-validate "$entry" || fail "$entry fails desktop-file-validate"
     exec_path=$(sed -n 's/^Exec="\([^"]*\)".*/\1/p' "$entry")
@@ -252,8 +252,8 @@ check_version() {
   fi
   [ "$output" = "$expected" ] || fail "$exe --version printed '$output', required '$expected'"
 }
-[ "$want_workshop" = 0 ] || check_version "$workshop_exe" "promptforge-workshop $version"
-[ "$want_gateway" = 0 ] || check_version "$gateway_exe" "promptforge-gateway $version"
+[ "$want_workshop" = 0 ] || check_version "$workshop_exe" "runvil-workshop $version"
+[ "$want_gateway" = 0 ] || check_version "$gateway_exe" "runvil-gateway $version"
 
 # 4. Workshop serves its page, attached to the installed Gateway when there
 # is one and to the fixture endpoint otherwise.
@@ -292,7 +292,7 @@ EOF
     fi
     for port in $(loopback_ports "$(process_tree "$workshop_pid")"); do
       if curl -sf --max-time 2 "http://127.0.0.1:$port/" -o "$logs/workshop.html" &&
-        grep -Fq "<title>PromptForge</title>" "$logs/workshop.html"; then
+        grep -Fq "<title>Runvil</title>" "$logs/workshop.html"; then
         workshop_port=$port
         break
       fi
@@ -300,7 +300,7 @@ EOF
     [ -z "$workshop_port" ] || break
     sleep 1
   done
-  [ -n "$workshop_port" ] || fail "Workshop never served <title>PromptForge</title> on a loopback port within 120 seconds"
+  [ -n "$workshop_port" ] || fail "Workshop never served <title>Runvil</title> on a loopback port within 120 seconds"
   curl -sf --max-time 30 "http://127.0.0.1:$workshop_port/app.js" -o "$logs/app.js" ||
     fail "http://127.0.0.1:$workshop_port/app.js did not answer"
   size=$(wc -c <"$logs/app.js" | tr -d ' ')
@@ -368,8 +368,8 @@ if [ "$want_gateway" = 1 ]; then
   fi
   curl -sf --max-time 10 "$gateway_origin/config/" -o "$logs/gateway-config.html" ||
     fail "$gateway_origin/config/ did not answer"
-  grep -Fq "<title>PromptForge Gateway Config</title>" "$logs/gateway-config.html" ||
-    fail "$gateway_origin/config/ lacks <title>PromptForge Gateway Config</title>"
+  grep -Fq "<title>Runvil Gateway Config</title>" "$logs/gateway-config.html" ||
+    fail "$gateway_origin/config/ lacks <title>Runvil Gateway Config</title>"
   echo "cell: the Gateway serves /config/ at $gateway_origin"
 fi
 

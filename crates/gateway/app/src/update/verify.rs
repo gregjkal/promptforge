@@ -12,7 +12,7 @@ pub(crate) const RELEASE_PUBLIC_KEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWd
 /// Replaces [`RELEASE_PUBLIC_KEY`] in `test-fixtures` builds, so a test can
 /// sign its fixtures with a key generated per run.
 #[cfg(feature = "test-fixtures")]
-const TEST_PUBLIC_KEY_ENV: &str = "PROMPTFORGE_UPDATE_TEST_PUBKEY";
+const TEST_PUBLIC_KEY_ENV: &str = "RUNVIL_UPDATE_TEST_PUBKEY";
 
 /// The key updates must verify against.
 pub(crate) fn release_key() -> String {

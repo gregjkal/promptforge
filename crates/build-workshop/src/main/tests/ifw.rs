@@ -335,13 +335,12 @@ fn bundled_responses(test_environment: &TestEnvironment, target: &str) -> Vec<Fa
     let environment = &test_environment.environment;
     let file = if is_macos(target) {
         bundle(environment, target, "macos")
-            .join("PromptForge.app")
+            .join("Runvil.app")
             .join("Contents")
             .join("MacOS")
-            .join("promptforge-workshop")
+            .join("runvil-workshop")
     } else {
-        bundle(environment, target, "appimage")
-            .join(format!("PromptForge_{VERSION}_amd64.AppImage"))
+        bundle(environment, target, "appimage").join(format!("Runvil_{VERSION}_amd64.AppImage"))
     };
     vec![
         ifw_found(),

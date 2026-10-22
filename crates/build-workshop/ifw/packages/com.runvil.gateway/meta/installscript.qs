@@ -21,7 +21,7 @@ Component.prototype.createOperations = function () {
 
     var target = installer.value("TargetDir");
     var gateway = target + "/{{GATEWAY_EXECUTABLE}}";
-    var speech = installer.componentByName("com.promptforge.stt").installationRequested();
+    var speech = installer.componentByName("com.runvil.stt").installationRequested();
     var command = speech ? "init" : "init --no-stt";
     // Execute reads `{0}` as the allowed exit codes, removes the
     // `workingdirectory=` and `errormessage=` arguments, and reads a last
@@ -35,7 +35,7 @@ Component.prototype.createOperations = function () {
         execute.push("--no-stt");
     }
     execute.push("workingdirectory=" + target);
-    execute.push("errormessage=PromptForge Gateway is installed, but its first-run setup "
+    execute.push("errormessage=Runvil Gateway is installed, but its first-run setup "
         + "failed. To see why, choose Ignore, then run this in a terminal: \"" + gateway
         + "\" " + command + ". Fix what it reports and run it again. Retry runs the setup "
         + "again now. Cancel removes the whole installation.");
@@ -43,12 +43,12 @@ Component.prototype.createOperations = function () {
     component.addOperation("Execute", execute);
 
     if (systemInfo.kernelType === "linux") {
-        component.addOperation("CreateDesktopEntry", "com.promptforge.gateway.desktop", [
+        component.addOperation("CreateDesktopEntry", "com.runvil.gateway.desktop", [
             "Type=Application",
-            "Name=PromptForge Gateway Settings",
-            "Comment=Open the PromptForge Gateway Settings page",
+            "Name=Runvil Gateway Settings",
+            "Comment=Open the Runvil Gateway Settings page",
             "Exec=" + desktopExec(gateway) + " --browser",
-            "Icon=" + target + "/promptforge-gateway.png",
+            "Icon=" + target + "/runvil-gateway.png",
             "Terminal=false",
             "Categories=Development;"
         ].join("\n"));

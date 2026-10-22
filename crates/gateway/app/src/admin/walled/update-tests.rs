@@ -135,14 +135,14 @@ fn each_result_has_its_status_and_answer() {
     assert_eq!(reply.outcome, UpdateOutcome::Failed);
 
     let (status, reply) = answer(Err(UpdateError::NotWritable {
-        directory: "/usr/local/bin/.promptforge-gateway-update".into(),
+        directory: "/usr/local/bin/.runvil-gateway-update".into(),
         source: std::io::Error::from(std::io::ErrorKind::PermissionDenied),
     }));
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     assert!(
         reply
             .message
-            .is_some_and(|message| message.contains("/usr/local/bin/.promptforge-gateway-update")),
+            .is_some_and(|message| message.contains("/usr/local/bin/.runvil-gateway-update")),
         "the unwritable directory is named"
     );
 }

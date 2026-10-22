@@ -1,4 +1,4 @@
-//! Builds the PromptForge Gateway, then Workshop or each platform's
+//! Builds the Runvil Gateway, then Workshop or each platform's
 //! installer. For Windows targets it stages the Gateway as Tauri's sidecar
 //! around the Workshop build and removes it after; macOS and Linux payloads
 //! carry the Gateway beside Workshop, and Qt IFW packages them into one

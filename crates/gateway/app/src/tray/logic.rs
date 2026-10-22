@@ -202,7 +202,7 @@ pub(crate) fn update_item(notice: &NoticeState) -> (String, bool) {
         NoticeState::Available(version) => (format!("Update available: {version}"), true),
         NoticeState::Busy => ("Updating".to_owned(), false),
         NoticeState::Stranded(_) => ("Update failed".to_owned(), false),
-        NoticeState::WorkshopOwned => ("Updates come from PromptForge Workshop".to_owned(), false),
+        NoticeState::WorkshopOwned => ("Updates come from Runvil Workshop".to_owned(), false),
     }
 }
 

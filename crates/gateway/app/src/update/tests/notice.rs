@@ -112,8 +112,8 @@ impl ApplyAnswer {
                 reason: "the server answered 503".to_owned(),
             }),
             ApplyAnswer::Strands => Err(UpdateError::Stranded {
-                installed: PathBuf::from("/opt/promptforge/promptforge-gateway"),
-                previous: PathBuf::from("/opt/promptforge/promptforge-gateway.previous"),
+                installed: PathBuf::from("/opt/runvil/runvil-gateway"),
+                previous: PathBuf::from("/opt/runvil/runvil-gateway.previous"),
                 reason: "permission denied".to_owned(),
             }),
         }
@@ -407,7 +407,7 @@ async fn a_stranded_install_outranks_its_claim_and_every_later_check() {
 async fn a_windows_gateway_beside_workshop_never_checks() {
     let fixture = Fixture::new(
         Some(PathBuf::from(
-            r"C:\Program Files\PromptForge\promptforge-workshop.exe",
+            r"C:\Program Files\Runvil\runvil-workshop.exe",
         )),
         [CheckAnswer::Available("0.4.0")],
         Applied::Busy,

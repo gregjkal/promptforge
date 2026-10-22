@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 
 pub(super) fn gateway_binary_name(target: &str) -> &'static str {
     if is_windows(target) {
-        "promptforge-gateway.exe"
+        "runvil-gateway.exe"
     } else {
-        "promptforge-gateway"
+        "runvil-gateway"
     }
 }
 
@@ -29,7 +29,7 @@ pub(super) fn sidecar_path(workspace_root: &Path, target: &str) -> PathBuf {
         .join("workshop")
         .join("desktop")
         .join("binaries")
-        .join(format!("promptforge-gateway-{target}{extension}"))
+        .join(format!("runvil-gateway-{target}{extension}"))
 }
 
 pub(super) fn stage(workspace_root: &Path, target: &str, source: &Path) -> Result<PathBuf, String> {

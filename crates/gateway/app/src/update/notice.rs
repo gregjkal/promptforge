@@ -266,12 +266,12 @@ where
     let _working = notice.working();
     let state = match (sources.check)().await {
         Ok(Check::Current { version }) => {
-            tracing::info!("the update check found PromptForge Gateway {version} is current");
+            tracing::info!("the update check found Runvil Gateway {version} is current");
             NoticeState::Current(version)
         }
         Ok(Check::Available { version, .. }) => {
             tracing::info!(
-                "the update check found PromptForge Gateway {version}; the tray's Update item installs it"
+                "the update check found Runvil Gateway {version}; the tray's Update item installs it"
             );
             NoticeState::Available(version)
         }

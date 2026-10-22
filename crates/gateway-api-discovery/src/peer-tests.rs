@@ -34,8 +34,8 @@ fn workshop_for(layout: Layout, gateway_exe: &Path) -> Option<PathBuf> {
 #[test]
 fn windows_peers_sit_beside_each_other() {
     let root = tempfile::TempDir::new().expect("tempdir");
-    let workshop = plant(root.path(), Path::new("promptforge-workshop.exe"));
-    let gateway = plant(root.path(), Path::new("promptforge-gateway.exe"));
+    let workshop = plant(root.path(), Path::new("runvil-workshop.exe"));
+    let gateway = plant(root.path(), Path::new("runvil-gateway.exe"));
 
     assert_eq!(
         gateway_for(Layout::Windows, &workshop, None),
@@ -48,8 +48,8 @@ fn windows_peers_sit_beside_each_other() {
 fn a_development_tree_finds_both_peers_beside_each_other() {
     let root = tempfile::TempDir::new().expect("tempdir");
     let debug = Path::new("target").join("debug");
-    let workshop = plant(root.path(), &debug.join("promptforge-workshop"));
-    let gateway = plant(root.path(), &debug.join("promptforge-gateway"));
+    let workshop = plant(root.path(), &debug.join("runvil-workshop"));
+    let gateway = plant(root.path(), &debug.join("runvil-gateway"));
 
     for layout in [Layout::MacOs, Layout::Linux] {
         assert_eq!(
@@ -70,11 +70,11 @@ fn macos_peers_are_sibling_bundles() {
     let root = tempfile::TempDir::new().expect("tempdir");
     let workshop = plant(
         root.path(),
-        &bundle_exe(Path::new(""), WORKSHOP_BUNDLE_NAME, "promptforge-workshop"),
+        &bundle_exe(Path::new(""), WORKSHOP_BUNDLE_NAME, "runvil-workshop"),
     );
     let gateway = plant(
         root.path(),
-        &bundle_exe(Path::new(""), GATEWAY_BUNDLE_NAME, "promptforge-gateway"),
+        &bundle_exe(Path::new(""), GATEWAY_BUNDLE_NAME, "runvil-gateway"),
     );
 
     assert_eq!(
@@ -89,13 +89,13 @@ fn macos_bundle_lookup_needs_the_bundle_structure() {
     let root = tempfile::TempDir::new().expect("tempdir");
     plant(
         root.path(),
-        &bundle_exe(Path::new(""), GATEWAY_BUNDLE_NAME, "promptforge-gateway"),
+        &bundle_exe(Path::new(""), GATEWAY_BUNDLE_NAME, "runvil-gateway"),
     );
     let loose = root
         .path()
         .join("Contents")
         .join("MacOS")
-        .join("promptforge-workshop");
+        .join("runvil-workshop");
 
     assert_eq!(
         gateway_for(Layout::MacOs, &loose, None),
@@ -107,15 +107,15 @@ fn macos_bundle_lookup_needs_the_bundle_structure() {
 #[test]
 fn linux_workshop_finds_the_gateway_beside_its_appimage() {
     let root = tempfile::TempDir::new().expect("tempdir");
-    let install = root.path().join("PromptForge");
+    let install = root.path().join("Runvil");
     let appimage = plant(&install, Path::new(WORKSHOP_APPIMAGE_NAME));
-    let gateway = plant(&install, Path::new("promptforge-gateway"));
+    let gateway = plant(&install, Path::new("runvil-gateway"));
     let mount = root
         .path()
         .join("mount")
         .join("usr")
         .join("bin")
-        .join("promptforge-workshop");
+        .join("runvil-workshop");
 
     assert_eq!(
         gateway_for(Layout::Linux, &mount, Some(appimage.as_path())),
@@ -126,12 +126,12 @@ fn linux_workshop_finds_the_gateway_beside_its_appimage() {
 #[test]
 fn linux_workshop_prefers_the_gateway_beside_its_appimage_to_one_in_its_mount() {
     let root = tempfile::TempDir::new().expect("tempdir");
-    let install = root.path().join("PromptForge");
+    let install = root.path().join("Runvil");
     let appimage = plant(&install, Path::new(WORKSHOP_APPIMAGE_NAME));
-    let installed = plant(&install, Path::new("promptforge-gateway"));
+    let installed = plant(&install, Path::new("runvil-gateway"));
     let bin = root.path().join("mount").join("usr").join("bin");
-    let workshop = plant(&bin, Path::new("promptforge-workshop"));
-    plant(&bin, Path::new("promptforge-gateway"));
+    let workshop = plant(&bin, Path::new("runvil-workshop"));
+    plant(&bin, Path::new("runvil-gateway"));
 
     assert_eq!(
         gateway_for(Layout::Linux, &workshop, Some(appimage.as_path())),
@@ -143,8 +143,8 @@ fn linux_workshop_prefers_the_gateway_beside_its_appimage_to_one_in_its_mount() 
 fn an_appimage_counts_only_when_workshop_runs_from_its_mount() {
     let root = tempfile::TempDir::new().expect("tempdir");
     let mount = root.path().join(".mount_PromptXYZ");
-    let workshop = mount.join("usr").join("bin").join("promptforge-workshop");
-    let appimage = root.path().join("PromptForge").join(WORKSHOP_APPIMAGE_NAME);
+    let workshop = mount.join("usr").join("bin").join("runvil-workshop");
+    let appimage = root.path().join("Runvil").join(WORKSHOP_APPIMAGE_NAME);
     let other_mount = root.path().join(".mount_CodeXYZ");
     let other_appimage = root.path().join("Apps").join("Code.AppImage");
     let found = |appimage: &OsStr, appdir: &OsStr| {
@@ -197,8 +197,8 @@ fn an_appimage_counts_when_appdir_reaches_the_mount_through_a_symlink() {
         .expect("resolve the mount")
         .join("usr")
         .join("bin")
-        .join("promptforge-workshop");
-    let appimage = root.path().join("PromptForge").join(WORKSHOP_APPIMAGE_NAME);
+        .join("runvil-workshop");
+    let appimage = root.path().join("Runvil").join(WORKSHOP_APPIMAGE_NAME);
 
     assert_eq!(
         running_appimage(
@@ -215,7 +215,7 @@ fn an_appimage_counts_when_appdir_reaches_the_mount_through_a_symlink() {
 fn a_peer_without_an_execute_bit_is_not_found() {
     use std::os::unix::fs::PermissionsExt as _;
     let root = tempfile::TempDir::new().expect("tempdir");
-    let gateway = plant(root.path(), Path::new("promptforge-gateway"));
+    let gateway = plant(root.path(), Path::new("runvil-gateway"));
     let appimage = plant(root.path(), Path::new(WORKSHOP_APPIMAGE_NAME));
     assert_eq!(
         workshop_for(Layout::Linux, &gateway),
@@ -229,39 +229,33 @@ fn a_peer_without_an_execute_bit_is_not_found() {
 
 #[test]
 fn the_bundle_walks_up_from_contents_macos_to_the_app() {
-    let exe = Path::new("/Applications/PromptForge.app/Contents/MacOS/promptforge-gateway");
-    assert_eq!(
-        app_bundle(exe),
-        Some(Path::new("/Applications/PromptForge.app"))
-    );
+    let exe = Path::new("/Applications/Runvil.app/Contents/MacOS/runvil-gateway");
+    assert_eq!(app_bundle(exe), Some(Path::new("/Applications/Runvil.app")));
 }
 
 #[test]
 fn the_bundle_probe_rejects_unbundled_and_partial_paths() {
+    assert_eq!(app_bundle(Path::new("/usr/local/bin/runvil-gateway")), None);
     assert_eq!(
-        app_bundle(Path::new("/usr/local/bin/promptforge-gateway")),
-        None
-    );
-    assert_eq!(
-        app_bundle(Path::new("/Applications/PromptForge.app/Contents/MacOS")),
+        app_bundle(Path::new("/Applications/Runvil.app/Contents/MacOS")),
         None,
         "the exe itself must sit below MacOS"
     );
     assert_eq!(
-        app_bundle(Path::new("/opt/x/Contents/MacOS/promptforge-gateway")),
+        app_bundle(Path::new("/opt/x/Contents/MacOS/runvil-gateway")),
         None,
         "the parent two levels up must be a .app"
     );
-    assert_eq!(app_bundle(Path::new("promptforge-gateway")), None);
+    assert_eq!(app_bundle(Path::new("runvil-gateway")), None);
 }
 
 #[test]
 fn translocation_is_read_from_the_executable_path() {
     assert!(translocated(Path::new(
-        "/private/var/folders/xy/T/AppTranslocation/0A1B/d/PromptForge.app/Contents/MacOS/promptforge-workshop"
+        "/private/var/folders/xy/T/AppTranslocation/0A1B/d/Runvil.app/Contents/MacOS/runvil-workshop"
     )));
     assert!(!translocated(Path::new(
-        "/Applications/PromptForge/PromptForge.app/Contents/MacOS/promptforge-workshop"
+        "/Applications/Runvil/Runvil.app/Contents/MacOS/runvil-workshop"
     )));
 }
 
@@ -269,7 +263,7 @@ fn translocation_is_read_from_the_executable_path() {
 fn linux_gateway_finds_the_appimage_by_name_in_its_own_directory() {
     let root = tempfile::TempDir::new().expect("tempdir");
     let appimage = plant(root.path(), Path::new(WORKSHOP_APPIMAGE_NAME));
-    let gateway = plant(root.path(), Path::new("promptforge-gateway"));
+    let gateway = plant(root.path(), Path::new("runvil-gateway"));
 
     assert_eq!(workshop_for(Layout::Linux, &gateway), Some(appimage));
 }
@@ -308,7 +302,7 @@ fn a_missing_peer_is_none_in_every_layout() {
 #[test]
 fn a_missing_install_directory_is_none() {
     let root = tempfile::TempDir::new().expect("tempdir");
-    let absent = root.path().join("absent").join("promptforge-gateway");
+    let absent = root.path().join("absent").join("runvil-gateway");
     assert_eq!(installed_workshop(&absent), None);
     assert_eq!(installed_gateway(&absent, None), None);
 }

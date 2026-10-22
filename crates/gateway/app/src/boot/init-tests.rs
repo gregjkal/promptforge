@@ -15,9 +15,7 @@ fn locations(root: &Path) -> Locations {
 }
 
 fn profile_config(root: &Path) -> std::path::PathBuf {
-    root.join("home")
-        .join(".promptforge")
-        .join(CONFIG_FILE_NAME)
+    root.join("home").join(".runvil").join(CONFIG_FILE_NAME)
 }
 
 #[test]
@@ -181,7 +179,7 @@ fn a_selection_without_speech_models_names_its_source() {
 
     let environment = fail(Some("bare"));
     assert!(
-        environment.contains("PROMPTFORGE_PROFILE selects profile bare"),
+        environment.contains("RUNVIL_PROFILE selects profile bare"),
         "{environment}"
     );
     assert!(

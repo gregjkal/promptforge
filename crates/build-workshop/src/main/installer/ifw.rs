@@ -21,9 +21,9 @@ use crate::{CommandSpec, OutputMode};
 /// The one IFW release local and CI builds use; any other is refused.
 pub(crate) const IFW_VERSION: &str = "4.11.0";
 
-const WORKSHOP_PACKAGE: &str = "com.promptforge.workshop";
-const GATEWAY_PACKAGE: &str = "com.promptforge.gateway";
-const INSTALLER_APP: &str = "PromptForge Installer.app";
+const WORKSHOP_PACKAGE: &str = "com.runvil.workshop";
+const GATEWAY_PACKAGE: &str = "com.runvil.gateway";
+const INSTALLER_APP: &str = "Runvil Installer.app";
 
 /// The two IFW programs the build runs: `binarycreator`, and
 /// `installerbase`, the installer template it embeds, whose version is the
@@ -135,13 +135,13 @@ pub(crate) fn check_version(ifw: &Ifw, printed: &str) -> Result<(), String> {
 fn placeholders(platform: Platform, release_date: &str) -> [(&'static str, String); 6] {
     let (target_dir, gateway, workshop) = match platform.system {
         System::MacOs => (
-            "@ApplicationsDir@/PromptForge",
+            "@ApplicationsDir@/Runvil",
             format!("{GATEWAY_BUNDLE_NAME}/Contents/MacOS/{GATEWAY}"),
             // Fills the template only: the Workshop script reads it on Linux.
-            format!("{WORKSHOP_BUNDLE_NAME}/Contents/MacOS/promptforge-workshop"),
+            format!("{WORKSHOP_BUNDLE_NAME}/Contents/MacOS/runvil-workshop"),
         ),
         System::Linux | System::Windows => (
-            "@HomeDir@/PromptForge",
+            "@HomeDir@/Runvil",
             GATEWAY.to_owned(),
             WORKSHOP_APPIMAGE_NAME.to_owned(),
         ),
@@ -210,8 +210,8 @@ pub(crate) fn stage(
         System::Linux | System::Windows => (WORKSHOP_APPIMAGE_NAME, GATEWAY, true),
     };
     for (package, item, icon) in [
-        (WORKSHOP_PACKAGE, workshop, "promptforge-workshop.png"),
-        (GATEWAY_PACKAGE, gateway, "promptforge-gateway.png"),
+        (WORKSHOP_PACKAGE, workshop, "runvil-workshop.png"),
+        (GATEWAY_PACKAGE, gateway, "runvil-gateway.png"),
     ] {
         let data = packages.join(package).join("data");
         create_directory(&data)?;
@@ -367,7 +367,7 @@ pub(crate) fn adhoc_sign_command(app: &Path) -> CommandSpec {
 
 pub(crate) fn hdiutil_command(app_folder: &Path, dmg: &Path) -> CommandSpec {
     let mut args = ["create", "-volname"].map(OsString::from).to_vec();
-    args.push(OsString::from(format!("PromptForge {VERSION}")));
+    args.push(OsString::from(format!("Runvil {VERSION}")));
     args.push(OsString::from("-srcfolder"));
     args.push(app_folder.as_os_str().to_owned());
     args.extend(["-fs", "HFS+", "-format", "UDZO", "-ov"].map(OsString::from));

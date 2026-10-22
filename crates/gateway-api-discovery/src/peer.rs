@@ -4,9 +4,9 @@
 //! The installers lay the two programs out three ways:
 //!
 //! - Beside each other in one directory (Windows, development builds).
-//! - On macOS, as sibling bundles in one directory: `PromptForge.app` and
-//!   `PromptForge Gateway.app`, each running from `Contents/MacOS/`.
-//! - On Linux, as `PromptForge.AppImage` beside `promptforge-gateway`.
+//! - On macOS, as sibling bundles in one directory: `Runvil.app` and
+//!   `Runvil Gateway.app`, each running from `Contents/MacOS/`.
+//! - On Linux, as `Runvil.AppImage` beside `runvil-gateway`.
 //!   Workshop runs from the AppImage's mount, so it finds the gateway
 //!   through `$APPIMAGE`, the path of the AppImage file, when `$APPDIR`
 //!   confirms Workshop runs from that AppImage, and looks there
@@ -20,24 +20,24 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 /// The macOS Workshop bundle's directory name.
-pub const WORKSHOP_BUNDLE_NAME: &str = "PromptForge.app";
+pub const WORKSHOP_BUNDLE_NAME: &str = "Runvil.app";
 
 /// The macOS gateway bundle's directory name.
-pub const GATEWAY_BUNDLE_NAME: &str = "PromptForge Gateway.app";
+pub const GATEWAY_BUNDLE_NAME: &str = "Runvil Gateway.app";
 
 /// The Linux Workshop AppImage's file name.
-pub const WORKSHOP_APPIMAGE_NAME: &str = "PromptForge.AppImage";
+pub const WORKSHOP_APPIMAGE_NAME: &str = "Runvil.AppImage";
 
 /// The remedy for the macOS bundle `moved` running from an App
 /// Translocation copy, where the `peer` bundle beside the original is not
 /// visible. Gatekeeper stops translocating a bundle once the user moves it
 /// with Finder, and the installer's default folder is
-/// `Applications/PromptForge`.
+/// `Applications/Runvil`.
 #[must_use]
 pub fn translocation_remedy(moved: &str, peer: &str) -> String {
     format!(
         "move {moved} with Finder into the folder that holds {peer}, such as the default \
-         Applications/PromptForge, or out of that folder and back in if it is already there, \
+         Applications/Runvil, or out of that folder and back in if it is already there, \
          then open it from there"
     )
 }
@@ -77,15 +77,15 @@ impl Layout {
 
     pub(crate) const fn gateway_exe(self) -> &'static str {
         match self {
-            Self::Windows => "promptforge-gateway.exe",
-            Self::MacOs | Self::Linux => "promptforge-gateway",
+            Self::Windows => "runvil-gateway.exe",
+            Self::MacOs | Self::Linux => "runvil-gateway",
         }
     }
 
     const fn workshop_exe(self) -> &'static str {
         match self {
-            Self::Windows => "promptforge-workshop.exe",
-            Self::MacOs | Self::Linux => "promptforge-workshop",
+            Self::Windows => "runvil-workshop.exe",
+            Self::MacOs | Self::Linux => "runvil-workshop",
         }
     }
 }
@@ -124,7 +124,7 @@ pub fn installed_gateway(workshop_exe: &Path, appimage: Option<&Path>) -> Option
 }
 
 /// The paths [`installed_gateway`] checks, in order: on Linux
-/// `promptforge-gateway` beside the AppImage, then beside `workshop_exe`,
+/// `runvil-gateway` beside the AppImage, then beside `workshop_exe`,
 /// then the sibling gateway bundle on macOS.
 #[must_use]
 pub fn gateway_search_paths(workshop_exe: &Path, appimage: Option<&Path>) -> Vec<PathBuf> {
@@ -135,7 +135,7 @@ pub fn gateway_search_paths(workshop_exe: &Path, appimage: Option<&Path>) -> Vec
 /// `gateway_exe`.
 ///
 /// Returns the first existing candidate: beside `gateway_exe`, then the
-/// sibling Workshop bundle on macOS, then `PromptForge.AppImage` beside
+/// sibling Workshop bundle on macOS, then `Runvil.AppImage` beside
 /// the gateway on Linux.
 #[must_use]
 pub fn installed_workshop(gateway_exe: &Path) -> Option<PathBuf> {

@@ -45,7 +45,7 @@ fn each_platform_config_builds_the_installer_bundle_and_only_windows_carries_the
         if sidecar::bundles_sidecar(target) {
             assert_eq!(
                 external,
-                Some(&serde_json::json!(["binaries/promptforge-gateway"])),
+                Some(&serde_json::json!(["binaries/runvil-gateway"])),
                 "{file}"
             );
         } else {
@@ -57,9 +57,9 @@ fn each_platform_config_builds_the_installer_bundle_and_only_windows_carries_the
 #[test]
 fn the_gateway_bundle_holds_the_versioned_plist_the_executable_and_the_icon() {
     let temp = tempfile::tempdir().expect("temporary root");
-    let gateway = temp.path().join("promptforge-gateway");
+    let gateway = temp.path().join("runvil-gateway");
     write_file(&gateway, b"gateway");
-    let app = temp.path().join("PromptForge Gateway.app");
+    let app = temp.path().join("Runvil Gateway.app");
     let sources = BundleSources::in_workspace(&repository_root());
     // The guard in `assemble` only checks that the placeholder appears, so
     // anywhere but the two version keys would defeat it.
@@ -75,7 +75,7 @@ fn the_gateway_bundle_holds_the_versioned_plist_the_executable_and_the_icon() {
         files,
         [
             "Contents/Info.plist",
-            "Contents/MacOS/promptforge-gateway",
+            "Contents/MacOS/runvil-gateway",
             "Contents/Resources/icon.icns",
         ]
     );
@@ -95,16 +95,13 @@ fn the_gateway_bundle_holds_the_versioned_plist_the_executable_and_the_icon() {
     );
     assert!(!plist.contains("@VERSION@"), "{plist}");
     assert!(
-        plist.contains("<key>CFBundleExecutable</key>\n    <string>promptforge-gateway</string>"),
+        plist.contains("<key>CFBundleExecutable</key>\n    <string>runvil-gateway</string>"),
         "{plist}"
     );
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
-        let executable = app
-            .join("Contents")
-            .join("MacOS")
-            .join("promptforge-gateway");
+        let executable = app.join("Contents").join("MacOS").join("runvil-gateway");
         let mode = std::fs::metadata(executable)
             .expect("executable")
             .permissions()
@@ -116,7 +113,7 @@ fn the_gateway_bundle_holds_the_versioned_plist_the_executable_and_the_icon() {
 #[test]
 fn a_template_without_the_placeholder_or_a_missing_icon_fails_naming_the_file() {
     let temp = tempfile::tempdir().expect("temporary root");
-    let gateway = temp.path().join("promptforge-gateway");
+    let gateway = temp.path().join("runvil-gateway");
     write_file(&gateway, b"gateway");
     let real = BundleSources::in_workspace(&repository_root());
     let fixed = temp.path().join("Info.plist");
@@ -166,11 +163,11 @@ fn macos_signed_collects_the_payload_and_signs_the_gateway_archive() {
     let environment = &test_environment.environment;
     let target = "aarch64-apple-darwin";
     let macos = bundle(environment, target, "macos");
-    let updater = macos.join("PromptForge.app.tar.gz");
+    let updater = macos.join("Runvil.app.tar.gz");
     let output_root = output(environment, target);
-    let archive = output_root.join("publish").join(format!(
-        "promptforge-gateway_{VERSION}_darwin-aarch64.tar.gz"
-    ));
+    let archive = output_root
+        .join("publish")
+        .join(format!("runvil-gateway_{VERSION}_darwin-aarch64.tar.gz"));
     let signed_archive = archive.clone();
     let mut responses = vec![
         ifw_found(),
@@ -182,10 +179,10 @@ fn macos_signed_collects_the_payload_and_signs_the_gateway_archive() {
             target,
             vec![
                 macos
-                    .join("PromptForge.app")
+                    .join("Runvil.app")
                     .join("Contents")
                     .join("MacOS")
-                    .join("promptforge-workshop"),
+                    .join("runvil-workshop"),
                 collect_signature(&updater),
                 updater,
             ],
@@ -212,26 +209,26 @@ fn macos_signed_collects_the_payload_and_signs_the_gateway_archive() {
     let payload = output_root.join("payload");
     assert!(
         payload
-            .join("PromptForge.app")
+            .join("Runvil.app")
             .join("Contents")
             .join("MacOS")
-            .join("promptforge-workshop")
+            .join("runvil-workshop")
             .is_file()
     );
     assert_eq!(
         std::fs::read(
             payload
-                .join("PromptForge Gateway.app")
+                .join("Runvil Gateway.app")
                 .join("Contents")
                 .join("MacOS")
-                .join("promptforge-gateway")
+                .join("runvil-gateway")
         )
         .expect("gateway payload"),
         b"gateway"
     );
-    assert!(!payload.join("promptforge-gateway").exists());
+    assert!(!payload.join("runvil-gateway").exists());
     let publish = output_root.join("publish");
-    let app_updater = publish.join(format!("PromptForge_{VERSION}_aarch64.app.tar.gz"));
+    let app_updater = publish.join(format!("Runvil_{VERSION}_aarch64.app.tar.gz"));
     assert!(app_updater.is_file());
     assert!(collect_signature(&app_updater).is_file());
     assert!(collect_signature(&archive).is_file());
@@ -242,7 +239,7 @@ fn macos_unsigned_publishes_only_the_dmg() {
     let test_environment = environment();
     let environment = &test_environment.environment;
     let target = "x86_64-apple-darwin";
-    let app = bundle(environment, target, "macos").join("PromptForge.app");
+    let app = bundle(environment, target, "macos").join("Runvil.app");
     let mut responses = vec![
         ifw_found(),
         node_found(),
@@ -251,11 +248,7 @@ fn macos_unsigned_publishes_only_the_dmg() {
         bundled(
             test_environment.sidecar(target),
             target,
-            vec![
-                app.join("Contents")
-                    .join("MacOS")
-                    .join("promptforge-workshop"),
-            ],
+            vec![app.join("Contents").join("MacOS").join("runvil-workshop")],
             success(""),
         ),
     ];
@@ -270,24 +263,24 @@ fn macos_unsigned_publishes_only_the_dmg() {
     let payload = output(environment, target).join("payload");
     assert!(
         payload
-            .join("PromptForge.app")
+            .join("Runvil.app")
             .join("Contents")
             .join("MacOS")
-            .join("promptforge-workshop")
+            .join("runvil-workshop")
             .is_file()
     );
     assert!(
         payload
-            .join("PromptForge Gateway.app")
+            .join("Runvil Gateway.app")
             .join("Contents")
             .join("Info.plist")
             .is_file()
     );
-    assert!(!payload.join("promptforge-gateway").exists());
+    assert!(!payload.join("runvil-gateway").exists());
     let installer = installer_path(environment, target);
     assert_eq!(
         installer.file_name().expect("name"),
-        format!("PromptForge_{VERSION}_x86_64-setup.dmg").as_str()
+        format!("Runvil_{VERSION}_x86_64-setup.dmg").as_str()
     );
     assert!(installer.is_file());
     assert_eq!(

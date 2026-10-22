@@ -1,5 +1,5 @@
 //! The Gateway updater archive: a gzipped tar holding one payload item at
-//! its root, the bare Gateway binary on Linux or `PromptForge Gateway.app`
+//! its root, the bare Gateway binary on Linux or `Runvil Gateway.app`
 //! on macOS.
 
 use std::fs::{self, File};

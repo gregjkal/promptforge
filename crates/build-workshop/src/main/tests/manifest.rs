@@ -131,19 +131,19 @@ fn the_release_is_the_twenty_two_planned_files() {
     assert_eq!(checksummed_files(&updaters).len(), 13);
     let mut planned = BTreeSet::new();
     for name in [
-        "PromptForge_{v}_x64-setup.exe",
-        "PromptForge_{v}_aarch64-setup.dmg",
-        "PromptForge_{v}_x86_64-setup.dmg",
-        "PromptForge_{v}_amd64-setup.run",
-        "PromptForge_{v}_aarch64-setup.run",
-        "PromptForge_{v}_aarch64.app.tar.gz",
-        "PromptForge_{v}_x86_64.app.tar.gz",
-        "PromptForge_{v}_amd64.AppImage",
-        "PromptForge_{v}_aarch64.AppImage",
-        "promptforge-gateway_{v}_darwin-aarch64.tar.gz",
-        "promptforge-gateway_{v}_darwin-x86_64.tar.gz",
-        "promptforge-gateway_{v}_linux-x86_64.tar.gz",
-        "promptforge-gateway_{v}_linux-aarch64.tar.gz",
+        "Runvil_{v}_x64-setup.exe",
+        "Runvil_{v}_aarch64-setup.dmg",
+        "Runvil_{v}_x86_64-setup.dmg",
+        "Runvil_{v}_amd64-setup.run",
+        "Runvil_{v}_aarch64-setup.run",
+        "Runvil_{v}_aarch64.app.tar.gz",
+        "Runvil_{v}_x86_64.app.tar.gz",
+        "Runvil_{v}_amd64.AppImage",
+        "Runvil_{v}_aarch64.AppImage",
+        "runvil-gateway_{v}_darwin-aarch64.tar.gz",
+        "runvil-gateway_{v}_darwin-x86_64.tar.gz",
+        "runvil-gateway_{v}_linux-x86_64.tar.gz",
+        "runvil-gateway_{v}_linux-aarch64.tar.gz",
     ] {
         let name = name.replace("{v}", VERSION);
         if !name.ends_with("-setup.dmg") && !name.ends_with("-setup.run") {
@@ -379,7 +379,7 @@ fn latest_json_carries_the_version_and_nine_entries() {
     release.write().expect("a complete release");
     let manifest = release.manifest();
     assert_eq!(manifest["version"], VERSION);
-    assert_eq!(manifest["notes"], format!("PromptForge {VERSION}"));
+    assert_eq!(manifest["notes"], format!("Runvil {VERSION}"));
     assert_eq!(manifest["pub_date"], "2024-02-29T12:34:56Z");
     let platforms = manifest["platforms"].as_object().expect("platforms");
     let keys: Vec<&str> = platforms.keys().map(String::as_str).collect();

@@ -313,7 +313,7 @@ fn check_gateway_version(
         },
         "Gateway version check",
     )?;
-    let expected = format!("promptforge-gateway {VERSION}");
+    let expected = format!("runvil-gateway {VERSION}");
     if printed.trim() == expected {
         Ok(())
     } else {

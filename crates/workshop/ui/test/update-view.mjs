@@ -503,7 +503,7 @@ await assertNoLeaks(lifecycle, async () => {
     "an updating gateway toasts once as info",
     gatewayToasts.shown.length === 1 &&
       gatewayToasts.shown[0]?.kind === "info" &&
-      gatewayToasts.shown[0]?.message === "PromptForge Gateway is updating to 0.4.0",
+      gatewayToasts.shown[0]?.message === "Runvil Gateway is updating to 0.4.0",
   );
   // Every snapshot change re-renders the view; the answer is unchanged.
   gatewayView.render(gatewayService.snapshot);

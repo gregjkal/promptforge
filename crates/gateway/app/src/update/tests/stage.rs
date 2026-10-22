@@ -10,36 +10,34 @@ use super::{TestKey, serve, tar_gz};
 
 #[test]
 fn a_bundled_executable_installs_as_its_bundle() {
-    let exe = Path::new(
-        "/Applications/PromptForge/PromptForge Gateway.app/Contents/MacOS/promptforge-gateway",
-    );
+    let exe = Path::new("/Applications/Runvil/Runvil Gateway.app/Contents/MacOS/runvil-gateway");
     let install = Install::locate(exe);
     assert_eq!(
         install.item(),
-        Path::new("/Applications/PromptForge/PromptForge Gateway.app")
+        Path::new("/Applications/Runvil/Runvil Gateway.app")
     );
     assert_eq!(install.executable(), exe);
     assert_eq!(
-        install.executable_in(Path::new("/stage/PromptForge Gateway.app")),
-        Path::new("/stage/PromptForge Gateway.app/Contents/MacOS/promptforge-gateway")
+        install.executable_in(Path::new("/stage/Runvil Gateway.app")),
+        Path::new("/stage/Runvil Gateway.app/Contents/MacOS/runvil-gateway")
     );
 }
 
 #[test]
 fn a_bare_executable_installs_as_itself() {
-    let exe = Path::new("/home/user/PromptForge/promptforge-gateway");
+    let exe = Path::new("/home/user/Runvil/runvil-gateway");
     let install = Install::locate(exe);
     assert_eq!(install.item(), exe);
     assert_eq!(
-        install.executable_in(Path::new("/stage/promptforge-gateway")),
-        Path::new("/stage/promptforge-gateway")
+        install.executable_in(Path::new("/stage/runvil-gateway")),
+        Path::new("/stage/runvil-gateway")
     );
 }
 
 #[test]
 fn staging_starts_fresh_beside_the_install_and_goes_with_its_guard() {
     let dir = tempfile::TempDir::new().expect("tempdir");
-    let install = Install::locate(&dir.path().join("promptforge-gateway"));
+    let install = Install::locate(&dir.path().join("runvil-gateway"));
     let stale = dir.path().join(STAGING_DIR_NAME).join("leftover");
     std::fs::create_dir_all(&stale).expect("an earlier update's leftover");
 
@@ -67,7 +65,7 @@ fn an_unwritable_location_is_named() {
     let locked = dir.path().join("locked");
     std::fs::create_dir(&locked).expect("create");
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).expect("lock");
-    let error = Staging::create(&Install::locate(&locked.join("promptforge-gateway")))
+    let error = Staging::create(&Install::locate(&locked.join("runvil-gateway")))
         .expect_err("a read-only directory");
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).expect("unlock");
     assert!(
@@ -88,21 +86,17 @@ fn extract_bytes(archive: &[u8]) -> (tempfile::TempDir, Result<PathBuf, UpdateEr
 #[test]
 fn an_archive_extracts_to_its_one_top_level_item() {
     let archive = tar_gz(&[
+        ("Runvil Gateway.app/Contents/Info.plist", b"plist", 0o644),
         (
-            "PromptForge Gateway.app/Contents/Info.plist",
-            b"plist",
-            0o644,
-        ),
-        (
-            "PromptForge Gateway.app/Contents/MacOS/promptforge-gateway",
+            "Runvil Gateway.app/Contents/MacOS/runvil-gateway",
             b"binary",
             0o755,
         ),
     ]);
     let (dir, result) = extract_bytes(&archive);
     let item = result.expect("extract");
-    assert_eq!(item, dir.path().join("extracted/PromptForge Gateway.app"));
-    let exe = item.join("Contents/MacOS/promptforge-gateway");
+    assert_eq!(item, dir.path().join("extracted/Runvil Gateway.app"));
+    let exe = item.join("Contents/MacOS/runvil-gateway");
     assert_eq!(std::fs::read(&exe).expect("read"), b"binary");
     #[cfg(unix)]
     {
@@ -172,15 +166,15 @@ fn traversal_entries_and_links_are_refused() {
 fn the_staged_executable_must_print_the_advertised_version() {
     use std::os::unix::fs::PermissionsExt as _;
     let dir = tempfile::TempDir::new().expect("tempdir");
-    let exe = dir.path().join("promptforge-gateway");
-    std::fs::write(&exe, "#!/bin/sh\necho 'promptforge-gateway 0.4.0'\n").expect("write");
+    let exe = dir.path().join("runvil-gateway");
+    std::fs::write(&exe, "#!/bin/sh\necho 'runvil-gateway 0.4.0'\n").expect("write");
     std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).expect("chmod");
 
     crate::update::stage::require_version(&exe, "0.4.0").expect("the advertised version");
     let error = crate::update::stage::require_version(&exe, "0.5.0").expect_err("another version");
     assert!(
         matches!(&error, UpdateError::StagedVersion { required, actual }
-            if required == "promptforge-gateway 0.5.0" && actual == "promptforge-gateway 0.4.0"),
+            if required == "runvil-gateway 0.5.0" && actual == "runvil-gateway 0.4.0"),
         "{error}"
     );
     let error = crate::update::stage::require_version(&dir.path().join("absent"), "0.4.0")

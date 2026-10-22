@@ -114,6 +114,12 @@ pub(crate) enum UpdateError {
         "this gateway is a development build and updates by rebuilding; only a release build updates itself"
     )]
     Development,
+    /// This gateway runs `--supervised`: its supervisor owns its restarts,
+    /// so the gateway never swaps or relaunches itself.
+    #[error(
+        "this gateway runs under a supervisor, which owns its restarts; self-update is unavailable under a supervisor, and the supervisor's restart applies updates"
+    )]
+    Supervised,
     /// The running executable's path could not be read.
     #[error("cannot locate the running gateway executable")]
     Executable(#[source] std::io::Error),
@@ -298,6 +304,14 @@ async fn update(
 ) -> Result<Applied, UpdateError> {
     if environment.development {
         return Err(UpdateError::Development);
+    }
+    // Interim, pending the supervisor design: a self-update's succession
+    // would start a gateway outside the supervisor and exit 0, which the
+    // supervisor reads as a stop. Whether the supervisor or the gateway
+    // owns the update handoff is open in
+    // https://github.com/gregjkal/promptforge/issues/15.
+    if state.supervised {
+        return Err(UpdateError::Supervised);
     }
     let exe = std::env::current_exe().map_err(UpdateError::Executable)?;
     let route = windows::route(environment.os, || {

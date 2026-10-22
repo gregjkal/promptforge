@@ -130,6 +130,14 @@ fn each_result_has_its_status_and_answer() {
             .is_some_and(|message| message.contains("development build"))
     );
 
+    let (status, reply) = answer(Err(UpdateError::Supervised));
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(reply.outcome, UpdateOutcome::Failed);
+    assert!(reply.message.is_some_and(|message| {
+        message.contains("self-update is unavailable under a supervisor")
+            && message.contains("the supervisor's restart applies updates")
+    }));
+
     let (status, reply) = answer(Err(UpdateError::ShuttingDown));
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(reply.outcome, UpdateOutcome::Failed);

@@ -65,6 +65,28 @@ async fn a_development_build_fetches_nothing_and_frees_the_claim() {
 }
 
 #[tokio::test]
+async fn a_supervised_gateway_fetches_nothing_and_frees_the_claim() {
+    let mut state = state();
+    state.supervised = true;
+    // A fetch of this address would fail as `Fetch`, not `Supervised`.
+    let error = apply_with(
+        &state,
+        &environment("http://127.0.0.1:1/latest.json".to_owned()),
+    )
+    .await
+    .expect_err("a supervised gateway refuses");
+    assert!(matches!(error, UpdateError::Supervised), "{error}");
+    assert!(
+        state.shutdown.begin_update().is_some(),
+        "the refusal frees the claim"
+    );
+    assert!(
+        state.shutdown.take_succession().is_none() && !state.shutdown.is_fired(),
+        "the refusal requests no succession and leaves the gateway serving"
+    );
+}
+
+#[tokio::test]
 async fn a_current_gateway_downloads_nothing_and_frees_the_claim() {
     let address = serve(vec![(
         "/latest.json",

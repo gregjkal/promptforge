@@ -14,7 +14,7 @@ On every platform Workshop finds the gateway beside its own install through `gat
 
 ## Updates
 
-Workshop checks for an update a few seconds after it starts and from Help, About, through the Tauri updater and the signed `latest.json` on the `workshop-latest` release. On macOS and Linux it replaces its own `.app` or AppImage; on Windows it runs the new setup, which updates every installed component. Once its own check is done, a release build asks the local gateway it uses to update itself. On macOS and Linux the gateway applies any newer release from the same `latest.json`; on Windows it declines, since Workshop's setup already updates it.
+Workshop checks for an update a few seconds after it starts and from Help, About, through the Tauri updater and the `latest.json` on the `workshop-latest` release, whose files are signed. On macOS and Linux it replaces its own `.app` or AppImage; on Windows it runs the new setup, which updates every installed component. Once its own check is done, a release build asks the local gateway it uses to update itself. On macOS and Linux the gateway applies any newer release from the same `latest.json`; on Windows it declines, since Workshop's setup already updates it.
 
 ## Building
 

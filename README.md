@@ -17,11 +17,11 @@ Workshop is the desktop app for writing prompts, running them against local or r
 | Linux x64 (Ubuntu 22.04 or later) | [Runvil-x64.run](https://github.com/cppalliance/runvil/releases/download/workshop-latest/Runvil-x64.run) |
 | Linux ARM64 (Ubuntu 24.04, Debian 13, or later) | [Runvil-arm64.run](https://github.com/cppalliance/runvil/releases/download/workshop-latest/Runvil-arm64.run) |
 
-The [latest release](https://github.com/cppalliance/runvil/releases/latest) holds the same installers under versioned names, with their `SHA256SUMS`. On Linux, make the `.run` file executable and run it from your desktop session.
+The [latest release](https://github.com/cppalliance/runvil/releases/latest) holds the same installers under versioned names, with a `SHA256SUMS` file that lists them by those names. On Linux, make the `.run` file executable and run it from your desktop session.
 
-The installer offers three components. Workshop is the desktop app. Gateway is the local gateway described below, with its tray icon and Settings page. Speech to Text needs Gateway, and downloads the speech runtime and two speech models during the install, about 0.6 GB, so dictation works offline from the first launch. Workshop installed without Gateway uses the gateway that `~/.runvil/workshop.toml` names. Windows installs into `%LOCALAPPDATA%\Runvil`, macOS into `/Applications/Runvil`, and Linux into `~/Runvil`.
+The installer offers three components. Workshop is the desktop app. Gateway is the local gateway described below, with its tray icon and Settings page. Speech to Text needs Gateway, and downloads the speech runtime and two speech models during the install, about 0.6 GB, more on Windows and Linux x64 with an NVIDIA GPU, so dictation works offline from the first launch. Workshop installed without Gateway uses the gateway that `~/.runvil/workshop.toml` names. Windows installs into `%LOCALAPPDATA%\Runvil`, macOS into `/Applications/Runvil`, and Linux into `~/Runvil`.
 
-Workshop updates itself and then asks the local gateway it uses to update too. A gateway installed without Workshop checks for updates every day, shows a new version in its tray menu, and installs it when you choose Update.
+Workshop checks for updates when it starts and offers each new version, which it installs when you accept. After each check it also asks the local gateway it uses to update. A gateway installed without Workshop checks for updates every day, shows a new version in its tray menu, and installs it when you choose that menu item.
 
 The installers are not code-signed yet. On Windows, SmartScreen may stop the setup: choose More info, then Run anyway. On macOS, the first open is refused: open System Settings, then Privacy & Security, choose Open Anyway, and open the installer again. Until the apps are signed, the gateway's Launch at Login does not work on macOS.
 

@@ -1,0 +1,7 @@
+# build-workshop
+
+- Each release file name has one definition: `installer_name`, `workshop_updater_name`, and `gateway_archive_name` in `src/main/installer/collect.rs`. The installer build, the IFW stage, and the `manifest` mode call them; never spell a release name inline. The payload's bundle and AppImage names come from `gateway-api-discovery`'s constants, the names the installed-peer lookup reads; the bare gateway executable's name is `GATEWAY` in `collect.rs`.
+- The Qt IFW pin is enforced in two places that change together: `IFW_VERSION` in `src/main/installer/ifw.rs`, and each `ifw-archive` with its `ifw-sha256` in `.github/workflows/installers.yml`'s build matrix. `USAGE` in `src/main/args.rs`, the workflow step's name, and this crate's README name the version or the archive paths too; update them in the same change.
+- Files under `ifw/` are templates. The build fills `{{NAME}}` placeholders and fails on any left over; IFW's own `@Variable@` placeholders are left for IFW to expand at install time.
+- `installscript.qs` runs only inside IFW and has no test support. A change to either script, or to what an install puts where, updates the install cells in `.github/installers/cell.sh` and `cell.ps1`, which are its tests.
+- Workshop carries the gateway as a sidecar only for Windows targets (`bundles_sidecar` in `src/main/sidecar.rs`). Only `crates/workshop/desktop/tauri.windows.conf.json` declares `externalBin`, and the config agreement test in `src/main/tests/bundle.rs` holds the two in step.

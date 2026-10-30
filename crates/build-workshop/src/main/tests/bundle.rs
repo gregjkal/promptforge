@@ -55,6 +55,15 @@ fn each_platform_config_builds_the_installer_bundle_and_only_windows_carries_the
 }
 
 #[test]
+fn the_appimage_bundles_the_gstreamer_plugins_beside_the_core_webkit_brings() {
+    let linux = tauri_config("tauri.linux.conf.json");
+    assert_eq!(
+        linux["bundle"]["linux"]["appimage"]["bundleMediaFramework"],
+        Value::Bool(true)
+    );
+}
+
+#[test]
 fn the_gateway_bundle_holds_the_versioned_plist_the_executable_and_the_icon() {
     let temp = tempfile::tempdir().expect("temporary root");
     let gateway = temp.path().join("runvil-gateway");

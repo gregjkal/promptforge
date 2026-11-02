@@ -1345,7 +1345,36 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
     - Clippy reports `clippy::large_enum_variant` for `TraySlot` (`crates/gateway/app/src/tray/macos.rs`, line 89), the Project Survey's local note; with `-- -A clippy::large_enum_variant` the run is clean.
     - The Workshop nextest run: 312 of 313 pass. `workshop-server::it realtime_relay::overload::stalled_browser_cleanup_is_bounded_after_gateway_disconnect` fails every time on this machine at its first wait ("the Gateway fills the relay's browser send: Elapsed(())", `crates/workshop/server/tests/it/realtime_relay/overload.rs`, line 21), five of five runs, and three of three on upstream's `master` `890b41fa` in a clean worktree. The test fills a socket send buffer, which macOS sizes differently. Left for upstream, not filed.
   - Part 2: dispatched run [39986248214](https://github.com/gregjkal/promptforge/actions/runs/39986248214) on `master` at `ce9ad602`, green on attempt 2: all five builds, all 21 test cells, and `manifest`; `publish-release` skipped, as in full mode. Attempt 1 cancelled both macOS builds after 15 minutes because GitHub assigned no hosted macOS runner ("The job was not acquired by Runner of type hosted even after multiple attempts"); no step ran, and `gh run rerun --failed` reran them.
-  - Part 3: pending, for the maintainer on a Windows machine. The setup is in the `installers-windows` artifact of run 39986248214, kept until 2026-10-30 (`gh run download 39986248214 --repo gregjkal/promptforge -n installers-windows`).
+  - Part 3: pending, for a colleague on a Windows machine, from the tester doc (Claude Docs, "Runvil Windows Installer Test"). Run 39986248214's artifacts expired on 2026-10-30. The setup is now the `installers-windows` artifact of run 41074186054, kept until 2026-11-06.
+- As built (2026-10-30), a Linux manual pass. It was not in the Testing Plan; it ran from a tester doc (Claude Docs, "Runvil Linux Installer Test") with checks A to F: components page, fresh install, the Gateway Settings entry, a second install into the same folder, a model and chat, and uninstall.
+  - Round 1, on run 39986248214, 2026-10-28:
+    - Testers: one on Arch Linux x64 with Wayland, one on Debian 13 ARM64 with Xfce and X11 in a UTM VM.
+    - Passed on both: the install, Show Details streaming the speech download, both menu entries with icons, the tray icon, the Gateway Settings entry, the refused second install, and the uninstall keeping `~/.runvil`.
+    - Two real bugs, both fixed in fork pull request [#24](https://github.com/gregjkal/promptforge/pull/24), which is stacked on #23:
+      - Dictation found no microphone ("No microphone is available."). The AppImage bundled WebKitGTK's GStreamer core (1.20 on x64, 1.24 on ARM64) with no plugins. In a Debian 13 container, that core loaded none of the system's 1.26 plugins. On Arch, its compiled-in plugin folder, `/usr/lib/<triple>-linux-gnu/gstreamer-1.0`, does not exist. Fix: `bundleMediaFramework` in `tauri.linux.conf.json`, the base, good, PulseAudio, and ALSA plugins plus `patchelf` on the Linux build runners, and a `cell.sh` check (step 7) that the AppImage carries the audio plugins and the AppRun hook.
+      - A managed `llama-server` install failed at `download-models` on every platform but Windows. The tar extractor refused every symlink, and the llama.cpp Linux and macOS tarballs link each library's SONAME to its versioned file (for example `libllama.so.0 -> libllama.so.0.0.10082`). Windows was unaffected because its assets are zips. Fix: a tar symlink whose target is one normal path component is extracted, and the tree digest hashes each link's target. Checked against the real b10082 x64, ARM64, and macOS tarballs.
+    - Expected, not bugs:
+      - The microphone opens only while an agent waits for input (`agent-session-view.ts`, line 212), so dictation needs a chat model that has answered first. The round 1 doc wrongly expected dictation right after a default install. Whether a default install should dictate without a model is a product question for the maintainer.
+      - Ctrl+Shift+L reuses an empty active chat, so it appears to do nothing on a fresh start.
+      - The tray reports "Update failed" with a 404 for `workshop-latest/latest.json` until the first release publishes it.
+      - Unchecking Gateway on the IFW components page can leave Speech to Text checked. IFW then installs Gateway anyway as a dependency, and the summary page lists it. This deviates from Step 6's expectation that both stay checked.
+      - A local model added in Discover downloads only at the next Gateway boot, not on Apply: `[[local_model]]` and `[[profile]]` changes report `restart_required`, and the Discover toast says "Apply and restart to download". The round 1 doc said to wait after Apply, which is why the x64 tester saw no download.
+  - Run [41074186054](https://github.com/gregjkal/promptforge/actions/runs/41074186054), on #24, 2026-10-30:
+    - Passed: all five builds, every Linux and Windows cell including the new plugin check, and `manifest`. Artifacts are kept until 2026-11-06.
+    - The macOS ARM cells were cancelled twice because no hosted runner was assigned.
+    - #24's `supply-chain` job fails on new `cargo deny` advisories, among them tokio's `AsyncFd` constructors (unsound). #24 does not touch `Cargo.lock`, so `master` fails the same way. The fix belongs to a dependency update before the upstream pull request.
+  - An independent review before round 2 covered both AppImages, extracted in Debian 13 (x64 and ARM64) and Arch (x64):
+    - With the hook's environment, the bundled plugins load `pulsesrc`, `autoaudiosrc`, `audioconvert`, `audioresample`, `appsink`, and the pulse device provider. A PulseAudio null-sink capture worked on all three.
+    - The shipped `runvil-gateway` downloaded and extracted the b10082 tarball with all of its SONAME links, launched `llama-server`, answered a chat, and reused the cached install on the next boot.
+    - Not covered: a real WebKitGTK `getUserMedia` session.
+  - Both tester docs were rewritten for round 2:
+    - Dictation follows a model reply.
+    - Adding a model is Apply, then restart Runvil and the Gateway.
+    - The model is the Q8_0 quantization, because Discover marks one Recommended only with an NVIDIA GPU.
+    - The Linux components and Settings expectations now match what the testers saw, and the disk requirement is 4 GB.
+    - The 404 and the red X from the macOS cells on the run page are explained.
+    - The Windows doc's checks A and G merged into A.
+  - Round 2 and the Windows pass are pending, both on run 41074186054.
 
 </step-12>
 

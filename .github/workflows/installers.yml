@@ -250,7 +250,15 @@ jobs:
           # https://github.com/tauri-apps/tauri-action/issues/1319
           # The xcb, font, and D-Bus libraries: the IFW binaries load them
           # even in command-line mode. p7zip-full extracts the IFW archive.
+          # The GStreamer plugins and patchelf: bundleMediaFramework
+          # (tauri.linux.conf.json) copies every installed plugin into the
+          # AppImage beside the GStreamer core WebKitGTK already brings, and
+          # patchelf sets their rpath. Without them the bundled core finds no
+          # microphone, since it cannot load a system's plugins built for
+          # another GStreamer version. https://v2.tauri.app/distribute/appimage/
           sudo apt-get install -y --no-install-recommends \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-pulseaudio \
+            gstreamer1.0-alsa patchelf \
             libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev xdg-utils p7zip-full \
             libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
             libxcb-render-util0 libxcb-shape0 libxcb-shm0 libxcb-sync1 libxcb-xfixes0 \

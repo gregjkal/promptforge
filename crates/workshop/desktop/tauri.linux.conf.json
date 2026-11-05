@@ -1,5 +1,10 @@
 {
   "bundle": {
-    "targets": ["appimage"]
+    "targets": ["appimage"],
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      }
+    }
   }
 }

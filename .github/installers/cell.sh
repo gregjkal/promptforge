@@ -384,4 +384,20 @@ print(whisper.whisper_print_system_info().decode())
 PY
 fi
 
+# 7. Linux: the AppImage carries the GStreamer plugins Workshop's microphone
+# needs, so dictation does not depend on the system's GStreamer.
+if [ "$system" = Linux ] && [ "$want_workshop" = 1 ]; then
+  extracted=$(mktemp -d)
+  (cd "$extracted" && "$workshop_exe" --appimage-extract >"$logs/appimage-extract.log" 2>&1) ||
+    fail "$workshop_exe --appimage-extract failed; output in $logs/appimage-extract.log"
+  for plugin in libgstpulseaudio.so libgstalsa.so libgstautodetect.so libgstaudioconvert.so; do
+    [ -f "$extracted/squashfs-root/usr/lib/gstreamer-1.0/$plugin" ] ||
+      fail "the AppImage lacks usr/lib/gstreamer-1.0/$plugin"
+  done
+  grep -rqs GST_PLUGIN_SYSTEM_PATH_1_0 "$extracted/squashfs-root/apprun-hooks" ||
+    fail "no AppImage AppRun hook sets GST_PLUGIN_SYSTEM_PATH_1_0"
+  rm -rf "$extracted"
+  echo "cell: the AppImage carries its GStreamer audio plugins"
+fi
+
 echo "cell: $selection passed"

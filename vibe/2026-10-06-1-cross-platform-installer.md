@@ -1374,7 +1374,11 @@ Audit of everything published on 2026-10-07 (requested in the team thread): what
     - The Linux components and Settings expectations now match what the testers saw, and the disk requirement is 4 GB.
     - The 404 and the red X from the macOS cells on the run page are explained.
     - The Windows doc's checks A and G merged into A.
-  - Round 2 and the Windows pass are pending, both on run 41074186054.
+  - Round 2, on run 41074186054, 2026-11-02 to 2026-11-04, signed off by both testers:
+    - Results: A, B, C, D, and F passed on Debian 13 ARM64 and on Arch x64. Both of #24's fixes held: the model downloaded after the restart, `llama-server` started from `~/.runvil/llama.cpp/b10082-linux-aarch64-vulkan`, and offline dictation transcribed a spoken sentence with the network off.
+    - E failed on both until the context was raised by hand. A model added through Discover is written to `gateway.toml` with `context = 4096`, and Runvil's chat agent refuses it: "the environment cannot satisfy this prompt: role 'chat': requires a context of at least 32768 tokens; the current model provides 4096". With Context set to 32768 under Gateway Settings, Local, then Save, Apply, and a restart, the model answered. This is a Gateway bug, not an installer one. Its owner, the Gateway maintainer, took it on 2026-11-04, so it is not filed here.
+    - Noted, not failures: a Settings tab left open across a Gateway restart keeps the old port, because the Gateway binds a new port on each start; reopening "Runvil Gateway Settings" loads the new one.
+  - The Windows pass moves to the build of the next upstream sync, because that sync changes Workshop's Gateway supervisor and `build-workshop`. Before it runs, the Windows tester doc gains the Context step, since check A otherwise stalls at the same error.
 
 </step-12>
 
